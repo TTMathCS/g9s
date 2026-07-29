@@ -239,6 +239,8 @@ func TestListersHaveDistinctIDsAndColumns(t *testing.T) {
 func TestResourceRowsMatchColumns(t *testing.T) {
 	fixtures := map[string]Resource{
 		"vm":       instanceResource(testProject(), "us-central1-a", testInstance()),
+		"gke":      clusterNodeResource(testProject(), testGKECluster()),
+		"gcs":      bucketResource(testProject(), testBucket()),
 		"dataproc": clusterResource(testProject(), "us-central1", testCluster()),
 		"composer": environmentResource(testProject(), "us-central1", testEnvironment()),
 	}
@@ -280,5 +282,68 @@ func TestConsoleURLEscapesAwkwardNames(t *testing.T) {
 	// The escaped name must still round-trip back to the original.
 	if !strings.Contains(r.ConsoleURL, "weird%20name%2Fwith-slash") {
 		t.Errorf("name not percent-encoded in console URL: %q", r.ConsoleURL)
+	}
+}
+
+func TestGKEClusterResourceShape(t *testing.T) {
+	r := clusterNodeResource(testProject(), testGKECluster())
+
+	if r.Name != "platform-cluster" || r.Location != "us-central1" {
+		t.Errorf("got name=%q location=%q", r.Name, r.Location)
+	}
+	if r.Status != "RUNNING" {
+		t.Errorf("status = %q, want RUNNING", r.Status)
+	}
+	if r.Row[2] != "Autopilot" {
+		t.Errorf("mode column = %q, want Autopilot for an autopilot cluster", r.Row[2])
+	}
+
+	standard := testGKECluster()
+	standard.Autopilot = nil
+	if got := clusterNodeResource(testProject(), standard).Row[2]; got != "Standard" {
+		t.Errorf("mode column = %q, want Standard when autopilot is unset", got)
+	}
+}
+
+func TestBucketResourceShape(t *testing.T) {
+	r := bucketResource(testProject(), testBucket())
+
+	if r.Name != "acme-prod-data-exports" || r.Location != "US-CENTRAL1" {
+		t.Errorf("got name=%q location=%q", r.Name, r.Location)
+	}
+	// Buckets have no running/stopped lifecycle; ACTIVE is what keeps the
+	// dashboard rollup and row colouring meaningful rather than UNKNOWN.
+	if r.Status != "ACTIVE" {
+		t.Errorf("status = %q, want the synthetic ACTIVE", r.Status)
+	}
+	if r.Row[3] != "on" {
+		t.Errorf("versioning column = %q, want on", r.Row[3])
+	}
+
+	unversioned := testBucket()
+	unversioned.VersioningEnabled = false
+	if got := bucketResource(testProject(), unversioned).Row[3]; got != "off" {
+		t.Errorf("versioning column = %q, want off", got)
+	}
+}
+
+func TestGKEAndStorageNotSSHOrAirflowTargets(t *testing.T) {
+	// SSHTarget and AirflowURI type-switch on Raw; a GKE cluster or a bucket
+	// reaching either by way of the merged view must fall through cleanly
+	// rather than a failed type assertion doing something worse.
+	gkeResource := clusterNodeResource(testProject(), testGKECluster())
+	if _, _, ok := SSHTarget(gkeResource); ok {
+		t.Error("a GKE cluster should never report as SSH-able")
+	}
+	if _, ok := AirflowURI(gkeResource); ok {
+		t.Error("a GKE cluster should never report an Airflow URI")
+	}
+
+	bucket := bucketResource(testProject(), testBucket())
+	if _, _, ok := SSHTarget(bucket); ok {
+		t.Error("a bucket should never report as SSH-able")
+	}
+	if _, ok := AirflowURI(bucket); ok {
+		t.Error("a bucket should never report an Airflow URI")
 	}
 }

@@ -4,8 +4,10 @@ import (
 	"time"
 
 	"cloud.google.com/go/compute/apiv1/computepb"
+	"cloud.google.com/go/container/apiv1/containerpb"
 	"cloud.google.com/go/dataproc/v2/apiv1/dataprocpb"
 	"cloud.google.com/go/orchestration/airflow/service/apiv1/servicepb"
+	"cloud.google.com/go/storage"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/TTMathCS/g9s/internal/config"
@@ -48,6 +50,28 @@ func testCluster() *dataprocpb.Cluster {
 			WorkerConfig:          &dataprocpb.InstanceGroupConfig{NumInstances: 8},
 			SecondaryWorkerConfig: &dataprocpb.InstanceGroupConfig{NumInstances: 4},
 		},
+	}
+}
+
+func testGKECluster() *containerpb.Cluster {
+	return &containerpb.Cluster{
+		Name:                 "platform-cluster",
+		Location:             "us-central1",
+		Status:               containerpb.Cluster_RUNNING,
+		CurrentNodeCount:     6,
+		CurrentMasterVersion: "1.31.1-gke.1146000",
+		CreateTime:           time.Now().Add(-90 * 24 * time.Hour).Format(time.RFC3339),
+		Autopilot:            &containerpb.Autopilot{Enabled: true},
+	}
+}
+
+func testBucket() *storage.BucketAttrs {
+	return &storage.BucketAttrs{
+		Name:              "acme-prod-data-exports",
+		Location:          "US-CENTRAL1",
+		StorageClass:      "STANDARD",
+		VersioningEnabled: true,
+		Created:           time.Now().Add(-400 * 24 * time.Hour),
 	}
 }
 

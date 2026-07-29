@@ -87,11 +87,28 @@ places and the contents are not secret.
 
 ## Dependencies
 
-12 direct dependencies; about 40 module roots and 318 packages actually linked
-into the binary. All from Google (`cloud.google.com/go/*`,
-`google.golang.org/*`), the Go team (`golang.org/x/*`), charmbracelet (the TUI
-stack) or go-yaml. No unmaintained or single-author-obscure packages in the
+14 direct dependencies; about 106 module roots and 506 packages linked into the
+binary as of the GKE and Cloud Storage listers. All from Google
+(`cloud.google.com/go/*`, `google.golang.org/*`), the CNCF (gRPC's xDS
+machinery, OpenTelemetry), the Go team (`golang.org/x/*`), charmbracelet (the
+TUI stack) or go-yaml. No unmaintained or single-author-obscure packages in the
 build.
+
+**Why the jump from ~40 to ~106 module roots.** `cloud.google.com/go/storage`
+supports both a JSON/HTTP transport and an optional gRPC transport
+("Directpath"), and g9s uses only the former — `storage.NewClient`, not
+`NewGRPCClient`. But the package statically imports both code paths, so both
+compile into the binary regardless of which one ever runs. That pulls in
+gRPC's xDS load-balancing stack (`google.golang.org/grpc/xds`, `orca`,
+`channelz`, `cel.dev/expr`, `envoyproxy/go-control-plane`, `cncf/xds`), SPIFFE
+mTLS support (`go-spiffe`), and OpenTelemetry's SDK and exporters
+(`cloud.google.com/go/monitoring`, `opentelemetry-operations-go`) — none of it
+reachable from code g9s calls, all of it compiled in anyway. This is a known
+property of the official client library, not a supply-chain concern: every
+package is Google- or CNCF-maintained and none carries an open advisory (see
+below). It is, however, a materially larger trusted-code footprint than the
+three-lister version of this tool had, which is worth knowing rather than
+glossing over.
 
 Status of the versions in use against published advisories, checked July 2026:
 
@@ -101,6 +118,8 @@ Status of the versions in use against published advisories, checked July 2026:
 | `google.golang.org/grpc` | v1.82.0 | Past v1.79.3, which fixed CVE-2026-33186. That is a server-side authorization bypass; g9s is a client only. |
 | `gopkg.in/yaml.v3` | v3.0.1 | Fixed for CVE-2022-28948. CVE-2022-3064 (deeply nested input) is not in the threat model: the only YAML g9s parses is your own config file. |
 | `golang.org/x/crypto` | v0.53.0 | Only TLS primitives linked (chacha20poly1305, hkdf, cryptobyte). The `ssh` package, where the notable advisories live, is not present. |
+| `go-jose/go-jose/v4` | v4.1.4 | Exactly the version that fixed CVE-2026-34986 (JWE decrypt panic); past v4.0.5, which fixed CVE-2025-27144 (unbounded memory on a crafted token). Pulled in by the storage client's transport plumbing, not called directly. |
+| `envoyproxy/go-control-plane`, `spiffe/go-spiffe/v2` | v1.37.0, v2.6.0 | No advisories found against either at these versions. Note these are Go SDK/config-generation libraries, not the Envoy proxy binary itself — the C++ Envoy CVEs that turn up in a search do not apply to this module. |
 
 That table is a point-in-time check against published advisories, not a
 substitute for a scanner. **CI runs `govulncheck ./...` on every push**, which

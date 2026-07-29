@@ -70,6 +70,8 @@ type Lister interface {
 func Listers() []Lister {
 	return []Lister{
 		ComputeLister{},
+		GKELister{},
+		StorageLister{},
 		DataprocLister{},
 		ComposerLister{},
 	}

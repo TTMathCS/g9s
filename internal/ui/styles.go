@@ -62,9 +62,9 @@ func statusStyle(status string) lipgloss.Style {
 	switch strings.ToUpper(status) {
 	case "RUNNING", "ACTIVE", "READY":
 		return goodStyle
-	case "PROVISIONING", "STAGING", "CREATING", "UPDATING", "STOPPING", "DELETING", "REPAIRING", "SUSPENDING":
+	case "PROVISIONING", "STAGING", "CREATING", "UPDATING", "STOPPING", "DELETING", "REPAIRING", "SUSPENDING", "RECONCILING":
 		return warnStyle
-	case "ERROR", "FAILED", "TERMINATED", "STOPPED", "SUSPENDED", "UNHEALTHY":
+	case "ERROR", "FAILED", "TERMINATED", "STOPPED", "SUSPENDED", "UNHEALTHY", "DEGRADED":
 		return badStyle
 	default:
 		return rowStyle

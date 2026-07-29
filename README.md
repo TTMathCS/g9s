@@ -26,9 +26,11 @@ Cloud Asset Inventory makes "list everything in a project" a single API call. Wi
 
 ## Status
 
-MVP. Three resource kinds (Compute Engine, Dataproc, Cloud Composer), read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
+MVP. Five resource kinds — Compute Engine, GKE, Cloud Storage, Dataproc, Cloud Composer — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
 
 Navigation is three levels deep: projects → dashboard → a category's table, with `esc` walking back up. A new kind appears on the dashboard, in the tab bar and in *All Resources* automatically; there is nothing to register in the UI.
+
+**One current limit worth knowing:** the number keys only reach kinds 1–5, and five kinds is exactly what's registered right now. The next kind added (see [ROADMAP.md](ROADMAP.md)) needs that limit lifted first — `tab`/`shift+tab` and `a` are unaffected either way.
 
 ## Requirements
 

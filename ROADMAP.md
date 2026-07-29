@@ -17,6 +17,8 @@ the reason this list is long: most entries are a day's work, not a project.
 | Resource | Scope | Notes |
 |---|---|---|
 | Compute Engine instances | zonal, aggregated | one `aggregatedList` call covers every zone |
+| GKE clusters | zonal + regional, aggregated | `parent: projects/*/locations/-` covers every zone and region in one call, same as Compute; no fan-out despite being both zonal and regional |
+| Cloud Storage buckets | global | the simplest lister here — one call, no fan-out, no aggregation trick needed |
 | Dataproc clusters | **regional** | needs a client per region at `<region>-dataproc.googleapis.com`; `global` always swept |
 | Cloud Composer environments | location-scoped | one client, location in the request parent |
 
@@ -24,14 +26,17 @@ Plus, across all kinds: a per-project dashboard with status rollups, a merged
 *All Resources* table, filtering, describe-as-YAML, Console/Airflow deep links,
 clipboard yank over OSC 52, and SSH to a running VM.
 
+**A UI limit to clear before the next kind lands:** the tab bar binds number
+keys 1–5 directly to lister index, and five is exactly what's registered now.
+Adding a sixth kind needs that widened — `tab`/`shift+tab` cycling and the `a`
+merged-view key already work at any count and are not affected.
+
 ## Next up
 
 The ones that would earn their place first, roughly in order.
 
 | Resource | Scope | Why it's near the top |
 |---|---|---|
-| GKE clusters and node pools | regional + zonal | the biggest gap for most platform teams |
-| Cloud Storage buckets | global | one call, no fan-out, high everyday value |
 | BigQuery datasets and recent jobs | global | where the data actually is; jobs answer "what is running" |
 | Cloud SQL instances | global list | version, tier, HA state, maintenance window |
 | Pub/Sub topics and subscriptions | global | subscription backlog is the number people want |
@@ -40,6 +45,7 @@ The ones that would earn their place first, roughly in order.
 | Dataproc **jobs** | regional | clusters without jobs only tells half the story |
 | Dataflow jobs | regional | |
 | Service accounts and their keys | global | key age is a standing audit question |
+| GKE node pools | per-cluster | one call per cluster once you know which clusters exist; a natural drill-down from the GKE row rather than a sixth top-level tab |
 
 ## Candidates
 

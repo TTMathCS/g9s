@@ -156,6 +156,12 @@ func resourcesShot() Model {
 	}
 	// The other kinds are cached too, so the tab bar shows a count per tab and
 	// the All Resources total is the sum rather than just the VM count.
+	m.cache["gke"] = gcp.Result{
+		Resources: statusOnly(kindByID("gke"), map[string]int{"RUNNING": 2}),
+	}
+	m.cache["gcs"] = gcp.Result{
+		Resources: statusOnly(kindByID("gcs"), map[string]int{"ACTIVE": 5}),
+	}
 	m.cache["dataproc"] = gcp.Result{
 		Resources: statusOnly(kindByID("dataproc"), map[string]int{"RUNNING": 2, "UPDATING": 1}),
 	}
@@ -178,6 +184,12 @@ func dashboardShot() Model {
 	m.cache["vm"] = gcp.Result{
 		Resources: statusOnly(kindByID("vm"), map[string]int{"RUNNING": 6, "STAGING": 1, "TERMINATED": 2}),
 		Warnings:  []string{"us-east4: permission denied"},
+	}
+	m.cache["gke"] = gcp.Result{
+		Resources: statusOnly(kindByID("gke"), map[string]int{"RUNNING": 2}),
+	}
+	m.cache["gcs"] = gcp.Result{
+		Resources: statusOnly(kindByID("gcs"), map[string]int{"ACTIVE": 5}),
 	}
 	m.cache["dataproc"] = gcp.Result{
 		Resources: statusOnly(kindByID("dataproc"), map[string]int{"RUNNING": 2, "UPDATING": 1}),
