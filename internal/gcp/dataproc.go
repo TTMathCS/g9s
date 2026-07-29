@@ -39,7 +39,7 @@ func (DataprocLister) Kind() Kind {
 func (DataprocLister) List(ctx context.Context, cfg *config.Config, p config.Project, opts []option.ClientOption) (Result, error) {
 	regions := cfg.DataprocRegions(p)
 
-	return fanOut(ctx, regions, func(ctx context.Context, region string) ([]Resource, error) {
+	result := fanOut(ctx, regions, func(ctx context.Context, region string) ([]Resource, error) {
 		regionOpts := append([]option.ClientOption{option.WithEndpoint(dataprocEndpoint(region))}, opts...)
 
 		client, err := dataproc.NewClusterControllerClient(ctx, regionOpts...)
@@ -65,7 +65,15 @@ func (DataprocLister) List(ctx context.Context, cfg *config.Config, p config.Pro
 			out = append(out, clusterResource(p, region, cluster))
 		}
 		return out, nil
-	}), nil
+	})
+
+	if !cfg.HasDataprocRegions(p) {
+		// Only the implicit global sweep ran; regional clusters were never
+		// looked for, and that has to be visible.
+		result.Warnings = append(result.Warnings,
+			"only the global region was swept — set projects[].regions or defaults.regions to cover regional clusters")
+	}
+	return result, nil
 }
 
 func dataprocEndpoint(region string) string {

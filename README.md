@@ -79,7 +79,7 @@ MVP. Five resource kinds — Compute Engine, GKE, Cloud Storage, Dataproc, Cloud
 
 Navigation is three levels deep: projects → dashboard → a category's table, with `esc` walking back up. A new kind appears on the dashboard, in the tab bar and in *All Resources* automatically; there is nothing to register in the UI.
 
-**One current limit worth knowing:** the number keys only reach kinds 1–5, and five kinds is exactly what's registered right now. The next kind added (see [ROADMAP.md](ROADMAP.md)) needs that limit lifted first — `tab`/`shift+tab` and `a` are unaffected either way.
+The number keys reach kinds 1–9, so there is room for four more before the digits run out; past that, `tab`/`shift+tab`, `0`/`a` and the `:` commands still reach everything.
 
 ## Requirements
 
@@ -279,15 +279,19 @@ Unknown keys are an error rather than a silent default, so a typo'd `regionz:` t
 
 ## Keys
 
+The bindings follow k9s muscle memory where the two tools overlap: `:` jumps by name, `d` describes, `s` opens a shell (here: SSH), `/` filters, and `q`/`esc` back out one level rather than quitting.
+
 | Key | Action |
 |---|---|
 | `↑`/`k`, `↓`/`j` | move cursor |
 | `g` / `G` | top / bottom |
 | `enter` | dashboard: open the category · table: describe (YAML, as `gcloud describe` shows it) |
-| `1` `2` `3` | jump straight to a resource kind |
-| `a` | all resources — every kind in one table |
+| `d` | describe the selected resource |
+| `:` | command — `:vm` `:gke` `:gcs` `:dataproc` `:composer` `:all` `:projects` `:q` (prefixes work: `:data`) |
+| `1`–`9` | jump straight to a resource kind |
+| `0` / `a` | all resources — every kind in one table |
 | `tab` / `shift+tab` | cycle resource kinds |
-| `d` / `esc` | back to the dashboard |
+| `q` / `esc` | back up one level — table to dashboard, dashboard to projects |
 | `p` | back to the project list |
 | `/` | filter rows; `esc` clears |
 | `r` | refresh current kind — every kind when on the dashboard |
@@ -297,7 +301,7 @@ Unknown keys are an error rather than a silent default, so a typo'd `regionz:` t
 | `s` | SSH to the selected running VM |
 | `l` / `L` | log in / log in without a local browser |
 | `?` | help |
-| `q` | quit |
+| `ctrl+c` / `:q` | quit — or `q` from the project list |
 
 ## Partial results are shown as partial
 
@@ -324,7 +328,7 @@ type Lister interface {
 
 Use `fanOut` for anything region-scoped; it handles the concurrency, the partial-failure collection and the stable ordering. `internal/gcp/dataproc.go` is the shortest example.
 
-Two things the table relies on: your `Resource.Row` must have exactly as many cells as `Kind.Columns`, and the number keys only reach the first five listers. Both are covered by tests.
+Two things the table relies on: your `Resource.Row` must have exactly as many cells as `Kind.Columns`, and the number keys only reach the first nine listers. Both are covered by tests.
 
 ## Design notes
 

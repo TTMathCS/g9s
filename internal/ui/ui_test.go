@@ -113,6 +113,20 @@ func TestTruncateCountsRunesNotBytes(t *testing.T) {
 	}
 }
 
+func TestTruncateCountsDisplayCellsForWideRunes(t *testing.T) {
+	// CJK characters occupy two terminal cells. Counting runes instead of
+	// cells would let one wide name push every column after it out of line.
+	for width := 1; width <= 8; width++ {
+		got := truncate("数据库集群", width)
+		if w := lipgloss.Width(got); w > width {
+			t.Errorf("truncate(wide, %d) rendered %d cells (%q)", width, w, got)
+		}
+	}
+	if got := truncate("数据库集群", 10); got != "数据库集群" {
+		t.Errorf("a string that fits should come back whole, got %q", got)
+	}
+}
+
 func TestPadFillsToExactWidth(t *testing.T) {
 	for _, tc := range []struct {
 		in    string
@@ -283,13 +297,15 @@ func TestWrapHandlesDegenerateWidths(t *testing.T) {
 
 func TestKindTabsCoverAllListers(t *testing.T) {
 	// The number keys 1..N are wired to lister indices, so a lister that the
-	// tab bar cannot reach would be invisible.
+	// tab bar cannot reach would be invisible. Past nine kinds the digits run
+	// out; tab-cycling and `:` commands still reach everything, but the tenth
+	// kind should probably be a drill-down rather than a new tab.
 	m := New(&config.Config{Projects: []config.Project{{Name: "a", ProjectID: "a-1"}}}, nil)
 	if len(m.listers) == 0 {
 		t.Fatal("no listers registered")
 	}
-	if len(m.listers) > 5 {
-		t.Errorf("%d listers registered but only keys 1-5 are bound", len(m.listers))
+	if len(m.listers) > 9 {
+		t.Errorf("%d listers registered but only keys 1-9 are bound", len(m.listers))
 	}
 }
 
@@ -668,6 +684,216 @@ func TestDashboardDistinguishesLoadingEmptyAndFailed(t *testing.T) {
 	m.loadErr["vm"] = errTest{}
 	if !strings.Contains(m.View(), "failed") {
 		t.Error("a failed kind should say so on the dashboard")
+	}
+}
+
+// --- refresh tokens ---
+
+// TestPerKindRefreshDoesNotStrandOtherKinds is the regression test for a real
+// bug: with one global token, refreshing a single kind invalidated every other
+// kind's in-flight fetch, and the dropped results left their loading flags set
+// forever — the dashboard showed loading… until a full refresh.
+func TestPerKindRefreshDoesNotStrandOtherKinds(t *testing.T) {
+	m := testModel(t, nil)
+	m.cache = map[string]gcp.Result{}
+	m.authStatus["sandbox"] = auth.Status{State: auth.StateValid}
+
+	next, _ := m.loadAll() // every kind starts fetching
+	m = next.(Model)
+
+	next, _ = m.loadCurrent() // refresh just the current kind
+	m = next.(Model)
+
+	// The other kind's original fetch now lands, with its own token.
+	other := m.listers[1].Kind().ID
+	next, _ = m.handleResources(resourcesMsg{
+		project: "sandbox",
+		kind:    other,
+		token:   m.refreshToken[other],
+		result:  gcp.Result{},
+	})
+	m = next.(Model)
+
+	if m.loading[other] {
+		t.Errorf("%s still loading after its result arrived — a per-kind refresh must not invalidate other kinds", other)
+	}
+	if !m.hasData(other) {
+		t.Errorf("%s result was dropped", other)
+	}
+}
+
+func TestStaleResultOfSameKindIsDropped(t *testing.T) {
+	m := testModel(t, nil)
+	m.cache = map[string]gcp.Result{}
+	m.authStatus["sandbox"] = auth.Status{State: auth.StateValid}
+
+	next, _ := m.loadCurrent()
+	m = next.(Model)
+	kind := m.currentKind().ID
+	stale := m.refreshToken[kind]
+
+	next, _ = m.loadCurrent() // supersede it
+	m = next.(Model)
+
+	next, _ = m.handleResources(resourcesMsg{
+		project: "sandbox",
+		kind:    kind,
+		token:   stale,
+		result:  gcp.Result{Resources: []gcp.Resource{{Name: "old"}}},
+	})
+	m = next.(Model)
+
+	if m.hasData(kind) {
+		t.Error("superseded result should be dropped, not cached")
+	}
+	if !m.loading[kind] {
+		t.Error("the newer fetch is still in flight; loading must stay set")
+	}
+}
+
+// --- key habits ---
+
+func TestQBacksUpOneLevelInsteadOfQuitting(t *testing.T) {
+	m := populatedModel(t)
+	m.screen = screenResources
+
+	next, _ := m.handleResourcesKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	got := next.(Model)
+	if got.quitting {
+		t.Fatal("q on a table should back up, not quit the app")
+	}
+	if got.screen != screenOverview {
+		t.Errorf("q from the table landed on %v, want the dashboard", got.screen)
+	}
+
+	next, _ = got.handleOverviewKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	got = next.(Model)
+	if got.quitting || got.screen != screenProjects {
+		t.Errorf("q from the dashboard should land on the project list (screen %v, quitting %v)", got.screen, got.quitting)
+	}
+
+	next, _ = got.handleProjectsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	if !next.(Model).quitting {
+		t.Error("q from the project list should quit")
+	}
+}
+
+func TestZeroKeyOpensMergedView(t *testing.T) {
+	m := populatedModel(t)
+	m.screen = screenOverview
+
+	next, _ := m.handleOverviewKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("0")})
+	got := next.(Model)
+	if !got.onAllTab() {
+		t.Errorf("0 should open the merged view, landed on tab %d", got.kindIdx)
+	}
+}
+
+func TestDKeyDescribesSelectedResource(t *testing.T) {
+	m := populatedModel(t)
+	m.screen = screenResources
+	m.width, m.height = 100, 30
+
+	next, _ := m.handleResourcesKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	got := next.(Model)
+	if got.screen != screenDetail {
+		t.Errorf("d should describe the selected row, landed on %v", got.screen)
+	}
+}
+
+// --- command mode ---
+
+func typeCommand(t *testing.T, m Model, line string) Model {
+	t.Helper()
+	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = next.(Model)
+	if !m.commanding {
+		t.Fatal(": should enter command mode")
+	}
+	for _, r := range line {
+		next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = next.(Model)
+	}
+	next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	return next.(Model)
+}
+
+func TestCommandModeJumpsToKind(t *testing.T) {
+	m := populatedModel(t)
+	m.screen = screenOverview
+
+	got := typeCommand(t, m, "gke")
+	if got.screen != screenResources || got.currentKind().ID != "gke" {
+		t.Errorf(":gke landed on screen %v kind %q, want the gke table", got.screen, got.currentKind().ID)
+	}
+
+	got = typeCommand(t, got, "all")
+	if !got.onAllTab() {
+		t.Errorf(":all landed on tab %d, want the merged view", got.kindIdx)
+	}
+
+	got = typeCommand(t, got, "projects")
+	if got.screen != screenProjects {
+		t.Errorf(":projects landed on %v, want the project list", got.screen)
+	}
+}
+
+func TestCommandModeQuitAndUnknown(t *testing.T) {
+	m := populatedModel(t)
+	m.screen = screenResources
+
+	got := typeCommand(t, m, "nonsense")
+	if got.quitting || got.screen != screenResources {
+		t.Errorf("an unknown command should stay put (screen %v, quitting %v)", got.screen, got.quitting)
+	}
+
+	got = typeCommand(t, m, "q")
+	if !got.quitting {
+		t.Error(":q should quit")
+	}
+}
+
+func TestCommandModeEscCancels(t *testing.T) {
+	m := populatedModel(t)
+	m.screen = screenResources
+
+	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	m = next.(Model)
+	next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(Model)
+
+	if m.commanding {
+		t.Error("esc should leave command mode")
+	}
+	if m.screen != screenResources {
+		t.Errorf("cancelling a command moved screens to %v", m.screen)
+	}
+}
+
+func TestCommandModeKindMatchingByPrefix(t *testing.T) {
+	m := populatedModel(t)
+
+	tests := []struct {
+		word string
+		want string
+	}{
+		{"vm", "vm"},
+		{"gke", "gke"},
+		{"gcs", "gcs"},
+		{"data", "dataproc"},
+		{"comp", "composer"},
+		{"storage", "gcs"}, // title prefix
+		{"all", "all"},
+	}
+	for _, tc := range tests {
+		idx, ok := m.matchKind(tc.word)
+		if !ok {
+			t.Errorf("matchKind(%q) found nothing", tc.word)
+			continue
+		}
+		if got := m.tabs()[idx].ID; got != tc.want {
+			t.Errorf("matchKind(%q) = %s, want %s", tc.word, got, tc.want)
+		}
 	}
 }
 

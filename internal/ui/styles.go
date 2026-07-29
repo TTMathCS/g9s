@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 )
 
 // Adaptive colours so the tool is legible on light and dark terminals.
@@ -71,19 +72,29 @@ func statusStyle(status string) lipgloss.Style {
 	}
 }
 
-// truncate shortens s to width, marking the cut with an ellipsis.
+// truncate shortens s to width display cells, marking the cut with an
+// ellipsis. Cells, not runes: a CJK character occupies two columns, and
+// counting runes would let one wide name push every column after it out of
+// alignment.
 func truncate(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	runes := []rune(s)
-	if len(runes) <= width {
+	if lipgloss.Width(s) <= width {
 		return s
 	}
-	if width == 1 {
-		return "…"
+
+	var b strings.Builder
+	used := 0
+	for _, r := range s {
+		w := runewidth.RuneWidth(r)
+		if used+w > width-1 {
+			break
+		}
+		b.WriteRune(r)
+		used += w
 	}
-	return string(runes[:width-1]) + "…"
+	return b.String() + "…"
 }
 
 // pad right-pads s to width, truncating when it does not fit.

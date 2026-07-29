@@ -55,7 +55,10 @@ func run() error {
 		return err
 	}
 
-	mgr := auth.NewManager(cfg)
+	mgr, err := auth.NewManager(cfg)
+	if err != nil {
+		return err
+	}
 	if err := mgr.Available(); err != nil {
 		// Login and SSH both shell out to gcloud, so a missing binary is worth
 		// catching before the user hits it mid-session.

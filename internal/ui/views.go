@@ -61,7 +61,18 @@ func (m Model) headerView() string {
 		}
 	}
 
-	line := lipgloss.JoinHorizontal(lipgloss.Left, title, crumbStyle.Render(truncate(crumb, max(10, m.width-20))))
+	// Credential state stays visible while working inside a project — the
+	// token dying mid-session is routine with a federated IdP, and the header
+	// is where you glance before starting something long.
+	badge := ""
+	if m.hasActive && m.screen != screenProjects {
+		if status, ok := m.authStatus[m.active.Name]; ok {
+			badge = "  " + credentialBadge(status, true)
+		}
+	}
+
+	crumbWidth := max(10, m.width-lipgloss.Width(title)-lipgloss.Width(badge)-4)
+	line := lipgloss.JoinHorizontal(lipgloss.Left, title, crumbStyle.Render(truncate(crumb, crumbWidth)), badge)
 
 	if m.screen == screenProjects || m.screen == screenHelp || m.screen == screenOverview {
 		return line + "\n"
@@ -496,14 +507,16 @@ func (m Model) helpView() string {
 			{"↑/k ↓/j", "move cursor"},
 			{"g / G", "jump to top / bottom"},
 			{"enter", "open category (dashboard) / describe (table)"},
-			{"1 2 3", "jump straight to a resource kind"},
-			{"a", "all resources, every kind in one table"},
+			{"1-9", "jump straight to a resource kind"},
+			{"0 / a", "all resources, every kind in one table"},
 			{"tab / shift+tab", "cycle resource kinds"},
-			{"d / esc", "back to the dashboard"},
+			{"q / esc", "back up one level"},
 			{"p", "back to the project list"},
 			{"/", "filter rows (esc clears)"},
+			{":", "command — :vm :gke :gcs :dataproc :composer :all :projects :q"},
 		}},
 		{"Actions", []helpEntry{
+			{"d / enter", "describe as YAML"},
 			{"r", "refresh current kind (all of them on the dashboard)"},
 			{"o", "open (Airflow UI for Composer, Console otherwise)"},
 			{"c", "open in Cloud Console"},
@@ -517,7 +530,7 @@ func (m Model) helpView() string {
 		}},
 		{"General", []helpEntry{
 			{"?", "toggle this help"},
-			{"q / ctrl+c", "quit"},
+			{"ctrl+c / :q", "quit (or q from the project list)"},
 		}},
 	}
 
@@ -538,6 +551,9 @@ func (m Model) footerView() string {
 	if m.filtering {
 		return m.filter.View()
 	}
+	if m.commanding {
+		return m.command.View()
+	}
 	if m.flashText != "" {
 		return m.flashStyle().Render(truncate(m.flashText, m.width-1))
 	}
@@ -546,10 +562,28 @@ func (m Model) footerView() string {
 	// looks complete is the one failure mode worth being loud about.
 	if warnings := m.currentWarnings(); len(warnings) > 0 {
 		text := fmt.Sprintf("⚠ %d scope(s) unavailable: %s", len(warnings), strings.Join(warnings, "; "))
-		return warnStyle.Render(truncate(text, m.width-1))
+		return m.withPosition(warnStyle.Render(truncate(text, m.width-8)))
 	}
 
-	return mutedStyle.Render(truncate(m.keyHint(), m.width-1))
+	return m.withPosition(mutedStyle.Render(truncate(m.keyHint(), m.width-8)))
+}
+
+// withPosition right-aligns a cursor/total indicator on the resources table,
+// so "where am I in this list" never needs counting rows.
+func (m Model) withPosition(left string) string {
+	if m.screen != screenResources {
+		return left
+	}
+	n := len(m.visibleResources())
+	if n == 0 {
+		return left
+	}
+	pos := mutedStyle.Render(fmt.Sprintf("%d/%d", m.cursor+1, n))
+	gap := m.width - lipgloss.Width(left) - lipgloss.Width(pos) - 1
+	if gap < 1 {
+		return left
+	}
+	return left + strings.Repeat(" ", gap) + pos
 }
 
 func (m Model) currentWarnings() []string {
@@ -582,11 +616,11 @@ func (m Model) flashStyle() lipgloss.Style {
 func (m Model) keyHint() string {
 	switch m.screen {
 	case screenProjects:
-		return "enter select · l login · r re-check · ? help · q quit"
+		return "enter select · l login · r re-check · : cmd · ? help · q quit"
 	case screenOverview:
-		return "enter open · a all resources · r refresh all · p projects · ? help · q quit"
+		return "enter open · 0/a all resources · r refresh all · : cmd · esc projects · ? help"
 	case screenResources:
-		return "enter describe · o open · s ssh · y yank · / filter · r refresh · d dashboard · esc back · ? help"
+		return "d describe · o open · s ssh · y yank · / filter · : cmd · r refresh · esc back · ? help"
 	case screenDetail:
 		return "↑/↓ scroll · y copy yaml · esc back"
 	default:

@@ -26,10 +26,10 @@ Plus, across all kinds: a per-project dashboard with status rollups, a merged
 *All Resources* table, filtering, describe-as-YAML, Console/Airflow deep links,
 clipboard yank over OSC 52, and SSH to a running VM.
 
-**A UI limit to clear before the next kind lands:** the tab bar binds number
-keys 1–5 directly to lister index, and five is exactly what's registered now.
-Adding a sixth kind needs that widened — `tab`/`shift+tab` cycling and the `a`
-merged-view key already work at any count and are not affected.
+The number keys reach kinds 1–9, so the next four kinds land with no UI work.
+Past nine, `tab`/`shift+tab` cycling, the `0`/`a` merged-view keys and `:`
+commands still reach everything — but a tenth kind is probably better shaped
+as a drill-down than a new top-level tab.
 
 ## Next up
 

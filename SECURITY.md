@@ -46,6 +46,13 @@ an API response could have turned `o` into "launch an arbitrary handler".
 shows the URL instead of opening it. Covered by tests, including one asserting
 that g9s's own Console URLs still pass the guard.
 
+**Credential-directory collisions were possible.** Sanitizing project names
+for the filesystem can collapse two distinct names into one directory —
+`prod/data` and `prod-data` both become `prod-data` — and sharing a credential
+directory means logging into one project silently re-identifies the other.
+Startup now refuses a config whose project names collide after sanitizing,
+naming both projects. Found in a follow-up review, July 2026.
+
 **World-writable config was accepted.** `defaults.gcloud_path` names the binary
 g9s executes, so write access to the config file is code execution as you.
 `-init` now writes `0600` instead of `0644`, and `config.Load` refuses a file

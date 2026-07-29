@@ -39,11 +39,26 @@ type Manager struct {
 	gcloudPath     string
 }
 
-func NewManager(cfg *config.Config) *Manager {
+func NewManager(cfg *config.Config) (*Manager, error) {
+	// Sanitizing project names for the filesystem can collapse two distinct
+	// names into one directory ("prod/data" and "prod-data" both become
+	// "prod-data"), and sharing a credential dir means logging into one
+	// project silently re-identifies the other. Refuse up front.
+	seen := map[string]string{}
+	for _, p := range cfg.Projects {
+		dir := sanitize(p.Name)
+		if other, dup := seen[dir]; dup {
+			return nil, fmt.Errorf(
+				"projects %q and %q would share the credential directory %q — rename one",
+				other, p.Name, dir)
+		}
+		seen[dir] = p.Name
+	}
+
 	return &Manager{
 		credentialRoot: cfg.Defaults.CredentialDir,
 		gcloudPath:     cfg.Defaults.GcloudPath,
-	}
+	}, nil
 }
 
 // State describes whether a project is usable right now.
@@ -99,11 +114,16 @@ func (s Status) Summary() string {
 		if s.Expiry.IsZero() {
 			return "ok"
 		}
-		remaining := time.Until(s.Expiry).Round(time.Minute)
-		if remaining < 0 {
+		mins := int(time.Until(s.Expiry).Round(time.Minute).Minutes())
+		switch {
+		case mins < 0:
 			return "ok"
+		case mins < 60:
+			return fmt.Sprintf("ok (token %dm)", mins)
+		default:
+			// "1h05m" reads better in a header than time.Duration's "1h5m0s".
+			return fmt.Sprintf("ok (token %dh%02dm)", mins/60, mins%60)
 		}
-		return fmt.Sprintf("ok (token %s)", remaining)
 	case StateExpired:
 		return "expired — press l to re-login"
 	case StateMissing:

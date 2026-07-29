@@ -123,6 +123,8 @@ func resourcesShot() Model {
 	m.active = m.cfg.Projects[0]
 	m.hasActive = true
 	m.cursor = 1
+	// The header shows the live credential state while inside a project.
+	m.authStatus[m.active.Name] = auth.Status{State: auth.StateValid, Expiry: time.Now().Add(38 * time.Minute)}
 
 	// Zone names are kept to us-* here so nothing truncates at shotWidth. A
 	// real northamerica-northeast1-a is 25 characters and the ZONE column only
@@ -180,6 +182,7 @@ func dashboardShot() Model {
 	m.active = m.cfg.Projects[0]
 	m.hasActive = true
 	m.ovCursor = 0
+	m.authStatus[m.active.Name] = auth.Status{State: auth.StateValid, Expiry: time.Now().Add(38 * time.Minute)}
 
 	m.cache["vm"] = gcp.Result{
 		Resources: statusOnly(kindByID("vm"), map[string]int{"RUNNING": 6, "STAGING": 1, "TERMINATED": 2}),

@@ -167,11 +167,6 @@ func TestValidationErrors(t *testing.T) {
 			want: "duplicate project name",
 		},
 		{
-			name: "no regions anywhere",
-			body: "projects:\n  - name: a\n    project_id: a-1\n",
-			want: "no regions configured",
-		},
-		{
 			name: "unknown key",
 			body: "defaults:\n  regions: [us-central1]\nprojects:\n  - name: a\n    project_id: a-1\n    regionz: [typo]\n",
 			want: "field regionz not found",
@@ -188,6 +183,38 @@ func TestValidationErrors(t *testing.T) {
 				t.Errorf("error = %q, want it to contain %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestConfigWithoutRegionsIsValid(t *testing.T) {
+	// The global kinds (Compute, GKE, Storage) need no regions, so a config
+	// without any must load. The region-scoped listers warn in the UI instead.
+	cfg, err := Load(writeConfig(t, "projects:\n  - name: a\n    project_id: a-1\n"))
+	if err != nil {
+		t.Fatalf("config without regions should load: %v", err)
+	}
+
+	p := cfg.Projects[0]
+	if cfg.HasDataprocRegions(p) {
+		t.Error("HasDataprocRegions should be false with nothing configured")
+	}
+	if got := cfg.DataprocRegions(p); len(got) != 1 || got[0] != "global" {
+		t.Errorf("DataprocRegions = %v, want just global", got)
+	}
+	if got := cfg.ComposerLocations(p); len(got) != 0 {
+		t.Errorf("ComposerLocations = %v, want empty", got)
+	}
+}
+
+func TestHasDataprocRegionsSeesEveryLevel(t *testing.T) {
+	cfg := &Config{Defaults: Defaults{Regions: []string{"us-central1"}}}
+	if !cfg.HasDataprocRegions(Project{}) {
+		t.Error("defaults.regions should count as configured")
+	}
+
+	cfg = &Config{}
+	if !cfg.HasDataprocRegions(Project{DataprocRegions: []string{"global"}}) {
+		t.Error("an explicit dataproc_regions should count as configured")
 	}
 }
 

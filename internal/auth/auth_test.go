@@ -15,6 +15,31 @@ func testManager(t *testing.T) *Manager {
 	return &Manager{credentialRoot: t.TempDir(), gcloudPath: "gcloud"}
 }
 
+func TestNewManagerRejectsCredentialDirCollisions(t *testing.T) {
+	// "prod/data" sanitizes to "prod-data" — two distinct projects sharing a
+	// credential directory means logging into one re-identifies the other.
+	cfg := &config.Config{Projects: []config.Project{
+		{Name: "prod-data", ProjectID: "p-1"},
+		{Name: "prod/data", ProjectID: "p-2"},
+	}}
+
+	if _, err := NewManager(cfg); err == nil {
+		t.Fatal("colliding credential dirs should be refused")
+	} else if !strings.Contains(err.Error(), "prod-data") {
+		t.Errorf("error should name the colliding directory: %v", err)
+	}
+}
+
+func TestNewManagerAcceptsDistinctProjects(t *testing.T) {
+	cfg := &config.Config{Projects: []config.Project{
+		{Name: "prod-data", ProjectID: "p-1"},
+		{Name: "prod-logs", ProjectID: "p-2"},
+	}}
+	if _, err := NewManager(cfg); err != nil {
+		t.Fatalf("distinct names should be accepted: %v", err)
+	}
+}
+
 func TestSanitize(t *testing.T) {
 	// Project names come from a hand-edited YAML file and become directory
 	// names, so anything that could escape the credential root must be

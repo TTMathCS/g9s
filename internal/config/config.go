@@ -84,6 +84,13 @@ func (c *Config) ComposerLocations(p Project) []string {
 	return firstNonEmpty(p.ComposerLocations, p.Regions, c.Defaults.ComposerLocations, c.Defaults.Regions)
 }
 
+// HasDataprocRegions reports whether any region setting applies to Dataproc
+// for this project. When false, DataprocRegions falls back to just "global",
+// and the lister says so rather than letting the narrow sweep look complete.
+func (c *Config) HasDataprocRegions(p Project) bool {
+	return firstNonEmpty(p.DataprocRegions, p.Regions, c.Defaults.DataprocRegions, c.Defaults.Regions) != nil
+}
+
 func firstNonEmpty(lists ...[]string) []string {
 	for _, l := range lists {
 		if len(l) > 0 {
@@ -189,12 +196,10 @@ func (c *Config) validate() error {
 		}
 		seenName[p.Name] = true
 
-		// Region-scoped resources silently return nothing when no region is
-		// configured, which reads as "you have no clusters" rather than
-		// "g9s did not look". Fail loudly instead.
-		if len(c.DataprocRegions(p)) <= 1 && len(c.ComposerLocations(p)) == 0 {
-			return fmt.Errorf("%s (%s): no regions configured; set projects[].regions or defaults.regions", where, p.Name)
-		}
+		// No regions configured is allowed — the global kinds (Compute, GKE,
+		// Storage) need none. The region-scoped listers surface it as a
+		// warning in the UI instead, so a narrowed sweep never reads as
+		// "nothing is running here".
 	}
 	return nil
 }

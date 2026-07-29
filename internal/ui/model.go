@@ -66,16 +66,23 @@ type Model struct {
 	hasActive bool
 
 	// resource table
-	kindIdx      int
-	cache        map[string]gcp.Result
-	loading      map[string]bool
-	loadErr      map[string]error
-	cursor       int
-	refreshToken int
+	kindIdx int
+	cache   map[string]gcp.Result
+	loading map[string]bool
+	loadErr map[string]error
+	cursor  int
+	// refreshToken is per kind: refreshing one kind must not invalidate the
+	// in-flight fetches of the others, or their results arrive stale and the
+	// dashboard shows loading… forever.
+	refreshToken map[string]int
 
 	// filtering
 	filter    textinput.Model
 	filtering bool
+
+	// command mode (`:`)
+	command    textinput.Model
+	commanding bool
 
 	// detail pane
 	detail viewport.Model
@@ -93,17 +100,24 @@ func New(cfg *config.Config, mgr *auth.Manager) Model {
 	filter.Placeholder = "filter"
 	filter.CharLimit = 80
 
+	command := textinput.New()
+	command.Prompt = ":"
+	command.Placeholder = "vm · gke · gcs · dataproc · composer · all · projects · q"
+	command.CharLimit = 40
+
 	return Model{
-		cfg:        cfg,
-		auth:       mgr,
-		listers:    gcp.Listers(),
-		screen:     screenProjects,
-		authStatus: map[string]auth.Status{},
-		cache:      map[string]gcp.Result{},
-		loading:    map[string]bool{},
-		loadErr:    map[string]error{},
-		filter:     filter,
-		detail:     viewport.New(0, 0),
+		cfg:          cfg,
+		auth:         mgr,
+		listers:      gcp.Listers(),
+		screen:       screenProjects,
+		authStatus:   map[string]auth.Status{},
+		cache:        map[string]gcp.Result{},
+		loading:      map[string]bool{},
+		loadErr:      map[string]error{},
+		refreshToken: map[string]int{},
+		filter:       filter,
+		command:      command,
+		detail:       viewport.New(0, 0),
 	}
 }
 
@@ -248,8 +262,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleResources(msg resourcesMsg) (tea.Model, tea.Cmd) {
-	// Ignore results from a superseded refresh or a project we have left.
-	if msg.token != m.refreshToken || !m.hasActive || msg.project != m.active.Name {
+	// Ignore results from a superseded refresh of this kind or a project we
+	// have left. Tokens are per kind, so refreshing one kind cannot strand
+	// another kind's in-flight result.
+	if msg.token != m.refreshToken[msg.kind] || !m.hasActive || msg.project != m.active.Name {
 		return m, nil
 	}
 
@@ -312,11 +328,35 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// The command line swallows keys while it has focus.
+	if m.commanding {
+		switch msg.String() {
+		case "enter":
+			m.commanding = false
+			m.command.Blur()
+			line := strings.TrimSpace(m.command.Value())
+			m.command.SetValue("")
+			return m.runCommand(line)
+		case "esc":
+			m.commanding = false
+			m.command.Blur()
+			m.command.SetValue("")
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.command, cmd = m.command.Update(msg)
+		return m, cmd
+	}
+
 	// Global keys.
 	switch msg.String() {
 	case "ctrl+c":
 		m.quitting = true
 		return m, tea.Quit
+	case ":":
+		m.commanding = true
+		m.command.Focus()
+		return m, textinput.Blink
 	case "?":
 		if m.screen == screenHelp {
 			m.screen = m.homeScreen()
@@ -356,6 +396,54 @@ func (m Model) homeScreen() screen {
 	default:
 		return screenProjects
 	}
+}
+
+// runCommand executes a `:` command, k9s style: a kind name jumps straight to
+// its table, `all` to the merged view, `projects` back to the picker.
+func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
+	switch line {
+	case "":
+		return m, nil
+	case "q", "quit":
+		m.quitting = true
+		return m, tea.Quit
+	case "help":
+		m.helpReturn = m.screen
+		m.screen = screenHelp
+		return m, nil
+	case "proj", "projects":
+		m.screen = screenProjects
+		return m, nil
+	}
+
+	idx, ok := m.matchKind(line)
+	if !ok {
+		return m, flash(fmt.Sprintf("unknown command %q — a kind (vm, gke, gcs…), all, projects, help or q", line), flashWarn)
+	}
+	if !m.hasActive {
+		return m, flash("select a project first", flashWarn)
+	}
+	m.screen = screenOverview // openTab drills in from the dashboard level
+	return m.openTab(idx)
+}
+
+// matchKind resolves a command word to a tab: exact kind ID first, then a
+// prefix of the ID or title, in display order.
+func (m Model) matchKind(word string) (int, bool) {
+	word = strings.ToLower(word)
+	tabs := m.tabs()
+	for i, k := range tabs {
+		if strings.ToLower(k.ID) == word {
+			return i, true
+		}
+	}
+	for i, k := range tabs {
+		if strings.HasPrefix(strings.ToLower(k.ID), word) ||
+			strings.HasPrefix(strings.ToLower(k.Title), word) {
+			return i, true
+		}
+	}
+	return -1, false
 }
 
 func (m Model) handleProjectsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -440,11 +528,9 @@ func (m Model) handleOverviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	tabs := m.tabs()
 
 	switch msg.String() {
-	case "q":
-		m.quitting = true
-		return m, tea.Quit
-
-	case "esc", "p":
+	// q backs up a level, k9s style; quitting is ctrl+c, :q, or q from the
+	// project list.
+	case "q", "esc", "p":
 		m.screen = screenProjects
 		return m, nil
 
@@ -468,10 +554,11 @@ func (m Model) handleOverviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.ovCursor = len(tabs) - 1
 		return m, nil
 
-	case "a":
+	case "a", "0":
+		// 0 is the k9s reflex for "everything at once".
 		return m.openTab(m.allTabIdx())
 
-	case "1", "2", "3", "4", "5":
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		idx := int(msg.String()[0] - '1')
 		if idx < len(m.listers) {
 			return m.openTab(idx)
@@ -510,11 +597,7 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	visible := m.visibleResources()
 
 	switch msg.String() {
-	case "q":
-		m.quitting = true
-		return m, tea.Quit
-
-	case "esc":
+	case "q", "esc":
 		// Back up one level rather than all the way out: the dashboard is
 		// where you came from and where you pick the next category.
 		m.screen = screenOverview
@@ -555,7 +638,7 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cursor = 0
 		return m.loadCurrentIfEmpty()
 
-	case "1", "2", "3", "4", "5":
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		idx := int(msg.String()[0] - '1')
 		if idx < len(m.listers) {
 			m.kindIdx = idx
@@ -564,15 +647,10 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "a":
+	case "a", "0":
 		m.kindIdx = m.allTabIdx()
 		m.cursor = 0
 		return m.loadCurrentIfEmpty()
-
-	case "d":
-		m.screen = screenOverview
-		m.ovCursor = m.kindIdx
-		return m, nil
 
 	case "/":
 		m.filtering = true
@@ -588,7 +666,9 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "L":
 		return m.startLogin(true)
 
-	case "enter":
+	// d is describe, the k9s reflex; enter does the same because it is the
+	// natural "show me this row" key.
+	case "enter", "d":
 		r, ok := m.selectedResource()
 		if !ok {
 			return m, nil
@@ -674,15 +754,20 @@ func (m Model) loadCurrent() (tea.Model, tea.Cmd) {
 		return m.loadAll()
 	}
 
-	m.refreshToken++
-	m.loading[lister.Kind().ID] = true
-	delete(m.loadErr, lister.Kind().ID)
-
-	return m, listResources(m.cfg, m.auth, m.active, lister, m.refreshToken)
+	return m, m.startLoad(lister)
 }
 
-// loadAll refreshes every kind concurrently. One bumped token covers the whole
-// fan-out, so a refresh started later cleanly supersedes this one.
+// startLoad marks one kind loading and returns its fetch command, bumping that
+// kind's token so any older in-flight fetch of the same kind is superseded.
+func (m Model) startLoad(l gcp.Lister) tea.Cmd {
+	id := l.Kind().ID
+	m.refreshToken[id]++
+	m.loading[id] = true
+	delete(m.loadErr, id)
+	return listResources(m.cfg, m.auth, m.active, l, m.refreshToken[id])
+}
+
+// loadAll refreshes every kind concurrently.
 func (m Model) loadAll() (tea.Model, tea.Cmd) {
 	if !m.hasActive {
 		return m, nil
@@ -691,12 +776,9 @@ func (m Model) loadAll() (tea.Model, tea.Cmd) {
 		return m, flash("credentials expired — press l to log in again", flashWarn)
 	}
 
-	m.refreshToken++
 	cmds := make([]tea.Cmd, 0, len(m.listers))
 	for _, l := range m.listers {
-		m.loading[l.Kind().ID] = true
-		delete(m.loadErr, l.Kind().ID)
-		cmds = append(cmds, listResources(m.cfg, m.auth, m.active, l, m.refreshToken))
+		cmds = append(cmds, m.startLoad(l))
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -732,12 +814,7 @@ func (m Model) loadMissing() (tea.Model, tea.Cmd) {
 		if m.hasData(id) || m.loading[id] {
 			continue
 		}
-		if cmds == nil {
-			m.refreshToken++
-		}
-		m.loading[id] = true
-		delete(m.loadErr, id)
-		cmds = append(cmds, listResources(m.cfg, m.auth, m.active, l, m.refreshToken))
+		cmds = append(cmds, m.startLoad(l))
 	}
 	if cmds == nil {
 		return m, nil
