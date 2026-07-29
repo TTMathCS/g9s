@@ -62,7 +62,7 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | Cross-project view (one kind, every project at once) | 💡 | the other axis from the dashboard's per-kind rollup |
 | Saved filters / bookmarks | 💡 | |
 | Export current table to CSV/JSON | 💡 | |
-| Prebuilt release binaries (no Go toolchain needed) | 💡 | see [Requirements](#requirements) |
+| Prebuilt release binaries (no Go toolchain needed) | ✅ | macOS + Linux, arm64 + amd64, with checksums and signed SLSA provenance — see [Install](#install) |
 | Writing infrastructure | ⛔ | not a Terraform replacement |
 | Storing credentials | ⛔ | `gcloud` owns that; g9s never touches a credential |
 | Displaying secret values | ⛔ | names/versions only — use `gcloud secrets versions access`, which is logged |
@@ -90,11 +90,53 @@ The number keys reach kinds 1–9, so there is room for four more before the dig
 
 Everything else — the resource listing — talks to the GCP APIs directly and never shells out. See [Design notes](#design-notes) for why.
 
-**Go 1.25+ — required to install.** There are no prebuilt binaries yet, so you build from source. This is the only reason Go is needed; it isn't a runtime dependency, and the resulting `g9s` binary is self-contained.
+**Go 1.25+ — only if you build from source.** Not needed if you [download a release binary](#option-1-download-a-release-binary-no-go-toolchain), which is self-contained. Go is never a runtime dependency.
+
+## Install
+
+Two options. The first needs no Go toolchain and pulls no dependencies onto your machine; the second builds from source.
+
+### Option 1: download a release binary (no Go toolchain)
+
+Every tagged release attaches archives for macOS and Linux on both Apple Silicon/ARM and Intel/AMD64, plus a `checksums.txt`. Grab one from the [Releases page](https://github.com/TTMathCS/g9s/releases), then:
+
+```sh
+# Pick your platform: darwin_arm64, darwin_amd64, linux_amd64, linux_arm64
+VERSION=v0.1.0
+PLATFORM=darwin_arm64
+
+curl -LO "https://github.com/TTMathCS/g9s/releases/download/${VERSION}/g9s_${VERSION}_${PLATFORM}.tar.gz"
+curl -LO "https://github.com/TTMathCS/g9s/releases/download/${VERSION}/checksums.txt"
+
+# Verify before extracting, not after
+shasum -a 256 -c checksums.txt --ignore-missing
+
+tar -xzf "g9s_${VERSION}_${PLATFORM}.tar.gz"
+sudo mv "g9s_${VERSION}_${PLATFORM}/g9s" /usr/local/bin/
+g9s -version
+```
+
+**Verifying provenance, not just integrity.** The checksum only proves your download wasn't corrupted in transit — it says nothing about where the file came from. Each archive also carries a signed [SLSA build provenance](https://slsa.dev/) attestation tying it to this repository, the exact commit and the workflow run that produced it. If you have the [`gh` CLI](https://cli.github.com/):
+
+```sh
+gh attestation verify "g9s_${VERSION}_${PLATFORM}.tar.gz" --repo TTMathCS/g9s
+```
+
+That is the check worth running. It fails if the archive was built anywhere other than this repo's CI.
+
+On macOS, Gatekeeper will complain the first time — the binaries are not Apple-notarised (that needs a paid Developer ID). Clear it with `xattr -d com.apple.quarantine /usr/local/bin/g9s`, or right-click → Open once. If you would rather not, build from source instead.
+
+### Option 2: build from source
+
+Needs Go 1.25+ and fetches roughly a hundred module dependencies. See [Setup on a new Mac](#setup-on-a-new-mac) below for the full toolchain walkthrough, or if you already have Go:
+
+```sh
+go install github.com/TTMathCS/g9s/cmd/g9s@latest
+```
 
 ## Setup on a new Mac
 
-Both paths work on Apple Silicon and Intel. Pick one.
+For building from source. Both paths work on Apple Silicon and Intel. Pick one.
 
 ### With Homebrew
 

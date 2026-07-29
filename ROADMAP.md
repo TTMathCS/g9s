@@ -94,8 +94,7 @@ These change how the whole tool behaves rather than adding a kind.
 - **Saved filters and bookmarks**, for the query you type ten times a day.
 - **Export** the current table to CSV or JSON, for when the answer needs to
   leave the terminal.
-- **Prebuilt release binaries** so installing does not require a Go toolchain
-  — see the note in [README](README.md#requirements).
+*(Prebuilt release binaries shipped — see [Install](README.md#install).)*
 
 ## Not planned
 

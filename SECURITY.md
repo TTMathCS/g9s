@@ -146,6 +146,45 @@ go install golang.org/x/vuln/cmd/govulncheck@latest
 govulncheck ./...
 ```
 
+## Release binaries
+
+Releases are built by GitHub Actions, never on a maintainer's machine, and only
+after `gofmt`, `go vet`, `go test -race` and `govulncheck` have all passed —
+the build job declares `needs: [test, vulncheck]`, so a red check produces no
+artifacts at all. Binaries are built once and promoted: the archive attached to
+a release is byte-identical to the one the build job produced, because nothing
+is recompiled at publish time.
+
+**Verify provenance, not just checksums.** `checksums.txt` only proves your
+download was not corrupted in transit. It proves nothing about origin — anyone
+can publish a file and a matching hash. Each archive additionally carries a
+signed [SLSA build provenance](https://slsa.dev/) attestation binding it to this
+repository, the exact commit and the workflow run:
+
+```sh
+gh attestation verify g9s_v0.1.0_darwin_arm64.tar.gz --repo TTMathCS/g9s
+```
+
+That fails if the archive was built anywhere other than this repo's CI, which is
+the property actually worth checking.
+
+Two limits worth stating rather than leaving implied:
+
+- **The binaries are not Apple-notarised.** Notarisation needs a paid Developer
+  ID, so macOS Gatekeeper will warn on first run. That is a code-signing gap,
+  not a provenance one — the attestation above still proves origin.
+- **Downloading a binary is a different trust model from building source you
+  have read.** Provenance proves *where* it was built, not that the source is
+  benign. If your threat model does not extend that trust to this repository's
+  CI, build from source in a container you control; the workflow in
+  `.github/workflows/ci.yml` shows exactly what the release build does.
+
+The workflow keeps `permissions: contents: read` at the top level and grants
+write only inside the release job, so nothing in the test, scan or build path
+can write to the repository. Publishing uses the `gh` CLI already on the runner
+rather than a third-party action, keeping the release path's supply-chain
+surface to first-party GitHub actions only.
+
 ## Reporting
 
 Open an issue for anything non-sensitive. For something you would rather not

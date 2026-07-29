@@ -3,7 +3,13 @@ name: CI
 on:
   push:
     branches: ["**"]
+    tags: ["v*"]
   pull_request:
+
+# Least privilege by default. The two jobs that need more ask for it
+# themselves, so a compromised step in test or build cannot write to the repo.
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -51,3 +57,114 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
+
+  # Build once, promote the same bits. Artifacts from a green build are the
+  # exact files a release publishes — nothing is rebuilt at release time, so
+  # what you test is what ships.
+  build:
+    needs: [test, vulncheck]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+
+          # A tag builds as its version; anything else is explicitly a dev
+          # build, so a downloaded artifact can never be mistaken for a release.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="dev-$(git rev-parse --short HEAD)"
+          fi
+          echo "version=${version}" >> "$GITHUB_ENV"
+
+          name="g9s_${version}_${GOOS}_${GOARCH}"
+          mkdir -p "dist/${name}"
+
+          # -trimpath keeps build-machine paths out of the binary; -s -w drop
+          # the symbol and DWARF tables, which is most of the 46MB.
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${version}" \
+            -o "dist/${name}/g9s" ./cmd/g9s
+
+          cp README.md LICENSE "dist/${name}/"
+          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          rm -rf "dist/${name}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: g9s_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          # Long enough to be useful for testing a merge, short enough that
+          # untagged dev builds do not accumulate forever.
+          retention-days: 14
+
+  release:
+    # Only tags publish. Every other green build stops at artifacts above.
+    if: github.ref_type == 'tag'
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release and upload assets
+      id-token: write # sign the provenance attestation
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect built archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum *.tar.gz > checksums.txt
+          cat checksums.txt
+
+      # Signed SLSA provenance, tying each archive to this repo, commit and
+      # workflow. Verifiable with:
+      #   gh attestation verify g9s_..._tar.gz --repo TTMathCS/g9s
+      # Checksums alone prove a download was not corrupted; provenance is what
+      # proves where the bits came from.
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*.tar.gz
+
+      # gh ships on the runner, so publishing needs no third-party action.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            dist/*.tar.gz dist/checksums.txt
