@@ -20,6 +20,55 @@ Three screens, in the order you move through them.
 
 <sub>All three screenshots are generated from the real rendering code — see <a href="docs/">docs/</a>. The projects, IDs and accounts in them are invented.</sub>
 
+## Roadmap
+
+Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by design, not an oversight)
+
+### Resource kinds
+
+| Kind | Status | Scope | Notes |
+|---|---|---|---|
+| Compute Engine instances | ✅ | zonal, aggregated | one `aggregatedList` call covers every zone |
+| GKE clusters | ✅ | zonal + regional, aggregated | `parent: projects/*/locations/-` covers everything in one call |
+| Cloud Storage buckets | ✅ | global | simplest lister — one call, no fan-out |
+| Dataproc clusters | ✅ | **regional** | a client per region; `global` always swept |
+| Cloud Composer environments | ✅ | location-scoped | one client, location in the request parent |
+| BigQuery datasets & recent jobs | 🔜 | global | jobs answer "what is running", not just "what exists" |
+| Cloud SQL instances | 🔜 | global | version, tier, HA state, maintenance window |
+| Pub/Sub topics & subscriptions | 🔜 | global | subscription backlog is the number people actually want |
+| Secret Manager secrets | 🔜 | global | **names and versions only — never values** |
+| Cloud Run services & jobs | 🔜 | regional | |
+| Dataproc jobs | 🔜 | regional | clusters without jobs is half the story |
+| Dataflow jobs | 🔜 | regional | |
+| Service accounts & keys | 🔜 | global | key age is a standing audit question |
+| GKE node pools | 🔜 | per-cluster | drill-down from a GKE row, not a new top-level tab |
+| Compute/serverless (Functions, Batch, instance groups, disks, GPU/TPU) | 💡 | mixed | |
+| Data (Bigtable, Spanner, Memorystore, Firestore, Datastream, Artifact Registry) | 💡 | mixed | |
+| Networking (VPC, firewall, LB, Cloud DNS, VPN, Interconnect, PSC) | 💡 | mixed | |
+| Security/identity (IAM bindings, KMS, Certificate Manager, VPC-SC, Org Policy) | 💡 | mixed | |
+| Operations (Logging, Monitoring alerts, Error Reporting, Scheduler, Cloud Build) | 💡 | mixed | |
+| Cost & quota (usage vs. limits, monthly spend) | 💡 | mixed | needs billing export reachable |
+
+### Platform features
+
+| Feature | Status | Notes |
+|---|---|---|
+| Per-project dashboard with status rollups | ✅ | |
+| Merged *All Resources* view across kinds | ✅ | |
+| Filter, describe-as-YAML, Console/Airflow links, OSC 52 yank, SSH | ✅ | |
+| Mutating actions behind a confirmation | 🔜 | VM / Dataproc power state first — no Terraform drift |
+| Terraform state overlay (managed / drifted / unmanaged) | 🔜 | the single most useful thing on this list, and the most work |
+| Cloud Asset Inventory fast path | 💡 | optional — plenty of orgs don't enable the API |
+| Cross-project view (one kind, every project at once) | 💡 | the other axis from the dashboard's per-kind rollup |
+| Saved filters / bookmarks | 💡 | |
+| Export current table to CSV/JSON | 💡 | |
+| Prebuilt release binaries (no Go toolchain needed) | 💡 | see [Requirements](#requirements) |
+| Writing infrastructure | ⛔ | not a Terraform replacement |
+| Storing credentials | ⛔ | `gcloud` owns that; g9s never touches a credential |
+| Displaying secret values | ⛔ | names/versions only — use `gcloud secrets versions access`, which is logged |
+
+**[ROADMAP.md](ROADMAP.md)** has the full picture with reasoning per item — why each is scoped the way it is, and why global/regional/zonal is what decides the cost of adding it.
+
 ## Why this exists
 
 Cloud Asset Inventory makes "list everything in a project" a single API call. Without it — and plenty of orgs don't enable it — you fan out across a dozen service APIs, several of which are region-scoped, and you do it again for every project. `g9s` does that fan-out and puts the result in one keyboard-driven table.
@@ -284,55 +333,6 @@ Two things the table relies on: your `Resource.Row` must have exactly as many ce
 **Why is Dataproc the awkward one?** Its endpoint is regional. A request for `us-central1` sent to the default endpoint returns *nothing* rather than an error, so each region needs its own client pointed at `<region>-dataproc.googleapis.com`. Composer is location-scoped through the request parent instead, so one client covers every location. Compute needs no fan-out at all — `aggregatedList` returns every zone in one call.
 
 **Why a quota project?** Application default credentials minted from a user account have no project of their own, and most APIs reject the call outright without one attached. g9s sets it on every client.
-
-## Roadmap
-
-Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by design, not an oversight)
-
-### Resource kinds
-
-| Kind | Status | Scope | Notes |
-|---|---|---|---|
-| Compute Engine instances | ✅ | zonal, aggregated | one `aggregatedList` call covers every zone |
-| GKE clusters | ✅ | zonal + regional, aggregated | `parent: projects/*/locations/-` covers everything in one call |
-| Cloud Storage buckets | ✅ | global | simplest lister — one call, no fan-out |
-| Dataproc clusters | ✅ | **regional** | a client per region; `global` always swept |
-| Cloud Composer environments | ✅ | location-scoped | one client, location in the request parent |
-| BigQuery datasets & recent jobs | 🔜 | global | jobs answer "what is running", not just "what exists" |
-| Cloud SQL instances | 🔜 | global | version, tier, HA state, maintenance window |
-| Pub/Sub topics & subscriptions | 🔜 | global | subscription backlog is the number people actually want |
-| Secret Manager secrets | 🔜 | global | **names and versions only — never values** |
-| Cloud Run services & jobs | 🔜 | regional | |
-| Dataproc jobs | 🔜 | regional | clusters without jobs is half the story |
-| Dataflow jobs | 🔜 | regional | |
-| Service accounts & keys | 🔜 | global | key age is a standing audit question |
-| GKE node pools | 🔜 | per-cluster | drill-down from a GKE row, not a new top-level tab |
-| Compute/serverless (Functions, Batch, instance groups, disks, GPU/TPU) | 💡 | mixed | |
-| Data (Bigtable, Spanner, Memorystore, Firestore, Datastream, Artifact Registry) | 💡 | mixed | |
-| Networking (VPC, firewall, LB, Cloud DNS, VPN, Interconnect, PSC) | 💡 | mixed | |
-| Security/identity (IAM bindings, KMS, Certificate Manager, VPC-SC, Org Policy) | 💡 | mixed | |
-| Operations (Logging, Monitoring alerts, Error Reporting, Scheduler, Cloud Build) | 💡 | mixed | |
-| Cost & quota (usage vs. limits, monthly spend) | 💡 | mixed | needs billing export reachable |
-
-### Platform features
-
-| Feature | Status | Notes |
-|---|---|---|
-| Per-project dashboard with status rollups | ✅ | |
-| Merged *All Resources* view across kinds | ✅ | |
-| Filter, describe-as-YAML, Console/Airflow links, OSC 52 yank, SSH | ✅ | |
-| Mutating actions behind a confirmation | 🔜 | VM / Dataproc power state first — no Terraform drift |
-| Terraform state overlay (managed / drifted / unmanaged) | 🔜 | the single most useful thing on this list, and the most work |
-| Cloud Asset Inventory fast path | 💡 | optional — plenty of orgs don't enable the API |
-| Cross-project view (one kind, every project at once) | 💡 | the other axis from the dashboard's per-kind rollup |
-| Saved filters / bookmarks | 💡 | |
-| Export current table to CSV/JSON | 💡 | |
-| Prebuilt release binaries (no Go toolchain needed) | 💡 | see [Requirements](#requirements) |
-| Writing infrastructure | ⛔ | not a Terraform replacement |
-| Storing credentials | ⛔ | `gcloud` owns that; g9s never touches a credential |
-| Displaying secret values | ⛔ | names/versions only — use `gcloud secrets versions access`, which is logged |
-
-**[ROADMAP.md](ROADMAP.md)** has the full picture with reasoning per item — why each is scoped the way it is, and why global/regional/zonal is what decides the cost of adding it.
 
 ## Security
 
