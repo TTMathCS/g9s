@@ -77,6 +77,10 @@ gcloud needs Python 3. macOS provides it with the Xcode Command Line Tools (`xco
 
 ### Then install g9s
 
+Two ways. Use the second if your network doesn't reach `proxy.golang.org`.
+
+**A — `go install`:**
+
 ```sh
 go install github.com/TTMathCS/g9s/cmd/g9s@latest
 ```
@@ -90,13 +94,44 @@ exec zsh
 
 (macOS has used zsh as the default shell since Catalina. On bash, use `~/.bash_profile`.)
 
-Prefer working from a clone — you own the repo, after all:
+**B — clone and build:**
 
 ```sh
 git clone https://github.com/TTMathCS/g9s.git
 cd g9s
 go build -o g9s ./cmd/g9s     # binary lands in the current directory
 ```
+
+Copy the binary onto your `PATH` yourself (`sudo mv g9s /usr/local/bin/`), or run it as `./g9s`.
+
+### Behind a corporate proxy
+
+Point `GOPROXY` at your internal Go registry. For Artifactory the `api/go` path segment is required:
+
+```sh
+go env -w GOPROXY="https://artifactory.example.com/artifactory/api/go/<go-repo>"
+go env -w GOSUMDB=off    # unless your registry proxies sum.golang.org
+```
+
+`go env -w` persists these to `~/.config/go/env`, so they survive new shells and don't need to live in your profile.
+
+Authenticate with `~/.netrc` — Go reads it natively, which keeps the token out of `GOPROXY` and out of your shell history:
+
+```
+machine artifactory.example.com
+login <username>
+password <api-key-or-access-token>
+```
+
+```sh
+chmod 600 ~/.netrc
+```
+
+With that in place both install methods work normally. If you use the JFrog CLI, `jf go-config` followed by `jf go build ./cmd/g9s` sets `GOPROXY` for you.
+
+**Which method to use.** Cloning does *not* remove the need for a module registry — `go build` still resolves ~30 dependencies, so a clone alone doesn't get you an offline build. Method B helps in the specific case where your registry serves common dependencies but won't resolve `github.com/TTMathCS/g9s` itself — a brand-new repo that isn't cached, or a registry with an approval allowlist. The clone sidesteps that one lookup; the dependencies still come from Artifactory.
+
+**Toolchain gotcha.** `go.mod` requires Go 1.25.0, and the default `GOTOOLCHAIN=auto` will try to download a matching toolchain *through `GOPROXY`* if your local Go is older. On a restricted network that fails with a confusing error. Install Go 1.25+ directly and it never comes up; `go env -w GOTOOLCHAIN=local` makes the attempt fail fast and loudly instead.
 
 ### Verify
 
