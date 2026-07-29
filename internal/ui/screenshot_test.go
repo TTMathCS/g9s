@@ -11,8 +11,10 @@
 package ui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +53,7 @@ func TestGenerateScreenshots(t *testing.T) {
 		model Model
 	}{
 		{"projects", projectsShot()},
+		{"dashboard", dashboardShot()},
 		{"resources", resourcesShot()},
 	} {
 		path := filepath.Join(outDir, shot.name+".ansi")
@@ -151,7 +154,75 @@ func resourcesShot() Model {
 		Resources: resources,
 		Warnings:  []string{"us-east4: permission denied"},
 	}
+	// The other kinds are cached too, so the tab bar shows a count per tab and
+	// the All Resources total is the sum rather than just the VM count.
+	m.cache["dataproc"] = gcp.Result{
+		Resources: statusOnly(kindByID("dataproc"), map[string]int{"RUNNING": 2, "UPDATING": 1}),
+	}
+	m.cache["composer"] = gcp.Result{
+		Resources: statusOnly(kindByID("composer"), map[string]int{"RUNNING": 1}),
+	}
 	return m
+}
+
+// dashboardShot is the per-project overview: every category with its count and
+// status breakdown, including the merged row, plus a partial listing so the
+// warning treatment is visible.
+func dashboardShot() Model {
+	m := baseShot(len(gcp.Listers()) + 2 + chromeHeight)
+	m.screen = screenOverview
+	m.active = m.cfg.Projects[0]
+	m.hasActive = true
+	m.ovCursor = 0
+
+	m.cache["vm"] = gcp.Result{
+		Resources: statusOnly(kindByID("vm"), map[string]int{"RUNNING": 6, "STAGING": 1, "TERMINATED": 2}),
+		Warnings:  []string{"us-east4: permission denied"},
+	}
+	m.cache["dataproc"] = gcp.Result{
+		Resources: statusOnly(kindByID("dataproc"), map[string]int{"RUNNING": 2, "UPDATING": 1}),
+	}
+	m.cache["composer"] = gcp.Result{
+		Resources: statusOnly(kindByID("composer"), map[string]int{"RUNNING": 1}),
+	}
+	return m
+}
+
+// statusOnly builds placeholder resources for a kind, carrying a status and a
+// correctly-shaped row. The dashboard only reads the status, but the row width
+// has to match the kind's columns so the fixture stays valid if a capture ever
+// renders one of these tables.
+func statusOnly(kind gcp.Kind, counts map[string]int) []gcp.Resource {
+	// Sorted so the fixture is deterministic; the view does its own ordering.
+	statuses := make([]string, 0, len(counts))
+	for status := range counts {
+		statuses = append(statuses, status)
+	}
+	sort.Strings(statuses)
+
+	var out []gcp.Resource
+	for _, status := range statuses {
+		for i := 0; i < counts[status]; i++ {
+			name := fmt.Sprintf("%s-%d", strings.ToLower(status), i)
+			row := make([]string, len(kind.Columns))
+			for c := range row {
+				row[c] = "—"
+			}
+			row[0] = name
+			out = append(out, gcp.Resource{Name: name, Status: status, Row: row})
+		}
+	}
+	return out
+}
+
+// kindByID looks a kind up among the registered listers.
+func kindByID(id string) gcp.Kind {
+	for _, l := range gcp.Listers() {
+		if l.Kind().ID == id {
+			return l.Kind()
+		}
+	}
+	panic("unknown kind " + id)
 }
 
 // projectsShot is the picker with every credential state visible at once,

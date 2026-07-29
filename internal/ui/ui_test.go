@@ -4,8 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/TTMathCS/g9s/internal/auth"
 	"github.com/TTMathCS/g9s/internal/config"
 	"github.com/TTMathCS/g9s/internal/gcp"
 )
@@ -308,7 +310,7 @@ func TestViewRendersEveryScreen(t *testing.T) {
 	}
 
 	for _, size := range sizes {
-		for _, sc := range []screen{screenProjects, screenResources, screenDetail, screenHelp} {
+		for _, sc := range []screen{screenProjects, screenOverview, screenResources, screenDetail, screenHelp} {
 			m := testModel(t, resources)
 			m.width, m.height = size.w, size.h
 			m.screen = sc
@@ -366,3 +368,305 @@ func TestViewSurvivesEmptyAndLoadingStates(t *testing.T) {
 type errTest struct{}
 
 func (errTest) Error() string { return "boom" }
+
+// --- dashboard and merged view ---
+
+// populatedModel caches every kind, so the dashboard and the merged table have
+// something to aggregate.
+func populatedModel(t *testing.T) Model {
+	t.Helper()
+
+	m := New(&config.Config{Projects: []config.Project{{Name: "prod", ProjectID: "prod-1"}}}, nil)
+	m.width, m.height = 132, 24
+	m.active, m.hasActive = m.cfg.Projects[0], true
+	m.authStatus["prod"] = auth.Status{State: auth.StateValid}
+
+	m.cache["vm"] = gcp.Result{Resources: []gcp.Resource{
+		{Name: "web-01", Location: "us-central1-a", Status: "RUNNING", Row: []string{"web-01", "us-central1-a", "n2-standard-4", "10.0.0.5", "-", "RUNNING", "3d"}},
+		{Name: "web-02", Location: "us-central1-a", Status: "RUNNING", Row: []string{"web-02", "us-central1-a", "n2-standard-4", "10.0.0.6", "-", "RUNNING", "3d"}},
+		{Name: "db-01", Location: "us-east1-b", Status: "TERMINATED", Row: []string{"db-01", "us-east1-b", "n2-standard-8", "10.0.1.5", "-", "TERMINATED", "9d"}},
+	}}
+	m.cache["dataproc"] = gcp.Result{
+		Resources: []gcp.Resource{{Name: "etl", Location: "us-central1", Status: "RUNNING", Row: []string{"etl", "us-central1", "RUNNING", "4", "12d"}}},
+		Warnings:  []string{"us-east4: permission denied"},
+	}
+	m.cache["composer"] = gcp.Result{Resources: []gcp.Resource{
+		{Name: "airflow", Location: "us-central1", Status: "RUNNING", Row: []string{"airflow", "us-central1", "RUNNING", "2.7.3", "88d"}},
+	}}
+	return m
+}
+
+func TestMergedViewRowsMatchAllKindColumns(t *testing.T) {
+	// The table renderer indexes cells against the declared columns, so a
+	// mismatch here is an out-of-range panic in front of a user.
+	m := populatedModel(t)
+	merged := m.mergedResources()
+
+	if len(merged) != 5 {
+		t.Fatalf("merged %d resources, want 5 across the three kinds", len(merged))
+	}
+	for _, r := range merged {
+		if len(r.Row) != len(allKind.Columns) {
+			t.Errorf("%s has %d cells, allKind declares %d columns", r.Name, len(r.Row), len(allKind.Columns))
+		}
+	}
+}
+
+func TestMergedViewKeepsListerOrderAndIdentity(t *testing.T) {
+	m := populatedModel(t)
+	merged := m.mergedResources()
+
+	wantKinds := []string{"VM Instances", "VM Instances", "VM Instances", "Dataproc Clusters", "Composer Environments"}
+	for i, want := range wantKinds {
+		if merged[i].Row[0] != want {
+			t.Errorf("row %d kind cell = %q, want %q", i, merged[i].Row[0], want)
+		}
+	}
+
+	// Name, Location and Status have to survive the reshape: the merged table
+	// is not a dead end, it still drives describe, open, yank and ssh.
+	if merged[0].Name != "web-01" || merged[0].Location != "us-central1-a" || merged[0].Status != "RUNNING" {
+		t.Errorf("identity fields lost in merge: %+v", merged[0])
+	}
+}
+
+func TestMergedViewPreservesRawForActions(t *testing.T) {
+	// SSHTarget and AirflowURI both type-switch on Raw, so dropping it would
+	// silently disable ssh and open from the merged table.
+	m := populatedModel(t)
+	sentinel := struct{ marker string }{marker: "raw"}
+	m.cache["vm"] = gcp.Result{Resources: []gcp.Resource{
+		{Name: "web-01", Status: "RUNNING", Row: []string{"web-01"}, Raw: sentinel, ConsoleURL: "https://console.example"},
+	}}
+
+	merged := m.mergedResources()
+	if merged[0].Raw != any(sentinel) {
+		t.Error("Raw dropped during merge — ssh and open would stop working")
+	}
+	if merged[0].ConsoleURL != "https://console.example" {
+		t.Error("ConsoleURL dropped during merge")
+	}
+}
+
+func TestMergedViewFiltersAcrossKinds(t *testing.T) {
+	m := populatedModel(t)
+	m.kindIdx = m.allTabIdx()
+
+	m.filter.SetValue("composer")
+	if got := len(m.visibleResources()); got != 1 {
+		t.Errorf("filtering the merged table on a kind name matched %d rows, want 1", got)
+	}
+
+	m.filter.SetValue("us-central1-a")
+	if got := len(m.visibleResources()); got != 2 {
+		t.Errorf("filtering on a location matched %d rows, want 2", got)
+	}
+}
+
+func TestStatusCountsOrderAndTieBreak(t *testing.T) {
+	got := statusCounts([]gcp.Resource{
+		{Status: "RUNNING"}, {Status: "RUNNING"}, {Status: "RUNNING"},
+		{Status: "TERMINATED"},
+		{Status: "STAGING"},
+	})
+
+	if len(got) != 3 {
+		t.Fatalf("got %d buckets, want 3: %+v", len(got), got)
+	}
+	if got[0].status != "RUNNING" || got[0].count != 3 {
+		t.Errorf("most common bucket = %+v, want 3 RUNNING", got[0])
+	}
+	// Equal counts sort alphabetically so the dashboard does not reshuffle
+	// between refreshes returning identical data.
+	if got[1].status != "STAGING" || got[2].status != "TERMINATED" {
+		t.Errorf("ties should break alphabetically, got %q then %q", got[1].status, got[2].status)
+	}
+}
+
+func TestStatusCountsCollapsesLongTail(t *testing.T) {
+	got := statusCounts([]gcp.Resource{
+		{Status: "A"}, {Status: "B"}, {Status: "C"}, {Status: "D"}, {Status: "E"}, {Status: "F"},
+	})
+
+	if len(got) != 4 {
+		t.Fatalf("got %d buckets, want 4 (three plus OTHER)", len(got))
+	}
+	last := got[len(got)-1]
+	if last.status != "OTHER" || last.count != 3 {
+		t.Errorf("tail bucket = %+v, want OTHER covering the 3 not shown individually", last)
+	}
+
+	// Every resource has to be accounted for somewhere, or the breakdown
+	// contradicts the count next to it.
+	total := 0
+	for _, sc := range got {
+		total += sc.count
+	}
+	if total != 6 {
+		t.Errorf("buckets total %d, want all 6 resources accounted for", total)
+	}
+}
+
+func TestStatusCountsLabelsMissingStatus(t *testing.T) {
+	got := statusCounts([]gcp.Resource{{Status: ""}})
+	if len(got) != 1 || got[0].status != "UNKNOWN" {
+		t.Errorf("blank status should bucket as UNKNOWN, got %+v", got)
+	}
+}
+
+func TestTabsIncludeMergedViewLast(t *testing.T) {
+	m := populatedModel(t)
+	tabs := m.tabs()
+
+	if len(tabs) != len(m.listers)+1 {
+		t.Fatalf("got %d tabs for %d listers, want one more", len(tabs), len(m.listers))
+	}
+	if tabs[len(tabs)-1].ID != allKind.ID {
+		t.Errorf("merged view should be the last tab, got %q", tabs[len(tabs)-1].ID)
+	}
+	if m.allTabIdx() != len(tabs)-1 {
+		t.Errorf("allTabIdx %d does not point at the last tab %d", m.allTabIdx(), len(tabs)-1)
+	}
+}
+
+func TestTabCountAggregatesAcrossKinds(t *testing.T) {
+	m := populatedModel(t)
+
+	n, known := m.tabCount(allKind)
+	if !known || n != 5 {
+		t.Errorf("merged tab count = %d (known=%v), want 5", n, known)
+	}
+
+	// Unknown until at least one kind has landed, otherwise a fresh project
+	// would claim it has zero of everything.
+	empty := New(m.cfg, nil)
+	if _, known := empty.tabCount(allKind); known {
+		t.Error("merged count should be unknown before any kind loads")
+	}
+}
+
+func TestCycleTabsReachesMergedView(t *testing.T) {
+	m := populatedModel(t)
+	m.screen = screenResources
+
+	seen := map[string]bool{}
+	for i := 0; i < len(m.tabs()); i++ {
+		seen[m.currentKind().ID] = true
+		next, _ := m.handleResourcesKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("]")})
+		m = next.(Model)
+	}
+	if !seen[allKind.ID] {
+		t.Error("cycling with ] never reached the merged view")
+	}
+	if m.kindIdx != 0 {
+		t.Errorf("cycling a full lap ended on tab %d, want to wrap to 0", m.kindIdx)
+	}
+}
+
+func TestDashboardEnterOpensSelectedCategory(t *testing.T) {
+	m := populatedModel(t)
+	m.screen = screenOverview
+	m.ovCursor = 1
+
+	next, _ := m.handleOverviewKey(tea.KeyMsg{Type: tea.KeyEnter})
+	got := next.(Model)
+
+	if got.screen != screenResources {
+		t.Errorf("enter on the dashboard left screen = %v, want screenResources", got.screen)
+	}
+	if got.kindIdx != 1 {
+		t.Errorf("opened tab %d, want the one under the cursor (1)", got.kindIdx)
+	}
+}
+
+func TestDashboardAKeyOpensMergedView(t *testing.T) {
+	m := populatedModel(t)
+	m.screen = screenOverview
+
+	next, _ := m.handleOverviewKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	got := next.(Model)
+
+	if !got.onAllTab() {
+		t.Errorf("a should open the merged view, landed on tab %d", got.kindIdx)
+	}
+	if got.screen != screenResources {
+		t.Errorf("screen = %v, want screenResources", got.screen)
+	}
+}
+
+func TestEscFromTableReturnsToDashboard(t *testing.T) {
+	// esc backing out to the project list would skip the level the user
+	// actually navigates from.
+	m := populatedModel(t)
+	m.screen = screenResources
+	m.kindIdx = 2
+
+	next, _ := m.handleResourcesKey(tea.KeyMsg{Type: tea.KeyEsc})
+	got := next.(Model)
+
+	if got.screen != screenOverview {
+		t.Errorf("esc left screen = %v, want screenOverview", got.screen)
+	}
+	if got.ovCursor != 2 {
+		t.Errorf("dashboard cursor = %d, want it parked on the category we came from (2)", got.ovCursor)
+	}
+}
+
+func TestDashboardCursorStaysInRange(t *testing.T) {
+	m := populatedModel(t)
+	m.screen = screenOverview
+
+	for i := 0; i < 20; i++ {
+		next, _ := m.handleOverviewKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+		m = next.(Model)
+	}
+	if m.ovCursor != len(m.tabs())-1 {
+		t.Errorf("cursor ran to %d, want it to stop at the last tab %d", m.ovCursor, len(m.tabs())-1)
+	}
+
+	for i := 0; i < 20; i++ {
+		next, _ := m.handleOverviewKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+		m = next.(Model)
+	}
+	if m.ovCursor != 0 {
+		t.Errorf("cursor ran to %d going up, want 0", m.ovCursor)
+	}
+}
+
+func TestDashboardRendersCountsStatusesAndWarnings(t *testing.T) {
+	m := populatedModel(t)
+	m.screen = screenOverview
+	out := m.View()
+
+	for _, want := range []string{"VM Instances", "All Resources", "RUNNING", "TERMINATED"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dashboard is missing %q", want)
+		}
+	}
+	// The Dataproc listing came back partial; that has to be visible without
+	// drilling in, or a truncated list reads as complete.
+	if !strings.Contains(out, "unavailable") {
+		t.Error("dashboard should flag the partial Dataproc listing")
+	}
+}
+
+func TestDashboardDistinguishesLoadingEmptyAndFailed(t *testing.T) {
+	m := populatedModel(t)
+	m.screen = screenOverview
+
+	m.loading["vm"] = true
+	if !strings.Contains(m.View(), "loading…") {
+		t.Error("a kind still fetching should say so")
+	}
+	m.loading["vm"] = false
+
+	m.cache["vm"] = gcp.Result{}
+	if !strings.Contains(m.View(), "none") {
+		t.Error("a kind that loaded with nothing in it should read as none, not blank")
+	}
+
+	m.loadErr["vm"] = errTest{}
+	if !strings.Contains(m.View(), "failed") {
+		t.Error("a failed kind should say so on the dashboard")
+	}
+}

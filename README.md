@@ -4,15 +4,21 @@ A k9s-style terminal UI for Google Cloud. Pick a project, browse what's running 
 
 Built for the case where you have several projects, each reached through a different account, and those accounts expire daily.
 
+Three screens, in the order you move through them.
+
+**Projects.** You open here, and the thing you actually need to know is already on screen: which of your ten projects you can use right now. Green is good for another 38 minutes, amber expired overnight, hollow means this machine has never logged in. Press `l` on any row and gcloud takes the terminal to fix it.
+
 ![The g9s project picker: ten GCP projects listed with their project IDs and the live state of each one's credentials](docs/projects.png)
 
-You open on the picker, and the thing you actually need to know is already on screen: which of your ten projects you can use right now. Green is good for another 38 minutes, amber expired overnight, hollow means this machine has never logged in. Press `l` on any row and gcloud takes the terminal to fix it.
+**Dashboard.** Selecting a project fans out across every resource kind at once and lands you here — what exists, how much of it, and what state it is in, before you drill into anything. A category whose listing came back partial says so on its own row, so a truncated list never reads as an empty one. `enter` opens the category under the cursor, or jump straight in with `1`/`2`/`3`.
+
+![The g9s dashboard: each resource category with its count and a breakdown of resource states, plus a merged All Resources row](docs/dashboard.png)
+
+**Resources.** The table for one category, colour-coded by status. `a` swaps to *All Resources*, which merges every kind into one table keyed by kind, name, location and status — the flat "what is in this project" list. `esc` goes back up to the dashboard, `p` all the way out to the project list.
 
 ![The g9s resource table: nine VM instances in the prod-data project, with a warning in the status bar that one region was unavailable](docs/resources.png)
 
-Select a project and you get its resources, colour-coded by status, with a footer that admits when a listing is incomplete rather than showing you a confident-looking table that quietly dropped a region.
-
-<sub>Both screenshots are generated from the real rendering code — see <a href="docs/">docs/</a>. The projects, IDs and accounts in them are invented.</sub>
+<sub>All three screenshots are generated from the real rendering code — see <a href="docs/">docs/</a>. The projects, IDs and accounts in them are invented.</sub>
 
 ## Why this exists
 
@@ -21,6 +27,8 @@ Cloud Asset Inventory makes "list everything in a project" a single API call. Wi
 ## Status
 
 MVP. Three resource kinds (Compute Engine, Dataproc, Cloud Composer), read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
+
+Navigation is three levels deep: projects → dashboard → a category's table, with `esc` walking back up. A new kind appears on the dashboard, in the tab bar and in *All Resources* automatically; there is nothing to register in the UI.
 
 ## Requirements
 
@@ -224,16 +232,19 @@ Unknown keys are an error rather than a silent default, so a typo'd `regionz:` t
 |---|---|
 | `↑`/`k`, `↓`/`j` | move cursor |
 | `g` / `G` | top / bottom |
-| `1` `2` `3`, `tab` | switch resource kind |
-| `enter` | describe (YAML, as `gcloud describe` would show it) |
+| `enter` | dashboard: open the category · table: describe (YAML, as `gcloud describe` shows it) |
+| `1` `2` `3` | jump straight to a resource kind |
+| `a` | all resources — every kind in one table |
+| `tab` / `shift+tab` | cycle resource kinds |
+| `d` / `esc` | back to the dashboard |
+| `p` | back to the project list |
 | `/` | filter rows; `esc` clears |
-| `r` | refresh current kind |
+| `r` | refresh current kind — every kind when on the dashboard |
 | `o` | open — Airflow UI for Composer, Cloud Console otherwise |
 | `c` | open in Cloud Console |
 | `y` | copy name to clipboard (OSC 52, works over SSH) |
 | `s` | SSH to the selected running VM |
 | `l` / `L` | log in / log in without a local browser |
-| `p` / `esc` | back to the project list |
 | `?` | help |
 | `q` | quit |
 

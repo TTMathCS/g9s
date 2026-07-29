@@ -18,10 +18,28 @@ type screen int
 
 const (
 	screenProjects screen = iota
+	screenOverview
 	screenResources
 	screenDetail
 	screenHelp
 )
+
+// allKind is a synthetic kind that merges every real kind into one table.
+//
+// It is not a Lister: there is nothing extra to fetch, because it is assembled
+// from what the real listers already cached. The columns are deliberately the
+// four fields every Resource carries regardless of kind — anything richer
+// would have to be per-kind, which is what the individual tables are for.
+var allKind = gcp.Kind{
+	ID:    "all",
+	Title: "All Resources",
+	Columns: []gcp.Column{
+		{Title: "KIND", Width: 3},
+		{Title: "NAME", Width: 6},
+		{Title: "LOCATION", Width: 4},
+		{Title: "STATUS", Width: 3},
+	},
+}
 
 // Model is the root bubbletea model.
 type Model struct {
@@ -36,6 +54,12 @@ type Model struct {
 	// project picker
 	projCursor int
 	authStatus map[string]auth.Status
+
+	// overview dashboard
+	ovCursor int
+	// helpReturn remembers which screen opened help, so esc goes back rather
+	// than dumping the user somewhere they were not.
+	helpReturn screen
 
 	// active selection
 	active    config.Project
@@ -93,24 +117,73 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func (m Model) currentLister() gcp.Lister {
-	return m.listers[m.kindIdx]
+// tabs are the selectable kinds: every lister, then the merged view.
+func (m Model) tabs() []gcp.Kind {
+	out := make([]gcp.Kind, 0, len(m.listers)+1)
+	for _, l := range m.listers {
+		out = append(out, l.Kind())
+	}
+	return append(out, allKind)
+}
+
+// allTabIdx is the index of the merged view in tabs().
+func (m Model) allTabIdx() int { return len(m.listers) }
+
+// onAllTab reports whether the merged view is selected.
+func (m Model) onAllTab() bool { return m.kindIdx == m.allTabIdx() }
+
+// currentLister returns the lister backing the active tab. The merged tab has
+// none, which is why the second return value exists.
+func (m Model) currentLister() (gcp.Lister, bool) {
+	if m.kindIdx < 0 || m.kindIdx >= len(m.listers) {
+		return nil, false
+	}
+	return m.listers[m.kindIdx], true
 }
 
 func (m Model) currentKind() gcp.Kind {
-	return m.currentLister().Kind()
+	tabs := m.tabs()
+	if m.kindIdx < 0 || m.kindIdx >= len(tabs) {
+		return tabs[0]
+	}
+	return tabs[m.kindIdx]
 }
 
-// visibleResources applies the filter to the active kind's cached results.
+// mergedResources flattens every loaded kind into one list, in lister order,
+// re-shaping each row to allKind's columns. Name, Location, Status and Raw are
+// carried through untouched, so describe, open, yank and ssh keep working from
+// the merged table exactly as they do from a per-kind one.
+func (m Model) mergedResources() []gcp.Resource {
+	out := make([]gcp.Resource, 0, 64)
+	for _, l := range m.listers {
+		kind := l.Kind()
+		for _, r := range m.cache[kind.ID].Resources {
+			merged := r
+			merged.Row = []string{kind.Title, r.Name, r.Location, r.Status}
+			out = append(out, merged)
+		}
+	}
+	return out
+}
+
+// resourcesFor returns the rows backing a tab, before filtering.
+func (m Model) resourcesFor(kindID string) []gcp.Resource {
+	if kindID == allKind.ID {
+		return m.mergedResources()
+	}
+	return m.cache[kindID].Resources
+}
+
+// visibleResources applies the filter to the active tab's rows.
 func (m Model) visibleResources() []gcp.Resource {
-	result := m.cache[m.currentKind().ID]
+	resources := m.resourcesFor(m.currentKind().ID)
 	query := strings.ToLower(strings.TrimSpace(m.filter.Value()))
 	if query == "" {
-		return result.Resources
+		return resources
 	}
 
-	out := make([]gcp.Resource, 0, len(result.Resources))
-	for _, r := range result.Resources {
+	out := make([]gcp.Resource, 0, len(resources))
+	for _, r := range resources {
 		if strings.Contains(strings.ToLower(strings.Join(r.Row, " ")), query) {
 			out = append(out, r)
 		}
@@ -138,9 +211,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.authStatus[msg.project] = msg.status
 		// A refresh triggered from the resources screen should flow straight
 		// into a load once the credentials come back healthy.
-		if m.hasActive && msg.project == m.active.Name && msg.status.Valid() && m.screen == screenResources {
-			if !m.hasData(m.currentKind().ID) {
-				return m.loadCurrent()
+		if m.hasActive && msg.project == m.active.Name && msg.status.Valid() {
+			switch m.screen {
+			case screenOverview:
+				return m.loadMissing()
+			case screenResources:
+				if !m.hasData(m.currentKind().ID) {
+					return m.loadCurrentIfEmpty()
+				}
 			}
 		}
 		return m, nil
@@ -188,7 +266,9 @@ func (m Model) handleResources(msg resourcesMsg) (tea.Model, tea.Cmd) {
 
 	delete(m.loadErr, msg.kind)
 	m.cache[msg.kind] = msg.result
-	if msg.kind == m.currentKind().ID {
+	// The merged table grows as each kind lands, so its cursor needs clamping
+	// on every arrival, not just when the kind IDs match.
+	if msg.kind == m.currentKind().ID || m.onAllTab() {
 		m.clampCursor()
 	}
 	return m, nil
@@ -239,11 +319,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "?":
 		if m.screen == screenHelp {
-			m.screen = screenResources
-			if !m.hasActive {
-				m.screen = screenProjects
-			}
+			m.screen = m.homeScreen()
 		} else {
+			m.helpReturn = m.screen
 			m.screen = screenHelp
 		}
 		return m, nil
@@ -252,20 +330,32 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.screen {
 	case screenProjects:
 		return m.handleProjectsKey(msg)
+	case screenOverview:
+		return m.handleOverviewKey(msg)
 	case screenResources:
 		return m.handleResourcesKey(msg)
 	case screenDetail:
 		return m.handleDetailKey(msg)
 	case screenHelp:
 		if msg.String() == "esc" || msg.String() == "q" {
-			m.screen = screenProjects
-			if m.hasActive {
-				m.screen = screenResources
-			}
+			m.screen = m.homeScreen()
 		}
 		return m, nil
 	}
 	return m, nil
+}
+
+// homeScreen is where esc lands from a modal screen: back where help was
+// opened from when that is known, otherwise the most sensible default.
+func (m Model) homeScreen() screen {
+	switch {
+	case m.helpReturn == screenResources && m.hasActive:
+		return screenResources
+	case m.hasActive:
+		return screenOverview
+	default:
+		return screenProjects
+	}
 }
 
 func (m Model) handleProjectsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -326,19 +416,94 @@ func (m Model) selectProject() (tea.Model, tea.Cmd) {
 		m.kindIdx = 0
 	}
 	m.active, m.hasActive = p, true
-	m.screen = screenResources
+	m.screen = screenOverview
 	m.cursor = 0
+	m.ovCursor = 0
 	m.filter.SetValue("")
 
-	return m.loadCurrent()
+	// The dashboard is only useful if every category is populated, so selecting
+	// a project fans out across all of them at once rather than lazily.
+	return m.loadAll()
 }
 
 func (m Model) startLogin(noBrowser bool) (tea.Model, tea.Cmd) {
 	p := m.cfg.Projects[m.projCursor]
-	if m.hasActive && m.screen == screenResources {
+	if m.hasActive && (m.screen == screenResources || m.screen == screenOverview) {
 		p = m.active
 	}
 	return m, login(m.auth, p, noBrowser)
+}
+
+// handleOverviewKey drives the dashboard. Its whole job is to get you into a
+// category, so every key that picks one also opens it.
+func (m Model) handleOverviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	tabs := m.tabs()
+
+	switch msg.String() {
+	case "q":
+		m.quitting = true
+		return m, tea.Quit
+
+	case "esc", "p":
+		m.screen = screenProjects
+		return m, nil
+
+	case "up", "k":
+		if m.ovCursor > 0 {
+			m.ovCursor--
+		}
+		return m, nil
+
+	case "down", "j":
+		if m.ovCursor < len(tabs)-1 {
+			m.ovCursor++
+		}
+		return m, nil
+
+	case "g":
+		m.ovCursor = 0
+		return m, nil
+
+	case "G":
+		m.ovCursor = len(tabs) - 1
+		return m, nil
+
+	case "a":
+		return m.openTab(m.allTabIdx())
+
+	case "1", "2", "3", "4", "5":
+		idx := int(msg.String()[0] - '1')
+		if idx < len(m.listers) {
+			return m.openTab(idx)
+		}
+		return m, nil
+
+	case "enter":
+		return m.openTab(m.ovCursor)
+
+	case "r":
+		return m.loadAll()
+
+	case "l":
+		return m.startLogin(false)
+
+	case "L":
+		return m.startLogin(true)
+	}
+	return m, nil
+}
+
+// openTab drills from the dashboard into one category's table.
+func (m Model) openTab(idx int) (tea.Model, tea.Cmd) {
+	if idx < 0 || idx >= len(m.tabs()) {
+		return m, nil
+	}
+	m.kindIdx = idx
+	m.ovCursor = idx
+	m.cursor = 0
+	m.filter.SetValue("")
+	m.screen = screenResources
+	return m.loadCurrentIfEmpty()
 }
 
 func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -349,7 +514,14 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 
-	case "esc", "p":
+	case "esc":
+		// Back up one level rather than all the way out: the dashboard is
+		// where you came from and where you pick the next category.
+		m.screen = screenOverview
+		m.ovCursor = m.kindIdx
+		return m, nil
+
+	case "p":
 		m.screen = screenProjects
 		return m, nil
 
@@ -374,12 +546,12 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "tab", "]":
-		m.kindIdx = (m.kindIdx + 1) % len(m.listers)
+		m.kindIdx = (m.kindIdx + 1) % len(m.tabs())
 		m.cursor = 0
 		return m.loadCurrentIfEmpty()
 
 	case "shift+tab", "[":
-		m.kindIdx = (m.kindIdx - 1 + len(m.listers)) % len(m.listers)
+		m.kindIdx = (m.kindIdx - 1 + len(m.tabs())) % len(m.tabs())
 		m.cursor = 0
 		return m.loadCurrentIfEmpty()
 
@@ -390,6 +562,16 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor = 0
 			return m.loadCurrentIfEmpty()
 		}
+		return m, nil
+
+	case "a":
+		m.kindIdx = m.allTabIdx()
+		m.cursor = 0
+		return m.loadCurrentIfEmpty()
+
+	case "d":
+		m.screen = screenOverview
+		m.ovCursor = m.kindIdx
 		return m, nil
 
 	case "/":
@@ -477,16 +659,21 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// loadCurrent forces a refresh of the active kind.
+// loadCurrent forces a refresh of the active kind. On the merged tab, where
+// there is no single lister to refresh, it reloads everything.
 func (m Model) loadCurrent() (tea.Model, tea.Cmd) {
 	if !m.hasActive {
 		return m, nil
 	}
-	if status, ok := m.authStatus[m.active.Name]; !ok || !status.Valid() {
+	if !m.credentialsUsable() {
 		return m, flash("credentials expired — press l to log in again", flashWarn)
 	}
 
-	lister := m.currentLister()
+	lister, ok := m.currentLister()
+	if !ok {
+		return m.loadAll()
+	}
+
 	m.refreshToken++
 	m.loading[lister.Kind().ID] = true
 	delete(m.loadErr, lister.Kind().ID)
@@ -494,14 +681,68 @@ func (m Model) loadCurrent() (tea.Model, tea.Cmd) {
 	return m, listResources(m.cfg, m.auth, m.active, lister, m.refreshToken)
 }
 
-// loadCurrentIfEmpty fetches only when the kind has not been loaded yet, so
-// tabbing between kinds is instant after the first visit.
+// loadAll refreshes every kind concurrently. One bumped token covers the whole
+// fan-out, so a refresh started later cleanly supersedes this one.
+func (m Model) loadAll() (tea.Model, tea.Cmd) {
+	if !m.hasActive {
+		return m, nil
+	}
+	if !m.credentialsUsable() {
+		return m, flash("credentials expired — press l to log in again", flashWarn)
+	}
+
+	m.refreshToken++
+	cmds := make([]tea.Cmd, 0, len(m.listers))
+	for _, l := range m.listers {
+		m.loading[l.Kind().ID] = true
+		delete(m.loadErr, l.Kind().ID)
+		cmds = append(cmds, listResources(m.cfg, m.auth, m.active, l, m.refreshToken))
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m Model) credentialsUsable() bool {
+	status, ok := m.authStatus[m.active.Name]
+	return ok && status.Valid()
+}
+
+// loadCurrentIfEmpty fetches only what is missing, so tabbing between kinds is
+// instant after the first visit. On the merged tab that means filling in any
+// kind still unloaded rather than refetching the ones already cached.
 func (m Model) loadCurrentIfEmpty() (tea.Model, tea.Cmd) {
+	if m.onAllTab() {
+		return m.loadMissing()
+	}
 	kind := m.currentKind().ID
 	if m.hasData(kind) || m.loading[kind] {
 		return m, nil
 	}
 	return m.loadCurrent()
+}
+
+// loadMissing fetches the kinds that have neither data nor a load in flight.
+func (m Model) loadMissing() (tea.Model, tea.Cmd) {
+	if !m.hasActive || !m.credentialsUsable() {
+		return m, nil
+	}
+
+	var cmds []tea.Cmd
+	for _, l := range m.listers {
+		id := l.Kind().ID
+		if m.hasData(id) || m.loading[id] {
+			continue
+		}
+		if cmds == nil {
+			m.refreshToken++
+		}
+		m.loading[id] = true
+		delete(m.loadErr, id)
+		cmds = append(cmds, listResources(m.cfg, m.auth, m.active, l, m.refreshToken))
+	}
+	if cmds == nil {
+		return m, nil
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m Model) hasData(kind string) bool {

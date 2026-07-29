@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -34,6 +35,8 @@ func (m Model) View() string {
 	switch m.screen {
 	case screenProjects:
 		body = m.projectsView()
+	case screenOverview:
+		body = m.overviewView()
 	case screenResources:
 		body = m.resourcesView()
 	case screenDetail:
@@ -60,22 +63,29 @@ func (m Model) headerView() string {
 
 	line := lipgloss.JoinHorizontal(lipgloss.Left, title, crumbStyle.Render(truncate(crumb, max(10, m.width-20))))
 
-	if m.screen == screenProjects || m.screen == screenHelp {
+	if m.screen == screenProjects || m.screen == screenHelp || m.screen == screenOverview {
 		return line + "\n"
 	}
 	return line + "\n" + m.tabsView()
 }
 
 func (m Model) tabsView() string {
-	parts := make([]string, 0, len(m.listers))
-	for i, l := range m.listers {
-		kind := l.Kind()
-		label := fmt.Sprintf("%d %s", i+1, kind.Title)
+	tabs := m.tabs()
+	parts := make([]string, 0, len(tabs))
 
-		if count, ok := m.cache[kind.ID]; ok {
-			label += fmt.Sprintf(" (%d)", len(count.Resources))
+	for i, kind := range tabs {
+		// The merged tab answers to "a" rather than a number, since the digits
+		// are spoken for by the real kinds.
+		key := fmt.Sprintf("%d", i+1)
+		if kind.ID == allKind.ID {
+			key = "a"
 		}
-		if m.loading[kind.ID] {
+		label := key + " " + kind.Title
+
+		if n, known := m.tabCount(kind); known {
+			label += fmt.Sprintf(" (%d)", n)
+		}
+		if m.tabLoading(kind) {
 			label += " …"
 		}
 
@@ -86,6 +96,170 @@ func (m Model) tabsView() string {
 		}
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, parts...)
+}
+
+// tabCount reports a tab's resource count, and whether it is known yet. The
+// merged tab is known once any kind has landed; showing nothing until all of
+// them finish would make a fast kind look like a hang.
+func (m Model) tabCount(kind gcp.Kind) (int, bool) {
+	if kind.ID == allKind.ID {
+		n, any := 0, false
+		for _, l := range m.listers {
+			if result, ok := m.cache[l.Kind().ID]; ok {
+				n += len(result.Resources)
+				any = true
+			}
+		}
+		return n, any
+	}
+	result, ok := m.cache[kind.ID]
+	return len(result.Resources), ok
+}
+
+// tabLoading reports whether a tab still has a fetch in flight.
+func (m Model) tabLoading(kind gcp.Kind) bool {
+	if kind.ID != allKind.ID {
+		return m.loading[kind.ID]
+	}
+	for _, l := range m.listers {
+		if m.loading[l.Kind().ID] {
+			return true
+		}
+	}
+	return false
+}
+
+// --- overview ---
+
+// overviewView is the dashboard: every category with its count and a breakdown
+// of what state those resources are in, so the shape of a project is legible
+// before drilling into anything.
+func (m Model) overviewView() string {
+	var b strings.Builder
+
+	tabs := m.tabs()
+	labelWidth := 0
+	for _, kind := range tabs {
+		labelWidth = max(labelWidth, len(kind.Title))
+	}
+
+	b.WriteString(headerRowStyle.Render(
+		"   "+pad("CATEGORY", labelWidth)+"  "+pad("COUNT", 6)+"  "+"STATE") + "\n")
+
+	for i, kind := range tabs {
+		key := fmt.Sprintf("%d", i+1)
+		if kind.ID == allKind.ID {
+			key = "a"
+		}
+
+		count := "—"
+		if n, known := m.tabCount(kind); known {
+			count = fmt.Sprintf("%d", n)
+		}
+
+		line := fmt.Sprintf(" %s %s  %s  ", key, pad(kind.Title, labelWidth), pad(count, 6))
+		if i == m.ovCursor {
+			line = fmt.Sprintf("▸%s %s  %s  ", key, pad(kind.Title, labelWidth), pad(count, 6))
+			b.WriteString(selectedRowStyle.Render(line))
+		} else {
+			b.WriteString(rowStyle.Render(line))
+		}
+
+		// Written outside the row style so the selection highlight stops at the
+		// count and the status colours survive on the selected row too.
+		b.WriteString(" " + m.categoryState(kind))
+		b.WriteString("\n")
+	}
+
+	for i := len(tabs) + 1; i < m.bodyHeight()+1; i++ {
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// categoryState renders the right-hand column of a dashboard row: a status
+// breakdown when the data is in, and the reason it is not when it isn't.
+func (m Model) categoryState(kind gcp.Kind) string {
+	if m.tabLoading(kind) {
+		return mutedStyle.Render("loading…")
+	}
+	if err, failed := m.loadErr[kind.ID]; failed {
+		return badStyle.Render("failed: " + truncate(err.Error(), max(20, m.width/3)))
+	}
+	if _, known := m.tabCount(kind); !known {
+		return mutedStyle.Render("not loaded")
+	}
+
+	resources := m.resourcesFor(kind.ID)
+	if len(resources) == 0 {
+		return mutedStyle.Render("none")
+	}
+
+	parts := make([]string, 0, 4)
+	for _, sc := range statusCounts(resources) {
+		parts = append(parts, statusStyle(sc.status).Render(fmt.Sprintf("%d %s", sc.count, sc.status)))
+	}
+
+	out := strings.Join(parts, mutedStyle.Render(" · "))
+	if warnings := m.warningsFor(kind); len(warnings) > 0 {
+		out += warnStyle.Render(fmt.Sprintf("   ⚠ %d scope(s) unavailable", len(warnings)))
+	}
+	return out
+}
+
+// statusCount is one bucket of the status breakdown.
+type statusCount struct {
+	status string
+	count  int
+}
+
+// statusCounts buckets resources by their own status string, most common
+// first. Ties break alphabetically so the dashboard does not reshuffle
+// between refreshes that return the same data.
+func statusCounts(resources []gcp.Resource) []statusCount {
+	counts := map[string]int{}
+	for _, r := range resources {
+		status := r.Status
+		if status == "" {
+			status = "UNKNOWN"
+		}
+		counts[strings.ToUpper(status)]++
+	}
+
+	out := make([]statusCount, 0, len(counts))
+	for status, n := range counts {
+		out = append(out, statusCount{status: status, count: n})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].count != out[j].count {
+			return out[i].count > out[j].count
+		}
+		return out[i].status < out[j].status
+	})
+
+	// Past a handful the row stops being scannable, which is the only thing
+	// the dashboard is for.
+	const maxBuckets = 4
+	if len(out) > maxBuckets {
+		other := 0
+		for _, sc := range out[maxBuckets-1:] {
+			other += sc.count
+		}
+		out = append(out[:maxBuckets-1], statusCount{status: "OTHER", count: other})
+	}
+	return out
+}
+
+// warningsFor returns the partial-listing warnings attached to a tab.
+func (m Model) warningsFor(kind gcp.Kind) []string {
+	if kind.ID != allKind.ID {
+		return m.cache[kind.ID].Warnings
+	}
+	var out []string
+	for _, l := range m.listers {
+		out = append(out, m.cache[l.Kind().ID].Warnings...)
+	}
+	return out
 }
 
 // --- projects ---
@@ -321,14 +495,16 @@ func (m Model) helpView() string {
 		{"Navigation", []helpEntry{
 			{"↑/k ↓/j", "move cursor"},
 			{"g / G", "jump to top / bottom"},
-			{"1 2 3", "switch resource kind"},
+			{"enter", "open category (dashboard) / describe (table)"},
+			{"1 2 3", "jump straight to a resource kind"},
+			{"a", "all resources, every kind in one table"},
 			{"tab / shift+tab", "cycle resource kinds"},
-			{"p / esc", "back to project list"},
-			{"enter", "describe selected resource"},
+			{"d / esc", "back to the dashboard"},
+			{"p", "back to the project list"},
 			{"/", "filter rows (esc clears)"},
 		}},
 		{"Actions", []helpEntry{
-			{"r", "refresh current kind"},
+			{"r", "refresh current kind (all of them on the dashboard)"},
 			{"o", "open (Airflow UI for Composer, Console otherwise)"},
 			{"c", "open in Cloud Console"},
 			{"y", "copy name to clipboard (OSC 52)"},
@@ -377,10 +553,19 @@ func (m Model) footerView() string {
 }
 
 func (m Model) currentWarnings() []string {
-	if m.screen != screenResources || !m.hasActive {
+	if !m.hasActive {
 		return nil
 	}
-	return m.cache[m.currentKind().ID].Warnings
+	switch m.screen {
+	case screenResources:
+		return m.warningsFor(m.currentKind())
+	case screenOverview:
+		// The dashboard already shows warnings per category; repeating the
+		// whole set in the footer would just be noise.
+		return nil
+	default:
+		return nil
+	}
 }
 
 func (m Model) flashStyle() lipgloss.Style {
@@ -398,8 +583,10 @@ func (m Model) keyHint() string {
 	switch m.screen {
 	case screenProjects:
 		return "enter select · l login · r re-check · ? help · q quit"
+	case screenOverview:
+		return "enter open · a all resources · r refresh all · p projects · ? help · q quit"
 	case screenResources:
-		return "enter describe · o open · s ssh · y yank · / filter · r refresh · p projects · ? help"
+		return "enter describe · o open · s ssh · y yank · / filter · r refresh · d dashboard · esc back · ? help"
 	case screenDetail:
 		return "↑/↓ scroll · y copy yaml · esc back"
 	default:
