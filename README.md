@@ -24,13 +24,89 @@ Cloud Asset Inventory makes "list everything in a project" a single API call. Wi
 
 MVP. Three resource kinds (Compute Engine, Dataproc, Cloud Composer), read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
 
-## Install
+## Requirements
+
+**`gcloud` CLI — required, not optional.** g9s checks for it at startup and exits with `gcloud not found` rather than letting you discover the problem mid-session. It's needed because login and SSH are the two places a human is involved:
+
+- `l` runs `gcloud auth application-default login` to mint credentials
+- `s` runs `gcloud compute ssh`
+
+Everything else — the resource listing — talks to the GCP APIs directly and never shells out. See [Design notes](#design-notes) for why.
+
+**Go 1.25+ — required to install.** There are no prebuilt binaries yet, so you build from source. This is the only reason Go is needed; it isn't a runtime dependency, and the resulting `g9s` binary is self-contained.
+
+## Setup on a new Mac
+
+Both paths work on Apple Silicon and Intel. Pick one.
+
+### With Homebrew
+
+```sh
+brew install go
+brew install --cask gcloud-cli      # the cask was renamed from google-cloud-sdk
+```
+
+The cask symlinks `gcloud` into your Homebrew prefix (`/opt/homebrew/bin` on Apple Silicon, `/usr/local/bin` on Intel), so it lands on your `PATH` with no further setup.
+
+If Homebrew itself isn't installed yet and you want it:
+
+```sh
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+On Apple Silicon its installer prints two `eval` lines to add `/opt/homebrew/bin` to your `PATH` — run them, or `brew` won't be found in new shells.
+
+### Without Homebrew
+
+**Go** — download the macOS `.pkg` from [go.dev/dl](https://go.dev/dl/) (ARM64 for Apple Silicon, x86-64 for Intel) and run it. It installs to `/usr/local/go` and adds `/usr/local/go/bin` to your `PATH` via `/etc/paths.d/go`, which takes effect in new shells.
+
+**gcloud** — download and run Google's installer:
+
+```sh
+# Apple Silicon; for Intel swap darwin-arm for darwin-x86_64
+curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-darwin-arm.tar.gz
+tar -xf google-cloud-cli-darwin-arm.tar.gz
+./google-cloud-sdk/install.sh
+```
+
+`install.sh` offers to edit your shell profile to add gcloud to `PATH` — say yes, or you'll have to invoke it by full path. Extract it somewhere permanent (`~/google-cloud-sdk` is conventional); the install location *is* the installation, and moving it later breaks the profile entry.
+
+Skip `gcloud init`. It configures a default project in your global gcloud state, which g9s deliberately doesn't use — it sets `CLOUDSDK_CONFIG` per project instead. Running it is harmless, just pointless here.
+
+gcloud needs Python 3. macOS provides it with the Xcode Command Line Tools (`xcode-select --install`); if gcloud picks the wrong interpreter, point it at one with `CLOUDSDK_PYTHON=/path/to/python3`.
+
+### Then install g9s
 
 ```sh
 go install github.com/TTMathCS/g9s/cmd/g9s@latest
 ```
 
-Requires Go 1.25+ and the `gcloud` CLI on your `PATH`.
+This drops the binary in `$(go env GOPATH)/bin`, normally `~/go/bin` — **not** on your `PATH` by default on a fresh Mac. Add it:
+
+```sh
+echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
+exec zsh
+```
+
+(macOS has used zsh as the default shell since Catalina. On bash, use `~/.bash_profile`.)
+
+Prefer working from a clone — you own the repo, after all:
+
+```sh
+git clone https://github.com/TTMathCS/g9s.git
+cd g9s
+go build -o g9s ./cmd/g9s     # binary lands in the current directory
+```
+
+### Verify
+
+```sh
+gcloud --version     # any recent version
+go version           # must be 1.25 or newer
+g9s -version         # prints "g9s dev" — the version is only stamped in tagged release builds
+```
+
+If `g9s` isn't found, the `PATH` line above is what's missing. If `g9s` starts and immediately prints `gcloud not found at "gcloud"`, gcloud isn't on the `PATH` of the shell you launched it from — open a new terminal, since profile edits don't apply retroactively.
 
 ## Quick start
 
@@ -40,7 +116,20 @@ $EDITOR ~/.config/g9s/config.yaml
 g9s
 ```
 
+Start with a single project and add the rest once it works.
+
 On first launch every project shows `○ not logged in`. Select one, press `l`, and gcloud takes over the terminal to run the login. Once it's done you're dropped back into the table.
+
+Nothing needs to be logged in ahead of time, and you don't need to have run gcloud on this machine before — g9s keeps its credentials in its own directory and never reads or writes your global `~/.config/gcloud`. Moving to a new Mac therefore means logging in again; there's no credential state worth copying across, and copying it would defeat the isolation.
+
+### Staying current
+
+```sh
+go install github.com/TTMathCS/g9s/cmd/g9s@latest   # upgrade g9s
+brew upgrade --cask gcloud-cli                      # or: gcloud components update
+```
+
+Use `gcloud components update` for the non-Homebrew install. It doesn't work on the Homebrew cask — brew owns those files and gcloud will tell you so.
 
 ## How authentication works
 
