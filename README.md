@@ -287,9 +287,52 @@ Two things the table relies on: your `Resource.Row` must have exactly as many ce
 
 ## Roadmap
 
-Three kinds are shipped: Compute Engine instances, Dataproc clusters and Composer environments. Nearest on the list are GKE, Cloud Storage, BigQuery, Cloud SQL, Pub/Sub and Secret Manager (names and versions — never values), then mutating actions behind a confirmation and a Terraform state overlay.
+Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by design, not an oversight)
 
-**[ROADMAP.md](ROADMAP.md)** has the full picture: what exists today, what is next, the wider candidate list across compute, data, networking, security, operations and cost, and what is deliberately out of scope. Each entry is marked global / regional / zonal, because that is what decides the cost of adding it.
+### Resource kinds
+
+| Kind | Status | Scope | Notes |
+|---|---|---|---|
+| Compute Engine instances | ✅ | zonal, aggregated | one `aggregatedList` call covers every zone |
+| GKE clusters | ✅ | zonal + regional, aggregated | `parent: projects/*/locations/-` covers everything in one call |
+| Cloud Storage buckets | ✅ | global | simplest lister — one call, no fan-out |
+| Dataproc clusters | ✅ | **regional** | a client per region; `global` always swept |
+| Cloud Composer environments | ✅ | location-scoped | one client, location in the request parent |
+| BigQuery datasets & recent jobs | 🔜 | global | jobs answer "what is running", not just "what exists" |
+| Cloud SQL instances | 🔜 | global | version, tier, HA state, maintenance window |
+| Pub/Sub topics & subscriptions | 🔜 | global | subscription backlog is the number people actually want |
+| Secret Manager secrets | 🔜 | global | **names and versions only — never values** |
+| Cloud Run services & jobs | 🔜 | regional | |
+| Dataproc jobs | 🔜 | regional | clusters without jobs is half the story |
+| Dataflow jobs | 🔜 | regional | |
+| Service accounts & keys | 🔜 | global | key age is a standing audit question |
+| GKE node pools | 🔜 | per-cluster | drill-down from a GKE row, not a new top-level tab |
+| Compute/serverless (Functions, Batch, instance groups, disks, GPU/TPU) | 💡 | mixed | |
+| Data (Bigtable, Spanner, Memorystore, Firestore, Datastream, Artifact Registry) | 💡 | mixed | |
+| Networking (VPC, firewall, LB, Cloud DNS, VPN, Interconnect, PSC) | 💡 | mixed | |
+| Security/identity (IAM bindings, KMS, Certificate Manager, VPC-SC, Org Policy) | 💡 | mixed | |
+| Operations (Logging, Monitoring alerts, Error Reporting, Scheduler, Cloud Build) | 💡 | mixed | |
+| Cost & quota (usage vs. limits, monthly spend) | 💡 | mixed | needs billing export reachable |
+
+### Platform features
+
+| Feature | Status | Notes |
+|---|---|---|
+| Per-project dashboard with status rollups | ✅ | |
+| Merged *All Resources* view across kinds | ✅ | |
+| Filter, describe-as-YAML, Console/Airflow links, OSC 52 yank, SSH | ✅ | |
+| Mutating actions behind a confirmation | 🔜 | VM / Dataproc power state first — no Terraform drift |
+| Terraform state overlay (managed / drifted / unmanaged) | 🔜 | the single most useful thing on this list, and the most work |
+| Cloud Asset Inventory fast path | 💡 | optional — plenty of orgs don't enable the API |
+| Cross-project view (one kind, every project at once) | 💡 | the other axis from the dashboard's per-kind rollup |
+| Saved filters / bookmarks | 💡 | |
+| Export current table to CSV/JSON | 💡 | |
+| Prebuilt release binaries (no Go toolchain needed) | 💡 | see [Requirements](#requirements) |
+| Writing infrastructure | ⛔ | not a Terraform replacement |
+| Storing credentials | ⛔ | `gcloud` owns that; g9s never touches a credential |
+| Displaying secret values | ⛔ | names/versions only — use `gcloud secrets versions access`, which is logged |
+
+**[ROADMAP.md](ROADMAP.md)** has the full picture with reasoning per item — why each is scoped the way it is, and why global/regional/zonal is what decides the cost of adding it.
 
 ## Security
 
