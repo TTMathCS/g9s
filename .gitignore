@@ -1,0 +1,18 @@
+# Binaries
+/g9s
+/dist/
+*.exe
+
+# Test artifacts
+*.out
+coverage.txt
+
+# Local config — never commit project IDs or account names
+config.yaml
+config.local.yaml
+
+# Editor
+.idea/
+.vscode/
+*.swp
+.DS_Store

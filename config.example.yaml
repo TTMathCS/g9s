@@ -1,0 +1,36 @@
+# g9s configuration
+#
+# Each project gets its own isolated gcloud configuration directory under
+# defaults.credential_dir, so credentials for different projects never collide
+# and switching projects in the UI never mutates global gcloud state.
+
+defaults:
+  # Regions swept for region-scoped resources (Dataproc, Composer) unless a
+  # project overrides them. Keep this list tight: every region is a separate
+  # API call on every refresh.
+  regions:
+    - northamerica-northeast1
+    - us-central1
+
+  # Where per-project credentials live.
+  credential_dir: ~/.local/share/g9s/credentials
+
+  # gcloud binary used for login and SSH.
+  gcloud_path: gcloud
+
+  # Upper bound on a single refresh across all regions.
+  list_timeout: 90s
+
+projects:
+  - name: sandbox
+    project_id: my-sandbox-project
+    description: personal access, read-only
+    # Omit account to use whatever identity gcloud logs in as.
+
+  - name: prod-data
+    project_id: my-prod-data-project
+    description: support account required
+    account: svc-prod-support@example.com
+    # Override the default sweep for this project only.
+    regions:
+      - northamerica-northeast1
