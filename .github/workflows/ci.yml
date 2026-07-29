@@ -101,18 +101,24 @@ jobs:
           fi
           echo "version=${version}" >> "$GITHUB_ENV"
 
-          name="g9s_${version}_${GOOS}_${GOARCH}"
-          mkdir -p "dist/${name}"
+          # The archive name is deliberately version-less so that
+          #   releases/latest/download/g9s_<os>_<arch>.tar.gz
+          # is a permanent URL the README never has to be updated for. The
+          # version is still recoverable three ways: the release tag, the
+          # directory inside the archive, and `g9s -version`.
+          dir="g9s_${version}_${GOOS}_${GOARCH}"
+          archive="g9s_${GOOS}_${GOARCH}.tar.gz"
+          mkdir -p "dist/${dir}"
 
           # -trimpath keeps build-machine paths out of the binary; -s -w drop
           # the symbol and DWARF tables, which is most of the 46MB.
           go build -trimpath \
             -ldflags "-s -w -X main.version=${version}" \
-            -o "dist/${name}/g9s" ./cmd/g9s
+            -o "dist/${dir}/g9s" ./cmd/g9s
 
-          cp README.md LICENSE "dist/${name}/"
-          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
-          rm -rf "dist/${name}"
+          cp README.md LICENSE "dist/${dir}/"
+          tar -C dist -czf "dist/${archive}" "${dir}"
+          rm -rf "dist/${dir}"
 
       - uses: actions/upload-artifact@v4
         with:

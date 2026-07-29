@@ -1,8 +1,35 @@
 # g9s
 
+[![Latest release](https://img.shields.io/github/v/release/TTMathCS/g9s?sort=semver&display_name=tag&label=latest%20release&color=blue)](https://github.com/TTMathCS/g9s/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/TTMathCS/g9s/ci.yml?branch=main&label=CI)](https://github.com/TTMathCS/g9s/actions/workflows/ci.yml)
+[![Downloads](https://img.shields.io/github/downloads/TTMathCS/g9s/total?label=downloads)](https://github.com/TTMathCS/g9s/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 A k9s-style terminal UI for Google Cloud. Pick a project, browse what's running in it, act on it — without leaving the terminal or juggling `gcloud config set project`.
 
 Built for the case where you have several projects, each reached through a different account, and those accounts expire daily.
+
+## ⬇️ Download
+
+**No Go toolchain, no dependencies compiled on your machine.** These links always resolve to the newest release:
+
+| Platform | Download |
+|---|---|
+| **macOS** — Apple Silicon (M1–M4) | **[g9s_darwin_arm64.tar.gz](https://github.com/TTMathCS/g9s/releases/latest/download/g9s_darwin_arm64.tar.gz)** |
+| **macOS** — Intel | **[g9s_darwin_amd64.tar.gz](https://github.com/TTMathCS/g9s/releases/latest/download/g9s_darwin_amd64.tar.gz)** |
+| **Linux** — x86-64 | **[g9s_linux_amd64.tar.gz](https://github.com/TTMathCS/g9s/releases/latest/download/g9s_linux_amd64.tar.gz)** |
+| **Linux** — ARM64 | **[g9s_linux_arm64.tar.gz](https://github.com/TTMathCS/g9s/releases/latest/download/g9s_linux_arm64.tar.gz)** |
+| | [checksums.txt](https://github.com/TTMathCS/g9s/releases/latest/download/checksums.txt) |
+
+📋 **[All releases and version history →](https://github.com/TTMathCS/g9s/releases)** — every version, with auto-generated notes of what changed.
+
+One-liner for Apple Silicon:
+
+```sh
+curl -L https://github.com/TTMathCS/g9s/releases/latest/download/g9s_darwin_arm64.tar.gz | tar xz --strip-components=1 && sudo mv g9s /usr/local/bin/ && g9s -version
+```
+
+Full instructions — checksum and signed-provenance verification, other platforms, the macOS Gatekeeper step, and building from source instead — are under [Install](#install). `gcloud` is still required separately; see [Requirements](#requirements).
 
 Three screens, in the order you move through them.
 
@@ -98,28 +125,30 @@ Two options. The first needs no Go toolchain and pulls no dependencies onto your
 
 ### Option 1: download a release binary (no Go toolchain)
 
-Every tagged release attaches archives for macOS and Linux on both Apple Silicon/ARM and Intel/AMD64, plus a `checksums.txt`. Grab one from the [Releases page](https://github.com/TTMathCS/g9s/releases), then:
+Every tagged release attaches archives for macOS and Linux on both Apple Silicon/ARM and Intel/AMD64, plus a `checksums.txt`. Archive names carry no version, so `releases/latest/download/…` is a permanent URL — the version lives in the release tag, the directory inside the archive, and `g9s -version`.
 
 ```sh
 # Pick your platform: darwin_arm64, darwin_amd64, linux_amd64, linux_arm64
-VERSION=v0.1.0
 PLATFORM=darwin_arm64
+BASE=https://github.com/TTMathCS/g9s/releases/latest/download
 
-curl -LO "https://github.com/TTMathCS/g9s/releases/download/${VERSION}/g9s_${VERSION}_${PLATFORM}.tar.gz"
-curl -LO "https://github.com/TTMathCS/g9s/releases/download/${VERSION}/checksums.txt"
+curl -LO "${BASE}/g9s_${PLATFORM}.tar.gz"
+curl -LO "${BASE}/checksums.txt"
 
 # Verify before extracting, not after
 shasum -a 256 -c checksums.txt --ignore-missing
 
-tar -xzf "g9s_${VERSION}_${PLATFORM}.tar.gz"
-sudo mv "g9s_${VERSION}_${PLATFORM}/g9s" /usr/local/bin/
+tar -xzf "g9s_${PLATFORM}.tar.gz" --strip-components=1
+sudo mv g9s /usr/local/bin/
 g9s -version
 ```
+
+To pin a specific version instead of tracking the latest, swap `latest/download` for `download/v0.1.0` — see [all releases](https://github.com/TTMathCS/g9s/releases).
 
 **Verifying provenance, not just integrity.** The checksum only proves your download wasn't corrupted in transit — it says nothing about where the file came from. Each archive also carries a signed [SLSA build provenance](https://slsa.dev/) attestation tying it to this repository, the exact commit and the workflow run that produced it. If you have the [`gh` CLI](https://cli.github.com/):
 
 ```sh
-gh attestation verify "g9s_${VERSION}_${PLATFORM}.tar.gz" --repo TTMathCS/g9s
+gh attestation verify "g9s_${PLATFORM}.tar.gz" --repo TTMathCS/g9s
 ```
 
 That is the check worth running. It fails if the archive was built anywhere other than this repo's CI.
