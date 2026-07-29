@@ -122,16 +122,24 @@ Status of the versions in use against published advisories, checked July 2026:
 | Module | Version | Status |
 |---|---|---|
 | `golang.org/x/net` | v0.56.0 | Past v0.55.0, which fixed CVE-2026-39821 (idna), CVE-2026-25680 and CVE-2026-42506 (html). `x/net/html` is not linked at all; only `idna` and the HTTP/2 plumbing are. |
-| `google.golang.org/grpc` | v1.82.0 | Past v1.79.3, which fixed CVE-2026-33186. That is a server-side authorization bypass; g9s is a client only. |
+| `google.golang.org/grpc` | v1.82.1 | Upgraded from v1.82.0 to clear **GO-2026-6061** (xDS RBAC engine and HTTP/2 server transport), which CI caught. Also past v1.79.3, which fixed CVE-2026-33186. |
+| `golang.org/x/text` | v0.40.0 | Upgraded from v0.38.0 to clear **GO-2026-5970** (infinite loop on invalid input in `norm`), reachable through the OAuth2 token exchange. Fixed in v0.39.0. |
 | `gopkg.in/yaml.v3` | v3.0.1 | Fixed for CVE-2022-28948. CVE-2022-3064 (deeply nested input) is not in the threat model: the only YAML g9s parses is your own config file. |
 | `golang.org/x/crypto` | v0.53.0 | Only TLS primitives linked (chacha20poly1305, hkdf, cryptobyte). The `ssh` package, where the notable advisories live, is not present. |
 | `go-jose/go-jose/v4` | v4.1.4 | Exactly the version that fixed CVE-2026-34986 (JWE decrypt panic); past v4.0.5, which fixed CVE-2025-27144 (unbounded memory on a crafted token). Pulled in by the storage client's transport plumbing, not called directly. |
 | `envoyproxy/go-control-plane`, `spiffe/go-spiffe/v2` | v1.37.0, v2.6.0 | No advisories found against either at these versions. Note these are Go SDK/config-generation libraries, not the Envoy proxy binary itself — the C++ Envoy CVEs that turn up in a search do not apply to this module. |
 
 That table is a point-in-time check against published advisories, not a
-substitute for a scanner. **CI runs `govulncheck ./...` on every push**, which
-reports only vulnerabilities reachable from this code rather than every
-advisory touching the module graph. To run it yourself:
+substitute for a scanner — and it has already been proven so. The grpc and
+x/text rows above were both green when first written, and both went stale
+within days as new advisories landed. `govulncheck` in CI is what caught them,
+which is the whole argument for having it: a hand-checked table tells you about
+the advisories that existed when someone last looked.
+
+**CI runs `govulncheck ./...` on every push**, which reports only
+vulnerabilities reachable from this code rather than every advisory touching the
+module graph. A red `vulncheck` job is expected to mean a real upgrade is
+needed, not noise to be waved through. To run it yourself:
 
 ```sh
 go install golang.org/x/vuln/cmd/govulncheck@latest
