@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
@@ -111,21 +112,43 @@ func sshTo(mgr *auth.Manager, p config.Project, name, zone string) tea.Cmd {
 	})
 }
 
+// safeToOpen reports whether a URL is one we are willing to hand to the
+// platform opener.
+//
+// Console links are built by g9s, but the Airflow URI comes back from the
+// Composer API, and `open` on macOS will launch whatever application claims a
+// scheme. Restricting to http(s) means a surprising value in an API response
+// cannot turn `o` into "launch an arbitrary handler". Anything else is shown
+// rather than opened, so the user can look at it and decide.
+func safeToOpen(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
+}
+
 // openURL launches the system browser without blocking the TUI.
-func openURL(url string) tea.Cmd {
+func openURL(target string) tea.Cmd {
 	return func() tea.Msg {
-		if url == "" {
+		if target == "" {
 			return flashMsg{text: "no URL for this resource", level: flashWarn}
+		}
+		if !safeToOpen(target) {
+			return flashMsg{
+				text:  "refusing to open non-http(s) URL: " + truncate(target, 60),
+				level: flashWarn,
+			}
 		}
 
 		var cmd *exec.Cmd
 		switch runtime.GOOS {
 		case "darwin":
-			cmd = exec.Command("open", url)
+			cmd = exec.Command("open", target)
 		case "windows":
-			cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+			cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", target)
 		default:
-			cmd = exec.Command("xdg-open", url)
+			cmd = exec.Command("xdg-open", target)
 		}
 		// Detach: the browser outliving the TUI is the point.
 		cmd.Stdout, cmd.Stderr = nil, nil
@@ -133,7 +156,7 @@ func openURL(url string) tea.Cmd {
 			return flashMsg{text: "could not open browser: " + err.Error(), level: flashError}
 		}
 		go cmd.Wait()
-		return flashMsg{text: "opened " + truncate(url, 60), level: flashInfo}
+		return flashMsg{text: "opened " + truncate(target, 60), level: flashInfo}
 	}
 }
 

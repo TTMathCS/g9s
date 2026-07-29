@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -109,6 +110,9 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkPermissions(path); err != nil {
+		return nil, err
+	}
 
 	var cfg Config
 	dec := yaml.NewDecoder(strings.NewReader(string(raw)))
@@ -122,6 +126,30 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("invalid config %s: %w", path, err)
 	}
 	return &cfg, nil
+}
+
+// checkPermissions refuses a config that anyone else can write.
+//
+// This is not paranoia about the project IDs in the file: defaults.gcloud_path
+// names the binary g9s executes when you press `l`, so write access to the
+// config is code execution as you. Readable-by-others is left alone — that is
+// the default umask on plenty of systems and the contents are not secret.
+func checkPermissions(path string) error {
+	if runtime.GOOS == "windows" {
+		// File modes here do not mean what they mean on Unix.
+		return nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if mode := info.Mode().Perm(); mode&0o022 != 0 {
+		return fmt.Errorf(
+			"%s is writable by group or others (mode %04o); "+
+				"defaults.gcloud_path decides which binary g9s runs, so fix it with: chmod 600 %s",
+			path, mode, path)
+	}
+	return nil
 }
 
 func (c *Config) applyDefaults() {

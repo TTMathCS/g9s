@@ -74,7 +74,10 @@ func writeStarterConfig(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, []byte(starterConfig), 0o644); err != nil {
+	// 0600, not 0644. The file names your project IDs and support accounts,
+	// and gcloud_path decides which binary g9s executes — anyone who can edit
+	// it can run code as you the next time you press `l`.
+	if err := os.WriteFile(path, []byte(starterConfig), 0o600); err != nil {
 		return err
 	}
 	fmt.Printf("wrote %s — edit it to add your projects, then run g9s\n", path)

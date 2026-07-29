@@ -670,3 +670,61 @@ func TestDashboardDistinguishesLoadingEmptyAndFailed(t *testing.T) {
 		t.Error("a failed kind should say so on the dashboard")
 	}
 }
+
+// --- open guard ---
+
+// TestSafeToOpenRejectsNonWebSchemes covers the one place an untrusted string
+// reaches a platform handler. Console URLs are built by g9s, but a Composer
+// environment's Airflow URI comes straight out of the API response, and `open`
+// on macOS launches whichever application claims a scheme.
+func TestSafeToOpenRejectsNonWebSchemes(t *testing.T) {
+	refuse := []string{
+		"",
+		"file:///etc/passwd",
+		"javascript:alert(1)",
+		"data:text/html;base64,PHNjcmlwdD4=",
+		"vscode://file/etc/passwd",
+		"ssh://box/",
+		"itms-services://?action=download-manifest",
+		"/etc/passwd",
+		"console.cloud.google.com/compute", // scheme-less, would be treated as a path
+		"https://",                         // scheme but no host
+		"http://",
+	}
+	for _, target := range refuse {
+		if safeToOpen(target) {
+			t.Errorf("safeToOpen(%q) = true, want it refused", target)
+		}
+	}
+}
+
+func TestSafeToOpenAllowsRealLinks(t *testing.T) {
+	allow := []string{
+		"https://console.cloud.google.com/compute/instancesDetail/zones/us-central1-a/instances/web-01?project=p-1",
+		"http://localhost:8080",
+		"https://x1y2z3-dot-us-central1.composer.googleusercontent.com",
+	}
+	for _, target := range allow {
+		if !safeToOpen(target) {
+			t.Errorf("safeToOpen(%q) = false, want it allowed", target)
+		}
+	}
+}
+
+// TestConsoleURLsPassTheOpenGuard ties the two halves together: every URL the
+// resource layer builds has to survive the check that guards the opener, or
+// pressing `o` would refuse its own links.
+func TestConsoleURLsPassTheOpenGuard(t *testing.T) {
+	m := populatedModel(t)
+	m.cache["vm"] = gcp.Result{Resources: []gcp.Resource{{
+		Name:       "web-01",
+		Row:        []string{"web-01"},
+		ConsoleURL: "https://console.cloud.google.com/compute/instancesDetail/zones/us-central1-a/instances/web%2001?project=p-1",
+	}}}
+
+	for _, r := range m.mergedResources() {
+		if r.ConsoleURL != "" && !safeToOpen(r.ConsoleURL) {
+			t.Errorf("console URL %q would be refused by the open guard", r.ConsoleURL)
+		}
+	}
+}

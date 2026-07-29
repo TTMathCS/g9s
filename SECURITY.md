@@ -1,0 +1,119 @@
+# Security
+
+## What g9s does with your credentials
+
+**It never handles your password, and it never writes a credential.** Pressing
+`l` suspends the TUI and hands the terminal to `gcloud auth application-default
+login`. Your identity provider's login page, the password from your PAM
+checkout and the MFA challenge all happen in the browser and in gcloud's own
+process. g9s resumes afterwards and reads the file gcloud wrote.
+
+**Each project is isolated.** g9s sets `CLOUDSDK_CONFIG` to a per-project
+directory under `credential_dir`, created `0700`. Logging into one project
+cannot disturb another, and nothing g9s does mutates your global
+`~/.config/gcloud`.
+
+**Credentials are used, not stored.** g9s reads the application default
+credentials file to mint an access token — that live token exchange is also how
+expiry is detected. Tokens stay in memory for the life of the process.
+
+## What it can reach and run
+
+| | |
+|---|---|
+| **Network** | GCP APIs only, over the Google client libraries. No telemetry, no analytics, no update check, no other host. |
+| **Executes** | `gcloud` (path from `defaults.gcloud_path`) for login and SSH; the platform opener (`open` / `xdg-open` / `rundll32`) for `o` and `c`. Nothing else. |
+| **Writes** | The per-project credential directories (via gcloud), and `config.yaml` on `-init`. |
+| **API calls** | Read-only. Every call is a `List` or `Get`; g9s issues no mutating request of any kind. |
+
+The clipboard (`y`) uses the OSC 52 terminal escape rather than a platform
+clipboard binary. The payload is base64-encoded, so contents cannot break out
+of the escape sequence.
+
+## Review findings
+
+A review of the whole codebase in July 2026. Two issues were found and fixed;
+the rest is recorded so the reasoning is visible rather than implied.
+
+### Fixed
+
+**Untrusted URI reaching the platform opener.** Console links are built by g9s
+from a fixed `https://` prefix with escaped components, but a Composer
+environment's Airflow URI comes straight out of the API response. On macOS
+`open` launches whichever application claims a scheme, so a surprising value in
+an API response could have turned `o` into "launch an arbitrary handler".
+`openURL` now refuses anything that is not `http`/`https` with a host, and
+shows the URL instead of opening it. Covered by tests, including one asserting
+that g9s's own Console URLs still pass the guard.
+
+**World-writable config was accepted.** `defaults.gcloud_path` names the binary
+g9s executes, so write access to the config file is code execution as you.
+`-init` now writes `0600` instead of `0644`, and `config.Load` refuses a file
+that is group- or world-**writable**, naming the `chmod` that fixes it.
+Readable-by-others is still allowed — that is the default umask in plenty of
+places and the contents are not secret.
+
+### Examined, not a problem
+
+- **Command injection.** Every `exec.Command` passes arguments as separate
+  argv entries; no shell is involved anywhere, so metacharacters in a resource
+  name cannot become commands.
+- **Argument injection into gcloud.** Instance and zone names flow into
+  `gcloud compute ssh` from the API. GCP's own naming rules (`[a-z]([-a-z0-9]*
+  [a-z0-9])?`) forbid a leading `-`, so a name cannot pose as a flag.
+- **Path traversal into the credential directory.** Project names come from a
+  hand-edited file and become directory components. `sanitize` splits on
+  anything outside `[A-Za-z0-9._-]` and drops dot-only segments, so `..` and
+  path separators cannot survive in any form. Tested directly.
+- **Config parsing.** The decoder runs with `KnownFields(true)`, so a typo is
+  an error rather than a silent default. The input is your own local file, not
+  attacker-controlled.
+- **Clipboard escape injection.** OSC 52 payloads are base64, so no content can
+  terminate the sequence early.
+- **Credential file handling.** g9s only reads the ADC file; gcloud creates it,
+  inside a directory g9s creates `0700`.
+
+### Residual, by design
+
+- **The detail pane renders the full API object.** That is the point — it is
+  what `gcloud describe` shows you — but it means whatever GCP returns about a
+  resource is on screen, and `y` copies it to the clipboard. Worth knowing
+  before you screen-share.
+- **OSC 52 writes to stderr.** If you redirect stderr to a file, copied
+  content lands there base64-encoded.
+- **A malicious `gcloud` on `PATH`** would be trusted, since g9s shells out to
+  it by name unless `gcloud_path` is absolute. This is the same trust you
+  already extend to gcloud.
+
+## Dependencies
+
+12 direct dependencies; about 40 module roots and 318 packages actually linked
+into the binary. All from Google (`cloud.google.com/go/*`,
+`google.golang.org/*`), the Go team (`golang.org/x/*`), charmbracelet (the TUI
+stack) or go-yaml. No unmaintained or single-author-obscure packages in the
+build.
+
+Status of the versions in use against published advisories, checked July 2026:
+
+| Module | Version | Status |
+|---|---|---|
+| `golang.org/x/net` | v0.56.0 | Past v0.55.0, which fixed CVE-2026-39821 (idna), CVE-2026-25680 and CVE-2026-42506 (html). `x/net/html` is not linked at all; only `idna` and the HTTP/2 plumbing are. |
+| `google.golang.org/grpc` | v1.82.0 | Past v1.79.3, which fixed CVE-2026-33186. That is a server-side authorization bypass; g9s is a client only. |
+| `gopkg.in/yaml.v3` | v3.0.1 | Fixed for CVE-2022-28948. CVE-2022-3064 (deeply nested input) is not in the threat model: the only YAML g9s parses is your own config file. |
+| `golang.org/x/crypto` | v0.53.0 | Only TLS primitives linked (chacha20poly1305, hkdf, cryptobyte). The `ssh` package, where the notable advisories live, is not present. |
+
+That table is a point-in-time check against published advisories, not a
+substitute for a scanner. **CI runs `govulncheck ./...` on every push**, which
+reports only vulnerabilities reachable from this code rather than every
+advisory touching the module graph. To run it yourself:
+
+```sh
+go install golang.org/x/vuln/cmd/govulncheck@latest
+govulncheck ./...
+```
+
+## Reporting
+
+Open an issue for anything non-sensitive. For something you would rather not
+file in public, use GitHub's private vulnerability reporting on this
+repository.

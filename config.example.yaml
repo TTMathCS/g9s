@@ -1,36 +1,99 @@
 # g9s configuration
 #
-# Each project gets its own isolated gcloud configuration directory under
+# Copy to ~/.config/g9s/config.yaml, or run `g9s -init` to write a starter
+# version there. Keep it mode 0600: defaults.gcloud_path names the binary g9s
+# executes, so g9s refuses to start if the file is writable by anyone else.
+#
+# Each project gets its own gcloud configuration directory under
 # defaults.credential_dir, so credentials for different projects never collide
-# and switching projects in the UI never mutates global gcloud state.
+# and switching projects in the UI never touches your global gcloud state.
 
 defaults:
   # Regions swept for region-scoped resources (Dataproc, Composer) unless a
   # project overrides them. Keep this list tight: every region is a separate
-  # API call on every refresh.
+  # API call per kind on every refresh, so ten regions across three kinds is
+  # thirty calls. List the regions you actually deploy to, not every region
+  # you might one day.
   regions:
     - northamerica-northeast1
     - us-central1
 
-  # Where per-project credentials live.
+  # Per-kind overrides, if one kind lives somewhere the others do not.
+  # dataproc_regions: [us-central1]
+  # composer_locations: [us-central1]
+
+  # Where per-project credentials live. Created 0700.
   credential_dir: ~/.local/share/g9s/credentials
 
-  # gcloud binary used for login and SSH.
+  # gcloud binary used for login and SSH. An absolute path is fine.
   gcloud_path: gcloud
 
-  # Upper bound on a single refresh across all regions.
+  # Upper bound on a single refresh across all regions and kinds.
   list_timeout: 90s
 
+# Ten projects is a normal working set. Order here is the order in the picker,
+# so put the ones you touch daily at the top.
+#
+#   name        label in the picker; also names the credential directory, so
+#               keep it short, stable and filesystem-friendly
+#   project_id  the real GCP project ID
+#   account     identity passed to `gcloud --account`; omit to use whatever
+#               gcloud logs in as, which is right for a personal login
+#   description free text shown beside the project
+#
+# Anything under a project overrides defaults for that project alone.
 projects:
-  - name: sandbox
-    project_id: my-sandbox-project
-    description: personal access, read-only
-    # Omit account to use whatever identity gcloud logs in as.
-
   - name: prod-data
-    project_id: my-prod-data-project
-    description: support account required
-    account: svc-prod-support@example.com
-    # Override the default sweep for this project only.
+    project_id: acme-dataeng-prod-4471
+    account: svc-dataeng-prod@example.com
+    description: production ETL — support account, expires daily
+
+  - name: prod-ml
+    project_id: acme-mlplat-prod-8823
+    account: svc-mlplat-prod@example.com
+    description: training and serving
+
+  - name: prod-datalake
+    project_id: acme-datalake-prod-9902
+    account: svc-dataeng-prod@example.com
+    description: warehouse and lake storage
+
+  - name: prod-orchestration
+    project_id: acme-composer-prod-3318
+    account: svc-dataeng-prod@example.com
+    description: Composer / Airflow
+    # Composer lives in one location here, so skip the wider default sweep.
+    composer_locations:
+      - us-central1
+
+  - name: analytics-bi
+    project_id: acme-analytics-prod-6610
+    account: svc-bi-support@example.com
+    description: dashboards and scheduled queries
+
+  - name: audit-logs
+    project_id: acme-security-audit-7150
+    account: svc-sec-readonly@example.com
+    description: read-only, least privilege — expect partial listings
+
+  - name: shared-vpc-host
+    project_id: acme-network-shared-0001
+    description: shared VPC host; personal login is enough
+
+  - name: staging-data
+    project_id: acme-dataeng-stg-4472
+    description: mirrors prod-data
     regions:
-      - northamerica-northeast1
+      - us-central1
+
+  - name: dev-data
+    project_id: acme-dataeng-dev-4473
+    description: scratch
+    regions:
+      - us-central1
+
+  - name: sandbox
+    project_id: acme-sandbox-dev-1204
+    description: personal sandbox
+    regions:
+      - us-central1

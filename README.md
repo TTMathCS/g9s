@@ -285,10 +285,15 @@ Two things the table relies on: your `Resource.Row` must have exactly as many ce
 
 ## Roadmap
 
-- More resource kinds: Secret Manager, Cloud DNS, load balancers, GKE, Cloud SQL
-- Mutating actions behind a confirmation — VM and Dataproc cluster power state, which Terraform doesn't manage, so they don't cause drift
-- Terraform state overlay: read the GCS backend to mark each resource managed / drifted / unmanaged, and jump from a row to the `.tf` that defines it
-- Cloud Asset Inventory as an optional fast path when the API is available
+Three kinds are shipped: Compute Engine instances, Dataproc clusters and Composer environments. Nearest on the list are GKE, Cloud Storage, BigQuery, Cloud SQL, Pub/Sub and Secret Manager (names and versions — never values), then mutating actions behind a confirmation and a Terraform state overlay.
+
+**[ROADMAP.md](ROADMAP.md)** has the full picture: what exists today, what is next, the wider candidate list across compute, data, networking, security, operations and cost, and what is deliberately out of scope. Each entry is marked global / regional / zonal, because that is what decides the cost of adding it.
+
+## Security
+
+g9s never sees your password, never writes a credential, and issues no mutating API call — every request is a `List` or a `Get`. Credentials are isolated per project under a `0700` directory, and the config file is refused if anyone else can write it, since `gcloud_path` decides which binary gets executed.
+
+**[SECURITY.md](SECURITY.md)** covers the threat model, what the tool can reach and run, the findings from a July 2026 code review (two issues found and fixed, plus the paths examined and cleared), and the dependency posture. CI runs `govulncheck ./...` on every push.
 
 ## License
 

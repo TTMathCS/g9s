@@ -230,3 +230,43 @@ func contains(list []string, want string) bool {
 	}
 	return false
 }
+
+// --- permissions ---
+
+func writeConfigMode(t *testing.T, mode os.FileMode) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := "defaults:\n  regions: [us-central1]\nprojects:\n  - name: a\n    project_id: a-1\n"
+	if err := os.WriteFile(path, []byte(body), mode); err != nil {
+		t.Fatal(err)
+	}
+	// WriteFile is subject to umask, so set the mode explicitly.
+	if err := os.Chmod(path, mode); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestLoadRejectsWritableConfig(t *testing.T) {
+	// defaults.gcloud_path names the binary g9s executes, so a config anyone
+	// else can write is code execution as the user running g9s.
+	for _, mode := range []os.FileMode{0o622, 0o662, 0o666, 0o777} {
+		path := writeConfigMode(t, mode)
+		if _, err := Load(path); err == nil {
+			t.Errorf("mode %04o was accepted, want a refusal", mode)
+		} else if !strings.Contains(err.Error(), "writable by group or others") {
+			t.Errorf("mode %04o: error %q does not explain the problem", mode, err)
+		}
+	}
+}
+
+func TestLoadAcceptsPrivateAndReadableConfig(t *testing.T) {
+	// Readable-by-others is the default umask in plenty of places and the
+	// contents are not secret, so only writability is refused.
+	for _, mode := range []os.FileMode{0o600, 0o640, 0o644} {
+		path := writeConfigMode(t, mode)
+		if _, err := Load(path); err != nil {
+			t.Errorf("mode %04o was refused: %v", mode, err)
+		}
+	}
+}
