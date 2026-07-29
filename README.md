@@ -4,17 +4,15 @@ A k9s-style terminal UI for Google Cloud. Pick a project, browse what's running 
 
 Built for the case where you have several projects, each reached through a different account, and those accounts expire daily.
 
-```
- g9s  prod-data · acme-prod-data-1234 · svc-prod-support@example.com
- 1 VM Instances (12)   2 Dataproc Clusters (3)   3 Composer Environments (1)
+![The g9s project picker: ten GCP projects listed with their project IDs and the live state of each one's credentials](docs/projects.png)
 
-   NAME                ZONE              MACHINE TYPE   INTERNAL IP   EXTERNAL IP   STATUS       AGE
- ▸ etl-worker-01       us-central1-a     n2-standard-8  10.0.0.12     -             RUNNING      14d
-   etl-worker-02       us-central1-a     n2-standard-8  10.0.0.13     -             RUNNING      14d
-   jump-box            us-central1-b     e2-medium      10.0.1.4      34.72.1.9     TERMINATED   62d
+You open on the picker, and the thing you actually need to know is already on screen: which of your ten projects you can use right now. Green is good for another 38 minutes, amber expired overnight, hollow means this machine has never logged in. Press `l` on any row and gcloud takes the terminal to fix it.
 
- enter describe · o open · s ssh · y yank · / filter · r refresh · p projects · ? help
-```
+![The g9s resource table: nine VM instances in the prod-data project, with a warning in the status bar that one region was unavailable](docs/resources.png)
+
+Select a project and you get its resources, colour-coded by status, with a footer that admits when a listing is incomplete rather than showing you a confident-looking table that quietly dropped a region.
+
+<sub>Both screenshots are generated from the real rendering code — see <a href="docs/">docs/</a>. The projects, IDs and accounts in them are invented.</sub>
 
 ## Why this exists
 

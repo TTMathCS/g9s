@@ -16,3 +16,7 @@ config.local.yaml
 .vscode/
 *.swp
 .DS_Store
+
+# Screenshot intermediates (see docs/README.md)
+docs/*.ansi
+docs/*.svg
