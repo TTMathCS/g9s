@@ -150,10 +150,17 @@ govulncheck ./...
 
 Releases are built by GitHub Actions, never on a maintainer's machine, and only
 after `gofmt`, `go vet`, `go test -race` and `govulncheck` have all passed —
-the build job declares `needs: [test, vulncheck]`, so a red check produces no
-artifacts at all. Binaries are built once and promoted: the archive attached to
-a release is byte-identical to the one the build job produced, because nothing
-is recompiled at publish time.
+the build job declares `needs: [version, test, vulncheck]`, so a red check
+produces no artifacts and therefore no release. Binaries are built once and
+promoted: the archive attached to a release is byte-identical to the one the
+build job produced, because nothing is recompiled at publish time.
+
+Publishing is automatic on every merge to `main` (patch version bumped from the
+previous release), which means **the security posture of a release is exactly
+the posture of the checks above** — there is no manual step at which someone
+could wave a failing scan through. The version is decided before compilation so
+the binary is stamped with the version it is published as, rather than reporting
+something different from the release it is attached to.
 
 **Verify provenance, not just checksums.** `checksums.txt` only proves your
 download was not corrupted in transit. It proves nothing about origin — anyone

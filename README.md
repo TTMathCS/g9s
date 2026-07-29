@@ -1,17 +1,30 @@
-# g9s
+<h1 align="center">g9s</h1>
 
-[![Latest release](https://img.shields.io/github/v/release/TTMathCS/g9s?sort=semver&display_name=tag&label=latest%20release&color=blue)](https://github.com/TTMathCS/g9s/releases/latest)
-[![CI](https://img.shields.io/github/actions/workflow/status/TTMathCS/g9s/ci.yml?branch=main&label=CI)](https://github.com/TTMathCS/g9s/actions/workflows/ci.yml)
-[![Downloads](https://img.shields.io/github/downloads/TTMathCS/g9s/total?label=downloads)](https://github.com/TTMathCS/g9s/releases)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+<p align="center">
+  A k9s-style terminal UI for Google Cloud. Pick a project, browse what's running in it,<br>
+  act on it — without leaving the terminal or juggling <code>gcloud config set project</code>.
+</p>
 
-A k9s-style terminal UI for Google Cloud. Pick a project, browse what's running in it, act on it — without leaving the terminal or juggling `gcloud config set project`.
+<p align="center">
+  <a href="https://github.com/TTMathCS/g9s/releases/latest"><img alt="Download the latest version" src="https://img.shields.io/badge/%E2%AC%87%20DOWNLOAD-latest%20version-2ea44f?style=for-the-badge"></a>
+  &nbsp;
+  <a href="https://github.com/TTMathCS/g9s/releases"><img alt="All versions" src="https://img.shields.io/badge/%F0%9F%93%8B%20ALL%20VERSIONS-release%20history-0969da?style=for-the-badge"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/TTMathCS/g9s/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/TTMathCS/g9s?sort=semver&display_name=tag&label=latest&color=2ea44f"></a>
+  <a href="https://github.com/TTMathCS/g9s/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/TTMathCS/g9s/ci.yml?branch=main&label=CI"></a>
+  <a href="https://github.com/TTMathCS/g9s/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/TTMathCS/g9s/total?label=downloads"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+</p>
 
 Built for the case where you have several projects, each reached through a different account, and those accounts expire daily.
 
 ## ⬇️ Download
 
-**No Go toolchain, no dependencies compiled on your machine.** These links always resolve to the newest release:
+**Both buttons above go straight to GitHub's download pages** — the green one to the newest version, the blue one to the full list of every version ever released. Every merge to `main` publishes a new version automatically, so the latest is always current.
+
+No Go toolchain and nothing compiled on your machine. Direct per-platform links, which always resolve to the newest version:
 
 | Platform | Download |
 |---|---|
@@ -21,15 +34,13 @@ Built for the case where you have several projects, each reached through a diffe
 | **Linux** — ARM64 | **[g9s_linux_arm64.tar.gz](https://github.com/TTMathCS/g9s/releases/latest/download/g9s_linux_arm64.tar.gz)** |
 | | [checksums.txt](https://github.com/TTMathCS/g9s/releases/latest/download/checksums.txt) |
 
-📋 **[All releases and version history →](https://github.com/TTMathCS/g9s/releases)** — every version, with auto-generated notes of what changed.
-
 One-liner for Apple Silicon:
 
 ```sh
 curl -L https://github.com/TTMathCS/g9s/releases/latest/download/g9s_darwin_arm64.tar.gz | tar xz --strip-components=1 && sudo mv g9s /usr/local/bin/ && g9s -version
 ```
 
-Full instructions — checksum and signed-provenance verification, other platforms, the macOS Gatekeeper step, and building from source instead — are under [Install](#install). `gcloud` is still required separately; see [Requirements](#requirements).
+Then verify it and check what else you need: [checksum and provenance verification](#option-1-download-a-release-binary-no-go-toolchain), the [macOS Gatekeeper step](#option-1-download-a-release-binary-no-go-toolchain), or [building from source](#option-2-build-from-source) instead. **`gcloud` is required separately** — see [Requirements](#requirements).
 
 Three screens, in the order you move through them.
 
@@ -125,7 +136,9 @@ Two options. The first needs no Go toolchain and pulls no dependencies onto your
 
 ### Option 1: download a release binary (no Go toolchain)
 
-Every tagged release attaches archives for macOS and Linux on both Apple Silicon/ARM and Intel/AMD64, plus a `checksums.txt`. Archive names carry no version, so `releases/latest/download/…` is a permanent URL — the version lives in the release tag, the directory inside the archive, and `g9s -version`.
+Every release attaches archives for macOS and Linux on both Apple Silicon/ARM and Intel/AMD64, plus a `checksums.txt`. Archive names carry no version, so `releases/latest/download/…` is a permanent URL — the version lives in the release tag, the directory inside the archive, and `g9s -version`.
+
+**Releases are automatic.** Every merge to `main` bumps the patch version and publishes it, but only after `gofmt`, `go vet`, `go test -race` and `govulncheck` have all passed — a red check publishes nothing. So the newest version is always the newest green commit. A commit message containing `[skip release]` builds without publishing, for changes not worth a version of their own.
 
 ```sh
 # Pick your platform: darwin_arm64, darwin_amd64, linux_amd64, linux_arm64

@@ -6,12 +6,71 @@ on:
     tags: ["v*"]
   pull_request:
 
-# Least privilege by default. The two jobs that need more ask for it
-# themselves, so a compromised step in test or build cannot write to the repo.
+# Least privilege by default. Only the release job asks for more, so a
+# compromised step in checks or build cannot write to the repository.
 permissions:
   contents: read
 
 jobs:
+  # Decide the version before anything is compiled, so the binary can be
+  # stamped with the version it will actually be published as. Doing this after
+  # the build would mean shipping a binary that reports a different version
+  # from the release it is attached to.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.pick.outputs.version }}
+      publish: ${{ steps.pick.outputs.publish }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          # Guarded: a PR from a fork has no head_commit, hence the fallback.
+          COMMIT_MSG: ${{ github.event.head_commit.message || '' }}
+        run: |
+          set -euo pipefail
+
+          publish=false
+          version=""
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            # An explicit tag wins: publish exactly what was asked for.
+            version="${GITHUB_REF_NAME}"
+            publish=true
+
+          elif [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            # Every merge to main publishes the next patch version.
+            if printf '%s' "$COMMIT_MSG" | grep -qF '[skip release]'; then
+              echo "Commit asked to skip the release."
+              version="dev-$(echo "${GITHUB_SHA}" | cut -c1-7)"
+            else
+              latest="$(gh release view --json tagName --jq .tagName 2>/dev/null || true)"
+              if [ -z "$latest" ]; then
+                version="v0.1.0"
+              else
+                ver="${latest#v}"
+                if ! printf '%s' "$ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+                  echo "::error::Latest release tag '$latest' is not a plain vX.Y.Z, so the next patch cannot be derived. Publish the next version with an explicit tag instead."
+                  exit 1
+                fi
+                major="${ver%%.*}"; rest="${ver#*.}"
+                minor="${rest%%.*}"; patch="${rest##*.}"
+                version="v${major}.${minor}.$((patch + 1))"
+              fi
+              publish=true
+            fi
+
+          else
+            # PRs and side branches build, but are never published, and are
+            # stamped so an artifact can never be mistaken for a release.
+            version="dev-$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          fi
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "publish=${publish}" >> "$GITHUB_OUTPUT"
+          echo "Building as ${version} (publish=${publish})"
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -58,11 +117,11 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
-  # Build once, promote the same bits. Artifacts from a green build are the
-  # exact files a release publishes — nothing is rebuilt at release time, so
-  # what you test is what ships.
+  # Build once, promote the same bits. The archives a release publishes are the
+  # exact files this job produced — nothing is recompiled at publish time, so
+  # what the checks ran against is what ships.
   build:
-    needs: [test, vulncheck]
+    needs: [version, test, vulncheck]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -89,31 +148,23 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
-
-          # A tag builds as its version; anything else is explicitly a dev
-          # build, so a downloaded artifact can never be mistaken for a release.
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            version="${GITHUB_REF_NAME}"
-          else
-            version="dev-$(git rev-parse --short HEAD)"
-          fi
-          echo "version=${version}" >> "$GITHUB_ENV"
 
           # The archive name is deliberately version-less so that
           #   releases/latest/download/g9s_<os>_<arch>.tar.gz
           # is a permanent URL the README never has to be updated for. The
           # version is still recoverable three ways: the release tag, the
           # directory inside the archive, and `g9s -version`.
-          dir="g9s_${version}_${GOOS}_${GOARCH}"
+          dir="g9s_${VERSION}_${GOOS}_${GOARCH}"
           archive="g9s_${GOOS}_${GOARCH}.tar.gz"
           mkdir -p "dist/${dir}"
 
           # -trimpath keeps build-machine paths out of the binary; -s -w drop
           # the symbol and DWARF tables, which is most of the 46MB.
           go build -trimpath \
-            -ldflags "-s -w -X main.version=${version}" \
+            -ldflags "-s -w -X main.version=${VERSION}" \
             -o "dist/${dir}/g9s" ./cmd/g9s
 
           cp README.md LICENSE "dist/${dir}/"
@@ -125,17 +176,16 @@ jobs:
           name: g9s_${{ matrix.goos }}_${{ matrix.goarch }}
           path: dist/*.tar.gz
           if-no-files-found: error
-          # Long enough to be useful for testing a merge, short enough that
-          # untagged dev builds do not accumulate forever.
+          # Long enough to be useful for testing a branch, short enough that
+          # unpublished builds do not accumulate forever.
           retention-days: 14
 
   release:
-    # Only tags publish. Every other green build stops at artifacts above.
-    if: github.ref_type == 'tag'
-    needs: [build]
+    needs: [version, build]
+    if: needs.version.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write # create the release and upload assets
+      contents: write # create the tag/release and upload assets
       id-token: write # sign the provenance attestation
       attestations: write
     steps:
@@ -155,8 +205,8 @@ jobs:
           cat checksums.txt
 
       # Signed SLSA provenance, tying each archive to this repo, commit and
-      # workflow. Verifiable with:
-      #   gh attestation verify g9s_..._tar.gz --repo TTMathCS/g9s
+      # workflow run. Verifiable with:
+      #   gh attestation verify g9s_<os>_<arch>.tar.gz --repo TTMathCS/g9s
       # Checksums alone prove a download was not corrupted; provenance is what
       # proves where the bits came from.
       - uses: actions/attest-build-provenance@v2
@@ -165,30 +215,30 @@ jobs:
 
       # gh ships on the runner, so publishing needs no third-party action.
       #
-      # Handles both ways a tag can arrive. Pushing a tag from a clone leaves
-      # no release, so one is created. Using GitHub's "Create a new release"
-      # button creates the tag *and* an empty release first, and a plain
-      # `gh release create` would then fail with "already exists" — so an
-      # existing release gets its assets uploaded instead. --clobber makes a
-      # re-run replace assets rather than erroring, which matters when a
-      # release job is retried.
+      # Three ways a release can arrive, all handled:
+      #  - merge to main: no tag yet, so --target creates one at this commit
+      #  - pushed tag: the tag exists, the release does not
+      #  - GitHub's "Create a new release" button: both already exist, so the
+      #    assets are uploaded into it rather than failing on "already exists"
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
 
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $tag already exists — uploading assets to it."
-            gh release upload "$tag" \
-              dist/*.tar.gz dist/checksums.txt \
-              --repo "$GITHUB_REPOSITORY" --clobber
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION exists — uploading assets into it."
+            gh release upload "$VERSION" \
+              dist/*.tar.gz dist/checksums.txt --clobber
           else
-            echo "Creating release $tag."
-            gh release create "$tag" \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "$tag" \
+            echo "Creating release $VERSION."
+            gh release create "$VERSION" \
+              --target "${GITHUB_SHA}" \
+              --title "$VERSION" \
               --generate-notes \
               dist/*.tar.gz dist/checksums.txt
           fi
+
+          echo "### Released [$VERSION](https://github.com/${GITHUB_REPOSITORY}/releases/tag/$VERSION)" >> "$GITHUB_STEP_SUMMARY"
