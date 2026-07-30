@@ -98,7 +98,10 @@ func login(mgr *auth.Manager, p config.Project, noBrowser bool) tea.Cmd {
 	if err != nil {
 		return func() tea.Msg { return loginFinishedMsg{project: p.Name, err: err} }
 	}
-	return tea.Exec(&noticeCmd{Cmd: cmd, notice: loginNotice(p, noBrowser)}, func(err error) tea.Msg {
+	// The credential path is in the notice so the manual fallback names a real
+	// destination rather than "wherever g9s keeps them".
+	notice := loginNotice(p, noBrowser, mgr.ADCPath(p))
+	return tea.Exec(&noticeCmd{Cmd: cmd, notice: notice}, func(err error) tea.Msg {
 		return loginFinishedMsg{project: p.Name, err: err}
 	})
 }
@@ -114,16 +117,28 @@ func login(mgr *auth.Manager, p config.Project, noBrowser bool) tea.Cmd {
 // browser's side it all worked, so there is nothing on screen to suggest what
 // to do. This is the only moment that guidance is any use — a status line in a
 // TUI that is currently suspended cannot deliver it.
-func loginNotice(p config.Project, noBrowser bool) string {
+func loginNotice(p config.Project, noBrowser bool, adcPath string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "g9s: gcloud auth application-default login for %s\n", p.Name)
 
 	if noBrowser {
-		// No loopback redirect in this flow, so no proxy and no other machine
-		// can swallow it. Nothing to warn about — just say what to do, because
-		// waiting for something to happen here is the wrong instinct.
-		b.WriteString("     --no-browser flow: run the command gcloud prints below on a machine\n")
-		b.WriteString("     that has a browser and gcloud, then paste its output back here.\n")
+		// The trap this spells out: gcloud prints a *command* containing a URL,
+		// and the URL on its own is not a valid authorization request — it has
+		// no redirect_uri, because the gcloud on the other machine is what adds
+		// one pointing at its own loopback. Opening it in a browser gets
+		// "Error 400: invalid_request, missing required parameter:
+		// redirect_uri", which reads like g9s produced a broken link.
+		b.WriteString("     --no-browser flow. Run the WHOLE gcloud command printed below on a\n")
+		b.WriteString("     machine that has a browser and gcloud (372.0.0+), then paste that\n")
+		b.WriteString("     command's output back here.\n")
+		b.WriteString("     Do not open the URL inside it in a browser — on its own it is missing\n")
+		b.WriteString("     redirect_uri and Google answers 400 invalid_request.\n")
+		if adcPath != "" {
+			b.WriteString("     No gcloud on that machine, or its browser cannot reach its own\n")
+			b.WriteString("     localhost either? Run a normal `gcloud auth application-default\n")
+			b.WriteString("     login` there and copy the credentials file it writes to:\n")
+			b.WriteString("       " + adcPath + "\n")
+		}
 		return b.String()
 	}
 

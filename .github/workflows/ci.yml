@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
 
+# Action majors are the ones that run on Node 24. The runners deprecated Node 20
+# and force older actions onto 24 anyway, so staying behind buys a warning on
+# every job now and a breakage whenever the forcing stops.
 jobs:
   # Decide the version before anything is compiled, so the binary can be
   # stamped with the version it will actually be published as. Doing this after
@@ -81,9 +84,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.25"
           cache: true
@@ -109,9 +112,9 @@ jobs:
   vulncheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.25"
           cache: true
@@ -143,9 +146,9 @@ jobs:
           - goos: linux
             goarch: arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.25"
           cache: true
@@ -178,7 +181,7 @@ jobs:
           tar -C dist -czf "dist/${archive}" "${dir}"
           rm -rf "dist/${dir}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: g9s_${{ matrix.goos }}_${{ matrix.goarch }}
           path: dist/*.tar.gz
@@ -196,10 +199,10 @@ jobs:
       id-token: write # sign the provenance attestation
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Collect built archives
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -216,7 +219,7 @@ jobs:
       #   gh attestation verify g9s_<os>_<arch>.tar.gz --repo TTMathCS/g9s
       # Checksums alone prove a download was not corrupted; provenance is what
       # proves where the bits came from.
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/*.tar.gz
 

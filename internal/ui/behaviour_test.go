@@ -205,7 +205,7 @@ func TestLoginNoticeExplainsTheLoopbackRedirect(t *testing.T) {
 	// still sitting on the URL because the redirect never came back.
 	p := config.Project{Name: "prod-data", ProjectID: "prod-1"}
 
-	browser := loginNotice(p, false)
+	browser := loginNotice(p, false, "/creds/adc.json")
 	if !strings.Contains(browser, "prod-data") {
 		t.Errorf("notice does not name the project:\n%s", browser)
 	}
@@ -218,7 +218,7 @@ func TestLoginNoticeExplainsTheLoopbackRedirect(t *testing.T) {
 
 	// The no-browser flow has the opposite problem — it looks like nothing is
 	// happening until you realise you are meant to run something elsewhere.
-	noBrowser := loginNotice(p, true)
+	noBrowser := loginNotice(p, true, "/creds/adc.json")
 	if !strings.Contains(noBrowser, "--no-browser") {
 		t.Errorf("notice does not name the flow:\n%s", noBrowser)
 	}
@@ -268,11 +268,14 @@ func TestLoginNoBrowserSettingAlwaysWins(t *testing.T) {
 	if !m.cfg.Defaults.LoginNoBrowser {
 		t.Fatal("the setting did not reach the model")
 	}
-	// The notice is the observable difference, and it must not talk about a
-	// loopback redirect that this flow does not use.
-	notice := loginNotice(cfg.Projects[0], true)
-	if strings.Contains(notice, "localhost") {
-		t.Errorf("the no-browser notice mentions the loopback redirect:\n%s", notice)
+	// The notice is the observable difference, and it must not tell the user
+	// that THIS machine's localhost has to be reachable — that is the browser
+	// flow's requirement and the reason they turned it off. It may still
+	// mention the other machine's localhost, which is where the fallback
+	// advice lives.
+	notice := loginNotice(cfg.Projects[0], true, "/creds/adc.json")
+	if strings.Contains(notice, "THIS machine") {
+		t.Errorf("the no-browser notice states the browser flow's requirement:\n%s", notice)
 	}
 	if !strings.Contains(notice, "--no-browser") {
 		t.Errorf("the notice does not name the flow:\n%s", notice)
@@ -281,8 +284,36 @@ func TestLoginNoBrowserSettingAlwaysWins(t *testing.T) {
 
 func TestBrowserNoticePointsAtTheSetting(t *testing.T) {
 	// Someone who hits the hang once should not have to hit it twice.
-	notice := loginNotice(config.Project{Name: "p"}, false)
+	notice := loginNotice(config.Project{Name: "p"}, false, "/creds/adc.json")
 	if !strings.Contains(notice, "login_no_browser") {
 		t.Errorf("the browser notice does not mention the setting:\n%s", notice)
+	}
+}
+
+func TestNoBrowserNoticeWarnsAgainstOpeningTheURL(t *testing.T) {
+	// The reported failure: gcloud prints a *command* containing a URL, the URL
+	// gets opened in a browser on its own, and Google answers "400
+	// invalid_request, missing required parameter: redirect_uri" — because the
+	// gcloud on the other machine is what supplies redirect_uri. It reads like
+	// g9s handed out a broken link, so the notice has to name the trap.
+	notice := loginNotice(config.Project{Name: "prod"}, true, "/creds/prod/adc.json")
+
+	if !strings.Contains(notice, "WHOLE gcloud command") {
+		t.Errorf("notice does not say to run the command:\n%s", notice)
+	}
+	if !strings.Contains(notice, "redirect_uri") {
+		t.Errorf("notice does not name the error the URL alone produces:\n%s", notice)
+	}
+	// And the escape hatch for a machine with no gcloud has to name a real
+	// destination, not "wherever g9s keeps them".
+	if !strings.Contains(notice, "/creds/prod/adc.json") {
+		t.Errorf("notice does not give the credential path:\n%s", notice)
+	}
+}
+
+func TestNoticeOmitsTheFallbackWithoutAPath(t *testing.T) {
+	notice := loginNotice(config.Project{Name: "prod"}, true, "")
+	if strings.Contains(notice, "copy the credentials file") {
+		t.Errorf("notice offers a copy target it does not have:\n%s", notice)
 	}
 }
