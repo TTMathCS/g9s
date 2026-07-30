@@ -30,6 +30,22 @@ func TestNewManagerRejectsCredentialDirCollisions(t *testing.T) {
 	}
 }
 
+func TestNewManagerRejectsCollisionsThatOnlyDifferInCase(t *testing.T) {
+	// macOS and Windows treat "Prod" and "prod" as one directory, so a check
+	// that only caught exact collisions would pass on Linux and hand two
+	// projects the same credentials on a laptop.
+	cfg := &config.Config{Projects: []config.Project{
+		{Name: "Prod", ProjectID: "p-1"},
+		{Name: "prod", ProjectID: "p-2"},
+	}}
+
+	if _, err := NewManager(cfg); err == nil {
+		t.Fatal("names differing only in case should be refused")
+	} else if !strings.Contains(err.Error(), "case") {
+		t.Errorf("error should explain the case collision: %v", err)
+	}
+}
+
 func TestNewManagerAcceptsDistinctProjects(t *testing.T) {
 	cfg := &config.Config{Projects: []config.Project{
 		{Name: "prod-data", ProjectID: "p-1"},
@@ -278,4 +294,82 @@ func assertEnv(t *testing.T, env []string, key, want string) {
 		}
 	}
 	t.Errorf("%s not set in command environment", key)
+}
+
+func TestLoopbackUsable(t *testing.T) {
+	// Whether the ordinary login can finish at all: gcloud's flow ends with the
+	// browser fetching http://localhost:<port>/ on this machine.
+	env := func(pairs map[string]string) func(string) string {
+		return func(k string) string { return pairs[k] }
+	}
+
+	tests := []struct {
+		name string
+		goos string
+		vars map[string]string
+		want bool
+	}{
+		{"local workstation", "darwin", nil, true},
+		{"local linux desktop", "linux", map[string]string{"DISPLAY": ":0"}, true},
+		// The reported failure: sign-in succeeds, the redirect lands on the
+		// laptop instead of here, and gcloud waits forever.
+		{"ssh to a linux box", "linux", map[string]string{"SSH_CONNECTION": "10.0.0.1 22"}, false},
+		{"ssh to a mac", "darwin", map[string]string{"SSH_TTY": "/dev/ttys001"}, false},
+		{"ssh with X forwarding", "linux", map[string]string{
+			"SSH_CONNECTION": "10.0.0.1 22", "DISPLAY": "localhost:10.0",
+		}, true},
+		{"ssh with wayland", "linux", map[string]string{
+			"SSH_CLIENT": "10.0.0.1", "WAYLAND_DISPLAY": "wayland-0",
+		}, true},
+		{"headless linux, no ssh", "linux", nil, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := loopbackUsable(tt.goos, env(tt.vars)); got != tt.want {
+				t.Errorf("loopbackUsable(%s, %v) = %v, want %v", tt.goos, tt.vars, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestProxyMayBlockLoopback(t *testing.T) {
+	// A browser told to send everything through a proxy sends localhost there
+	// too, and the proxy cannot route it back here.
+	env := func(pairs map[string]string) func(string) string {
+		return func(k string) string { return pairs[k] }
+	}
+
+	tests := []struct {
+		name string
+		vars map[string]string
+		want bool
+	}{
+		{"no proxy at all", nil, false},
+		{"proxy with no exemption", map[string]string{"HTTPS_PROXY": "http://proxy:8080"}, true},
+		{"lowercase proxy var", map[string]string{"https_proxy": "http://proxy:8080"}, true},
+		{"proxy exempting localhost", map[string]string{
+			"HTTPS_PROXY": "http://proxy:8080", "NO_PROXY": "localhost,127.0.0.1",
+		}, false},
+		{"exemption in the lowercase var", map[string]string{
+			"HTTP_PROXY": "http://proxy:8080", "no_proxy": "example.com, localhost",
+		}, false},
+		{"exemption by ipv6 loopback", map[string]string{
+			"ALL_PROXY": "socks5://proxy:1080", "NO_PROXY": "::1",
+		}, false},
+		{"exemption that misses loopback", map[string]string{
+			"HTTPS_PROXY": "http://proxy:8080", "NO_PROXY": "example.com,.internal",
+		}, true},
+		{"wildcard exemption", map[string]string{
+			"HTTPS_PROXY": "http://proxy:8080", "NO_PROXY": "*",
+		}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := proxyMayBlockLoopback(env(tt.vars)); got != tt.want {
+				t.Errorf("proxyMayBlockLoopback(%v) = %v, want %v", tt.vars, got, tt.want)
+			}
+		})
+	}
 }

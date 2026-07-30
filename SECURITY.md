@@ -32,10 +32,62 @@ of the escape sequence.
 
 ## Review findings
 
-A review of the whole codebase in July 2026. Two issues were found and fixed;
-the rest is recorded so the reasoning is visible rather than implied.
+Reviews of the whole codebase, July 2026. Everything found was fixed; the rest
+is recorded so the reasoning is visible rather than implied.
 
 ### Fixed
+
+**Live secrets printed by the detail pane.** GCP returns secrets inside
+otherwise ordinary objects, and the detail pane renders the object it was
+given. Describing a VPN tunnel printed its IPsec pre-shared key
+(`VpnTunnel.sharedSecret`, plus the hash of the same key); describing a GKE
+cluster printed the cluster's client private key and, where basic auth still
+exists, its password (`Cluster.masterAuth.clientKey` / `.password`). All of it
+went into the terminal, the scrollback and anything recording the session, and
+`y` copied it to the clipboard. `renderDetail` now walks the decoded object and
+replaces the value of every known secret-bearing field with a visible marker —
+the field stays, because knowing a shared secret is *set* is part of reading a
+tunnel's configuration. Matching is on the exact field name, normalised for
+case and separators, not on substrings: a rule that blanked anything containing
+"password" would also hide Cloud SQL's `passwordValidationPolicy`, which is
+configuration worth reading. Certificates are left alone — they are public
+halves. New listers that surface a secret add a name to `secretFields`.
+
+**Terminal escape injection from API responses.** Everything on screen —
+resource names, statuses, locations, API warnings, error strings, a Composer
+environment's Airflow URI — arrives from a GCP API response and was written to
+the terminal as-is, and a terminal acts on the escape sequences it is handed. A
+value carrying one could repaint the screen, move the cursor, relabel the window
+title, or on terminals with the feature enabled, push text back onto stdin.
+Every rendered string now passes through `sanitizeLine`, which drops the C0
+range, DEL and C1, and turns newlines and tabs into spaces; the detail pane uses
+the newline-preserving variant. Invalid UTF-8 is rebuilt too, since a lone
+`0x9b` never decodes to U+009B but is still a CSI introducer to a terminal in
+8-bit mode. `safeToOpen` refuses a URL containing any of it.
+
+**Data from a previous identity could be shown as current.** Finishing a login
+cleared the cache, but not the fetches already in flight — those had been
+started with the old credentials, and their results still matched their refresh
+tokens, so they landed in the freshly cleared cache and were displayed as
+belonging to the new identity. Login now bumps every kind's refresh token as
+well, so anything fetched before that point is dropped on arrival.
+
+**The config's directory was unchecked.** Refusing a group- or world-writable
+config file does not help if the directory holding it is writable, because the
+file can simply be replaced — and `defaults.gcloud_path` names the binary g9s
+executes. `config.Load` now checks the directory too, with an exception for the
+sticky bit, which is what makes a shared `/tmp` safe: it stops one user
+removing or renaming another's files. Three smaller things went with it. The
+mode is now read from the open file rather than from a second lookup of the
+path, closing the window between the check and the read. A non-regular file is
+refused, so a fifo cannot present as a hang with no explanation. And the read is
+bounded at 1MB.
+
+**Credential directories could still collide, case-insensitively.** The
+collision check compared sanitized names exactly, so projects named `Prod` and
+`prod` passed on Linux and shared one credential directory on macOS or Windows —
+the same silent re-identification the check exists to prevent. The comparison is
+now case-insensitive, and the error says why.
 
 **Untrusted URI reaching the platform opener.** Console links are built by g9s
 from a fixed `https://` prefix with escaped components, but a Composer
@@ -67,7 +119,10 @@ places and the contents are not secret.
   name cannot become commands.
 - **Argument injection into gcloud.** Instance and zone names flow into
   `gcloud compute ssh` from the API. GCP's own naming rules (`[a-z]([-a-z0-9]*
-  [a-z0-9])?`) forbid a leading `-`, so a name cannot pose as a flag.
+  [a-z0-9])?`) forbid a leading `-`, so a name cannot pose as a flag. Relying on
+  the upstream guarantee was the whole mitigation, so `SSHTarget` now enforces
+  the shape itself and refuses to build the command otherwise — cheap, and it
+  holds if something upstream ever returns a name GCP would not have minted.
 - **Path traversal into the credential directory.** Project names come from a
   hand-edited file and become directory components. `sanitize` splits on
   anything outside `[A-Za-z0-9._-]` and drops dot-only segments, so `..` and
@@ -82,12 +137,24 @@ places and the contents are not secret.
 
 ### Residual, by design
 
-- **The detail pane renders the full API object.** That is the point — it is
-  what `gcloud describe` shows you — but it means whatever GCP returns about a
-  resource is on screen, and `y` copies it to the clipboard. Worth knowing
-  before you screen-share.
-- **OSC 52 writes to stderr.** If you redirect stderr to a file, copied
-  content lands there base64-encoded.
+- **Secret Manager is listed, values are not.** The `secrets` kind calls
+  `projects.secrets.list` and nothing else: names, replication, rotation and
+  expiry. `AccessSecretVersion` is never called, so a payload never enters the
+  process — not the table, not the detail pane, not the clipboard, not the
+  scrollback. That is a property of the API surface used rather than of
+  filtering applied afterwards, and a test parses `secrets.go` and fails the
+  build if it ever reaches for a value. Read one with
+  `gcloud secrets versions access`, where the access is logged against your
+  identity.
+- **The detail pane renders the full API object,** minus the fields listed in
+  `secretFields`. That is the point — it is what `gcloud describe` shows you —
+  but it means everything else GCP returns about a resource is on screen, and
+  `y` copies it. Redaction is a list of known names, not a guarantee about an
+  API g9s has not met yet. Worth knowing before you screen-share.
+- **OSC 52 writes to stderr,** because bubbletea owns stdout. If stderr is not a
+  terminal the copy cannot work, and g9s now says so rather than reporting a
+  success that went into a log file; payloads past 64KB are refused for the same
+  reason, since terminals silently drop oversized sequences.
 - **A malicious `gcloud` on `PATH`** would be trusted, since g9s shells out to
   it by name unless `gcloud_path` is absolute. This is the same trust you
   already extend to gcloud.

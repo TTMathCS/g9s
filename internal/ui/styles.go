@@ -2,6 +2,7 @@ package ui
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
@@ -63,12 +64,20 @@ func statusStyle(status string) lipgloss.Style {
 	switch strings.ToUpper(status) {
 	// Each API spells "healthy" its own way: RUNNABLE is Cloud SQL's, ESTABLISHED
 	// is a VPN tunnel that finished its handshake, ENABLED is a live firewall rule.
-	case "RUNNING", "RUNNABLE", "ACTIVE", "READY", "ESTABLISHED", "ENABLED":
+	// DONE is BigQuery's word for a job that finished; a job that finished
+	// badly reports FAILED instead, which is why DONE is unambiguously green.
+	case "RUNNING", "RUNNABLE", "ACTIVE", "READY", "ESTABLISHED", "ENABLED", "DONE":
 		return goodStyle
 	case "PROVISIONING", "STAGING", "CREATING", "UPDATING", "STOPPING", "DELETING",
 		"REPAIRING", "SUSPENDING", "RECONCILING",
 		// Cloud SQL's in-flight and maintenance states.
 		"PENDING_CREATE", "PENDING_DELETE", "MAINTENANCE",
+		// A BigQuery job that has been admitted but is waiting on slots, and a
+		// Dataproc job between submission and its driver starting.
+		"PENDING", "SETUP_DONE", "CANCEL_PENDING", "CANCEL_STARTED",
+		// A secret with an expiry still ahead of it: not broken, but it and
+		// every version of it will be deleted on that date.
+		"EXPIRING",
 		// VPN tunnels mid-handshake or being torn down.
 		"WAITING_FOR_FULL_CONFIG", "FIRST_HANDSHAKE", "ALLOCATING_RESOURCES", "DEPROVISIONING",
 		// Interconnect attachments waiting on the other party.
@@ -81,21 +90,88 @@ func statusStyle(status string) lipgloss.Style {
 		// VPN tunnels that will never carry traffic without intervention.
 		"AUTHORIZATION_ERROR", "NEGOTIATION_FAILURE", "NETWORK_ERROR", "NO_INCOMING_PACKETS", "REJECTED",
 		// Interconnect attachments that are broken or never came up.
-		"DEFUNCT", "UNPROVISIONED":
+		"DEFUNCT", "UNPROVISIONED",
+		// A Dataproc job that was killed or never got off the ground, and a
+		// secret whose expiry has passed — it and its versions are gone.
+		"CANCELLED", "ATTEMPT_FAILURE", "EXPIRED":
 		return badStyle
 	default:
 		return rowStyle
 	}
 }
 
+// sanitizeLine makes an API-supplied string safe to render on one line:
+// control characters are dropped, and newlines and tabs become spaces.
+//
+// This is not cosmetic. Everything on screen — resource names, statuses, bucket
+// labels, Airflow URIs, API warnings, error strings — arrives from a GCP API
+// response, and a terminal executes escape sequences in whatever it is handed.
+// A row cell carrying an ESC byte can repaint the screen, move the cursor,
+// relabel the window title, or on terminals with the feature enabled, push text
+// back onto stdin. Stripping the control range means a hostile or merely
+// mangled value can be ugly but not active.
+func sanitizeLine(s string) string {
+	return sanitizeControl(s, false)
+}
+
+// sanitizeBlock is sanitizeLine for multi-line content: the detail pane's YAML
+// keeps its newlines and tabs, and loses everything else.
+func sanitizeBlock(s string) string {
+	return sanitizeControl(s, true)
+}
+
+// isControl reports whether r is a control character: the C0 range and DEL,
+// plus the C1 range, which is where a bare 0x9b is a CSI introducer all by
+// itself on terminals that decode it.
+func isControl(r rune) bool {
+	return r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f)
+}
+
+func sanitizeControl(s string, keepBreaks bool) string {
+	// The overwhelmingly common case is a clean string, and this runs on every
+	// cell of every frame, so check before building anything.
+	//
+	// Invalid UTF-8 counts as unclean even with no control rune in sight: a
+	// stray 0x9b byte does not decode to U+009B, so IndexFunc walks straight
+	// past it, and a terminal in 8-bit mode reads it as a CSI introducer.
+	// Rebuilding turns it into U+FFFD, which is inert.
+	if utf8.ValidString(s) && strings.IndexFunc(s, isControl) < 0 {
+		return s
+	}
+
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r == '\n' || r == '\t':
+			if keepBreaks {
+				b.WriteRune(r)
+			} else {
+				b.WriteRune(' ')
+			}
+		case isControl(r):
+			// Dropped, not replaced: a run of them should not stretch a column.
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // truncate shortens s to width display cells, marking the cut with an
 // ellipsis. Cells, not runes: a CJK character occupies two columns, and
 // counting runes would let one wide name push every column after it out of
 // alignment.
+//
+// Every cell, header, crumb, footer and flash string in the UI goes through
+// here, which makes it the one place worth sanitizing at. Nothing already
+// styled is ever passed in — styles are applied to the result, never before —
+// so stripping escapes here cannot eat the tool's own colours.
 func truncate(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
+	s = sanitizeLine(s)
 	if lipgloss.Width(s) <= width {
 		return s
 	}

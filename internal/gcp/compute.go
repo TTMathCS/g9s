@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -145,6 +146,16 @@ func shortDuration(d time.Duration) string {
 	}
 }
 
+// resourceNamePattern is the shape GCP guarantees for an instance name or a
+// zone: a lowercase letter, then lowercase letters, digits and hyphens.
+//
+// Checked rather than assumed because both values become argv for `gcloud
+// compute ssh`. They arrive from an API response, and a name that could pass
+// for a flag — or carry a shell metacharacter, for whoever wraps this in a
+// shell next — must not reach a command line. GCP will not mint one; this is
+// the guard for the day something upstream returns one anyway.
+var resourceNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+
 // SSHTarget reports the zone and instance name for a compute resource, for the
 // `gcloud compute ssh` action.
 func SSHTarget(r Resource) (name, zone string, ok bool) {
@@ -155,5 +166,10 @@ func SSHTarget(r Resource) (name, zone string, ok bool) {
 	if !strings.EqualFold(inst.GetStatus(), "RUNNING") {
 		return "", "", false
 	}
-	return inst.GetName(), lastSegment(inst.GetZone()), true
+
+	name, zone = inst.GetName(), lastSegment(inst.GetZone())
+	if !resourceNamePattern.MatchString(name) || !resourceNamePattern.MatchString(zone) {
+		return "", "", false
+	}
+	return name, zone, true
 }

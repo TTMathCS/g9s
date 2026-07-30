@@ -70,7 +70,10 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | GKE clusters | ✅ | zonal + regional, aggregated | `parent: projects/*/locations/-` covers everything in one call |
 | Cloud SQL instances | ✅ | global | one paginated call; unreachable regions arrive as response warnings, not errors |
 | Cloud Storage buckets | ✅ | global | simplest lister — one call, no fan-out |
+| BigQuery datasets | ✅ | global | name, location, type and labels; anything more costs a `Get` per dataset |
+| BigQuery jobs | ✅ | global | recent jobs, newest first; window from `defaults.bigquery_job_window`, capped at 500 rows |
 | Dataproc clusters | ✅ | **regional** | a client per region; `global` always swept |
+| Dataproc jobs | ✅ | **regional** | every state, newest first; capped at 200 per region — the API has no time filter |
 | Cloud Composer environments | ✅ | location-scoped | one client, location in the request parent |
 | VPC networks | ✅ | global | subnet mode, subnet count, routing mode |
 | Firewall rules | ✅ | global | sorted by evaluation priority, not name; disabled rules flagged |
@@ -79,11 +82,9 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | VPN tunnels | ✅ | regional, aggregated | real tunnel status — ESTABLISHED vs a handshake that never finished |
 | Interconnect attachments | ✅ | regional, aggregated | VLAN attachments, not circuits; admin-disabled beats a healthy-looking state |
 | PSC service attachments | ✅ | regional, aggregated | the producer side; consumer endpoints are forwarding rules, already under load balancers |
-| BigQuery datasets & recent jobs | 🔜 | global | jobs answer "what is running", not just "what exists" |
+| Secret Manager secrets | ✅ | global | **metadata only — never values**; replication, rotation and expiry |
 | Pub/Sub topics & subscriptions | 🔜 | global | subscription backlog is the number people actually want |
-| Secret Manager secrets | 🔜 | global | **names and versions only — never values** |
 | Cloud Run services & jobs | 🔜 | regional | |
-| Dataproc jobs | 🔜 | regional | clusters without jobs is half the story |
 | Dataflow jobs | 🔜 | regional | |
 | Service accounts & keys | 🔜 | global | key age is a standing audit question |
 | GKE node pools | 🔜 | per-cluster | drill-down from a GKE row, not a new top-level tab |
@@ -119,11 +120,11 @@ Cloud Asset Inventory makes "list everything in a project" a single API call. Wi
 
 ## Status
 
-MVP. Thirteen resource kinds across compute, data and networking — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
+MVP. Seventeen resource kinds across compute, data and networking — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
 
 Navigation is three levels deep: projects → dashboard → a category's table, with `esc` walking back up. A new kind appears on the dashboard, in the tab bar and in *All Resources* automatically; there is nothing to register in the UI.
 
-With thirteen kinds the number keys no longer cover them all: `1`–`9` reach the first nine, and `tab`/`shift+tab`, `0`/`a` and `:<kind>` reach every one. The tab strip scrolls to keep the active tab visible, marking hidden tabs with `‹`/`›`, and the dashboard is the reliable way to see everything at once.
+Every kind has a one-press key, past the ninth included. The digits run out at nine, so the sequence carries on into letters — `1`–`9`, then `b e f h i m n t u v w x z` — skipping every letter that is already an action, which is why the run starts at `b` and not at `a` (`a` is *All Resources*). Nothing to memorise: each kind's key is printed beside it on the dashboard and in the tab strip. `tab`/`shift+tab` and `:<kind>` still reach everything, and the tab strip scrolls to keep the active tab visible, marking hidden tabs with `‹`/`›`.
 
 ## Requirements
 
@@ -333,6 +334,36 @@ If your identity is federated (Entra ID, Okta, or similar), that browser redirec
 
 Press `L` instead of `l`. That adds `--no-browser`, which prints a bootstrap command to run on a trusted machine that has both a browser and gcloud; you paste the resulting URL back. It's fiddlier than the local flow, so prefer running g9s on your workstation if you can.
 
+g9s picks that flow for you when it can tell the browser flow cannot work — an SSH session with no local display, where the redirect below would land on your laptop rather than on the machine gcloud is running on.
+
+### "I signed in, but g9s is still sitting on the URL"
+
+This is the one login failure that gives you nothing to go on, so it's worth understanding.
+
+`gcloud auth application-default login` starts a web server on `127.0.0.1:<port>` **on the machine running g9s**, then sends your browser to Google with `redirect_uri=http://localhost:<port>/`. Your sign-in and MFA happen at Google and succeed. The last step is your *browser* fetching that `localhost` URL to hand the authorization code back. gcloud waits until that request arrives — and from the browser's side everything already worked, so nothing on screen says otherwise.
+
+Two things stop the redirect arriving:
+
+- **A proxy.** If your browser is configured to send everything through an HTTP proxy, it sends `http://localhost:<port>/` there too, and the proxy can't route it back to your machine. Add `localhost,127.0.0.1,::1` to the browser's proxy bypass list (or `no_proxy`, for a browser that reads it). g9s warns about this before handing over when it sees a proxy in its own environment with no loopback exemption — but it's your browser's settings that decide.
+- **The browser is somewhere else.** Running g9s over SSH, the redirect reaches the laptop you're sitting at, not the host gcloud is on.
+
+Either way: `ctrl+c` to abort, then press `L`. Note that `ctrl+c` reaches g9s too, since gcloud runs in its process group — so you'll be back at a shell prompt and can restart g9s.
+
+**If this is your normal setup, stop pressing `L`:**
+
+```yaml
+defaults:
+  login_no_browser: true
+```
+
+`l` then behaves like `L` every time. That is the right answer behind a proxy you don't control: fighting the bypass list per browser, per profile, per machine is more work than the one extra paste the `--no-browser` flow costs, and it fails in a way that looks like nothing happening. g9s can see a proxy in its own environment, but not in your browser's settings, so it will not make this choice for you.
+
+To confirm it's the environment rather than g9s, run the same command by hand — it will hang in exactly the same place:
+
+```sh
+CLOUDSDK_CONFIG=~/.local/share/g9s/credentials/<project-name> gcloud auth application-default login
+```
+
 ## Configuration
 
 `~/.config/g9s/config.yaml`, or `$G9S_CONFIG`, or `-config <path>`.
@@ -348,6 +379,15 @@ defaults:
   credential_dir: ~/.local/share/g9s/credentials
   gcloud_path: gcloud
   list_timeout: 90s
+
+  # Always use gcloud's --no-browser flow for `l`. Set this behind a proxy —
+  # see "I signed in, but g9s is still sitting on the URL" below.
+  login_no_browser: false
+
+  # How far back the BigQuery jobs table looks. Jobs are kept for six months,
+  # which is far more than a "what is running" table can show, so this window
+  # is what makes that listing a complete answer rather than a truncated one.
+  bigquery_job_window: 24h
 
 projects:
   - name: sandbox                    # label in the picker; names the credential dir
@@ -378,7 +418,7 @@ The bindings follow k9s muscle memory where the two tools overlap: `:` jumps by 
 | `enter` | dashboard: open the category · table: describe (YAML, as `gcloud describe` shows it) |
 | `d` | describe the selected resource |
 | `:` | command — `:vm` `:gke` `:gcs` `:dataproc` `:composer` `:all` `:projects` `:q` (prefixes work: `:data`) |
-| `1`–`9` | jump straight to a resource kind |
+| `1`–`9`, then `b e f h i m n t u v w x z` | jump straight to a resource kind — one key each, printed beside the kind on the dashboard and in the tab strip |
 | `0` / `a` | all resources — every kind in one table |
 | `tab` / `shift+tab` | cycle resource kinds |
 | `q` / `esc` | back up one level — table to dashboard, dashboard to projects |
@@ -400,7 +440,13 @@ With a least-privilege account, some regions and some APIs will refuse you. A to
 So listers return whatever succeeded plus a warning per failed scope, and the footer says so:
 
 ```
-⚠ 2 scope(s) unavailable: europe-west1: permission denied; us-east4: permission denied
+⚠ 2 warnings: europe-west1: permission denied; us-east4: permission denied
+```
+
+An unreachable scope is the common case but not the only one. A listing bounded on purpose reports itself the same way, because a bounded list that looks complete is the same failure:
+
+```
+⚠ 1 warning: only the 500 most recent jobs are shown — narrow defaults.bigquery_job_window for a complete list
 ```
 
 Errors that are *expected* rather than informative — the API simply isn't enabled in that region, or the region doesn't exist — are suppressed, or the footer would be permanently full of noise.
@@ -418,7 +464,9 @@ type Lister interface {
 
 Use `fanOut` for anything region-scoped; it handles the concurrency, the partial-failure collection and the stable ordering. `internal/gcp/dataproc.go` is the shortest example.
 
-Two things the table relies on: your `Resource.Row` must have exactly as many cells as `Kind.Columns`, and the number keys only reach the first nine listers. Both are covered by tests.
+Two things the UI relies on, both covered by tests: your `Resource.Row` must have exactly as many cells as `Kind.Columns`, and there has to be a hotkey left for your kind. The alphabet in `internal/ui/hotkeys.go` holds twenty-two; `TestKindKeysCoverEveryLister` is what fails when it runs out, rather than the kind quietly becoming reachable only by typing a command.
+
+If the raw object your lister puts in `Resource.Raw` carries a secret — an API that returns a key, a password, a token — add its field name to `secretFields` in `internal/ui/commands.go`. The detail pane renders `Raw` in full, and `y` copies it.
 
 ## Design notes
 
@@ -430,9 +478,11 @@ Two things the table relies on: your `Resource.Row` must have exactly as many ce
 
 ## Security
 
-g9s never sees your password, never writes a credential, and issues no mutating API call — every request is a `List` or a `Get`. Credentials are isolated per project under a `0700` directory, and the config file is refused if anyone else can write it, since `gcloud_path` decides which binary gets executed.
+g9s never sees your password, never writes a credential, and issues no mutating API call — every request is a `List` or a `Get`. Credentials are isolated per project under a `0700` directory, and the config file is refused if anyone else can write it — or write the directory holding it — since `gcloud_path` decides which binary gets executed.
 
-**[SECURITY.md](SECURITY.md)** covers the threat model, what the tool can reach and run, the findings from a July 2026 code review (two issues found and fixed, plus the paths examined and cleared), and the dependency posture. CI runs `govulncheck ./...` on every push.
+Two things worth knowing about what reaches your terminal. Secrets that GCP returns inside otherwise ordinary objects — a VPN tunnel's IPsec pre-shared key, a GKE cluster's client private key — are redacted from the detail pane rather than printed into your scrollback and copied by `y`. And every API-supplied string is stripped of control characters before rendering, so a resource name cannot carry an escape sequence into a terminal that would act on it.
+
+**[SECURITY.md](SECURITY.md)** covers the threat model, what the tool can reach and run, the findings from the code reviews (with the paths examined and cleared), and the dependency posture. CI runs `govulncheck ./...` on every push.
 
 ## License
 

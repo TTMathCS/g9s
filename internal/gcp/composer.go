@@ -52,12 +52,12 @@ func (ComposerLister) List(ctx context.Context, cfg *config.Config, p config.Pro
 	}
 	defer client.Close()
 
-	return fanOut(ctx, locations, func(ctx context.Context, location string) ([]Resource, error) {
+	return fanOut(ctx, locations, func(ctx context.Context, location string) (Result, error) {
 		it := client.ListEnvironments(ctx, &servicepb.ListEnvironmentsRequest{
 			Parent: fmt.Sprintf("projects/%s/locations/%s", p.ProjectID, location),
 		})
 
-		var out []Resource
+		var out Result
 		for {
 			env, err := it.Next()
 			if err == iterator.Done {
@@ -66,7 +66,7 @@ func (ComposerLister) List(ctx context.Context, cfg *config.Config, p config.Pro
 			if err != nil {
 				return out, err
 			}
-			out = append(out, environmentResource(p, location, env))
+			out.Resources = append(out.Resources, environmentResource(p, location, env))
 		}
 		return out, nil
 	}), nil
@@ -112,3 +112,7 @@ func AirflowURI(r Resource) (string, bool) {
 }
 
 func timeSince(t time.Time) time.Duration { return time.Since(t) }
+
+// millisToTime converts epoch milliseconds, the unit the REST-shaped APIs use
+// for timestamps, into a time.Time.
+func millisToTime(millis int64) time.Time { return time.UnixMilli(millis) }

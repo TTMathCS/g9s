@@ -5,10 +5,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -96,9 +98,85 @@ func login(mgr *auth.Manager, p config.Project, noBrowser bool) tea.Cmd {
 	if err != nil {
 		return func() tea.Msg { return loginFinishedMsg{project: p.Name, err: err} }
 	}
-	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+	return tea.Exec(&noticeCmd{Cmd: cmd, notice: loginNotice(p, noBrowser)}, func(err error) tea.Msg {
 		return loginFinishedMsg{project: p.Name, err: err}
 	})
+}
+
+// loginNotice is printed above gcloud's own output, on the terminal gcloud is
+// about to take over.
+//
+// It exists because of one specific failure: gcloud prints a URL, you sign in,
+// MFA passes — and the terminal never moves. Nothing is wrong at Google's end.
+// The last step of the flow is the browser fetching http://localhost:<port>/ to
+// hand the authorization code back, and if the browser cannot reach this
+// machine that request goes somewhere else and gcloud waits forever. From the
+// browser's side it all worked, so there is nothing on screen to suggest what
+// to do. This is the only moment that guidance is any use — a status line in a
+// TUI that is currently suspended cannot deliver it.
+func loginNotice(p config.Project, noBrowser bool) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "g9s: gcloud auth application-default login for %s\n", p.Name)
+
+	if noBrowser {
+		// No loopback redirect in this flow, so no proxy and no other machine
+		// can swallow it. Nothing to warn about — just say what to do, because
+		// waiting for something to happen here is the wrong instinct.
+		b.WriteString("     --no-browser flow: run the command gcloud prints below on a machine\n")
+		b.WriteString("     that has a browser and gcloud, then paste its output back here.\n")
+		return b.String()
+	}
+
+	b.WriteString("     Your browser must be able to reach http://localhost on THIS machine —\n")
+	b.WriteString("     that redirect is how the authorization code gets back to gcloud.\n")
+	if auth.ProxyMayBlockLoopback() {
+		b.WriteString("     A proxy is configured here and does not exempt loopback. If the browser\n")
+		b.WriteString("     proxies localhost too, the code never arrives: add localhost,127.0.0.1\n")
+		b.WriteString("     to its bypass list, or press L to log in without a browser.\n")
+	} else {
+		b.WriteString("     If it stays stuck after you have signed in, the redirect did not arrive:\n")
+		b.WriteString("     ctrl+c, then press L to log in without a browser.\n")
+	}
+	b.WriteString("     Set defaults.login_no_browser: true to skip the browser flow for good.\n")
+	return b.String()
+}
+
+// noticeCmd runs an exec.Cmd after printing a line to the terminal it is about
+// to inherit.
+//
+// bubbletea's own ExecProcess wrapper has no hook for this, and the notice has
+// to land on the real terminal rather than in the suspended UI, so this
+// implements the same tiny interface and writes first. No shell is involved,
+// same as everywhere else g9s runs a program.
+type noticeCmd struct {
+	*exec.Cmd
+	notice string
+}
+
+func (c *noticeCmd) SetStdin(r io.Reader) {
+	if c.Stdin == nil {
+		c.Stdin = r
+	}
+}
+
+func (c *noticeCmd) SetStdout(w io.Writer) {
+	if c.Stdout == nil {
+		c.Stdout = w
+	}
+}
+
+func (c *noticeCmd) SetStderr(w io.Writer) {
+	if c.Stderr == nil {
+		c.Stderr = w
+	}
+}
+
+func (c *noticeCmd) Run() error {
+	// Stdout is assigned by the program just before this runs.
+	if c.notice != "" && c.Stdout != nil {
+		fmt.Fprintln(c.Stdout, c.notice)
+	}
+	return c.Cmd.Run()
 }
 
 // sshTo suspends the TUI and opens an interactive SSH session to a VM.
@@ -125,7 +203,16 @@ func safeToOpen(raw string) bool {
 	if err != nil {
 		return false
 	}
-	return (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return false
+	}
+	if parsed.Host == "" {
+		return false
+	}
+	// url.Parse rejects ASCII control characters but not DEL or the C1 range,
+	// and this string is handed to a platform opener and echoed into the status
+	// line. See sanitizeLine for why that matters.
+	return strings.IndexFunc(raw, isControl) < 0
 }
 
 // openURL launches the system browser without blocking the TUI.
@@ -160,14 +247,43 @@ func openURL(target string) tea.Cmd {
 	}
 }
 
+// maxClipboardBytes bounds an OSC 52 payload. Terminals cap the sequence — the
+// limit is 8KB in a stock xterm — and drop anything longer without saying so.
+// Refusing loudly beats reporting a copy that never reached the clipboard.
+const maxClipboardBytes = 64 * 1024
+
 // copyToClipboard uses the OSC 52 terminal escape, which works over SSH and
 // needs no platform clipboard binary.
 func copyToClipboard(text string) tea.Cmd {
 	return func() tea.Msg {
+		if text == "" {
+			return flashMsg{text: "nothing to copy", level: flashWarn}
+		}
+		if len(text) > maxClipboardBytes {
+			return flashMsg{
+				text:  fmt.Sprintf("too large to copy: %dKB, limit %dKB", len(text)/1024, maxClipboardBytes/1024),
+				level: flashWarn,
+			}
+		}
+		// The escape goes to stderr because bubbletea owns stdout. If stderr
+		// has been redirected the sequence lands in a file, where it does
+		// nothing at all — worth saying rather than claiming a copy.
+		if !isTerminal(os.Stderr) {
+			return flashMsg{text: "cannot copy: stderr is not a terminal", level: flashWarn}
+		}
+
 		encoded := base64.StdEncoding.EncodeToString([]byte(text))
 		fmt.Fprintf(os.Stderr, "\x1b]52;c;%s\x07", encoded)
 		return flashMsg{text: "copied: " + truncate(text, 50), level: flashInfo}
 	}
+}
+
+func isTerminal(f *os.File) bool {
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 // flash shows a transient message and schedules its removal.
@@ -180,33 +296,139 @@ func clearFlashAfter(id int, d time.Duration) tea.Cmd {
 }
 
 // renderDetail converts a resource's raw API object into YAML, the way
-// `gcloud describe` presents it.
+// `gcloud describe` presents it, with secrets removed.
 //
-// The objects are protobuf messages, so they go through protojson first:
-// marshalling them directly would leak the generated struct's internal fields.
+// Everything goes through JSON on the way to a generic tree — protojson for
+// protobuf messages, encoding/json for the REST types — for two reasons. It
+// gives the field names the API documents rather than the generated Go struct's
+// internals, and it produces a tree that redactSecrets can walk.
 func renderDetail(r gcp.Resource) string {
-	msg, ok := r.Raw.(proto.Message)
-	if !ok {
-		out, err := yaml.Marshal(r.Raw)
-		if err != nil {
-			return fmt.Sprintf("%+v", r.Raw)
+	doc, err := detailDocument(r.Raw)
+	if err != nil {
+		return "could not render resource: " + sanitizeLine(err.Error())
+	}
+
+	doc = redactSecrets(doc)
+
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return "could not render resource: " + sanitizeLine(err.Error())
+	}
+	// The values in here are API-supplied strings being written straight to the
+	// terminal by the viewport. See sanitizeLine.
+	return sanitizeBlock(string(out))
+}
+
+// detailDocument converts a raw API object into maps, slices and scalars.
+func detailDocument(raw any) (any, error) {
+	var (
+		encoded []byte
+		err     error
+	)
+	if msg, isProto := raw.(proto.Message); isProto {
+		encoded, err = protojson.Marshal(msg)
+	} else {
+		encoded, err = json.Marshal(raw)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var doc any
+	if err := json.Unmarshal(encoded, &doc); err != nil {
+		return nil, err
+	}
+	return doc, nil
+}
+
+// redactedMarker replaces a secret's value. Visible rather than silent: the
+// field is there, and knowing a shared secret is set is part of reading a
+// tunnel's configuration.
+const redactedMarker = "«redacted by g9s»"
+
+// secretFields are the field names whose values must not reach the screen.
+//
+// g9s is a read-only browser, but "read" is the whole problem: the API returns
+// live secrets inside otherwise ordinary objects. Describing a VPN tunnel hands
+// back its IPsec pre-shared key; describing a GKE cluster hands back the
+// cluster's client private key and, where basic auth still exists, its
+// password. Rendering those puts them in the terminal, in the scrollback, in
+// whatever is capturing the session — and `y` copies them to the clipboard.
+//
+// Matching is on the exact field name, normalised for case and separators, not
+// on substrings. A rule that redacted anything containing "password" would also
+// blank out Cloud SQL's passwordValidationPolicy, which is configuration worth
+// reading and holds no secret.
+var secretFields = map[string]bool{
+	"password":         true, // GKE basic auth, Cloud SQL root password
+	"rootpassword":     true,
+	"passphrase":       true,
+	"clientkey":        true, // GKE client private key
+	"privatekey":       true,
+	"privatekeydata":   true,
+	"privatekeybytes":  true,
+	"sharedsecret":     true, // Cloud VPN IPsec pre-shared key
+	"sharedsecrethash": true, // a hash of the same key, offline-crackable
+	"secret":           true,
+	"secretkey":        true,
+	"clientsecret":     true,
+	"apikey":           true,
+	"accesstoken":      true,
+	"refreshtoken":     true,
+	"idtoken":          true,
+	"token":            true,
+	"credentials":      true,
+	"authorization":    true,
+}
+
+// redactSecrets walks a decoded API object and replaces the value of every
+// secret-bearing field, however deeply nested.
+func redactSecrets(node any) any {
+	switch v := node.(type) {
+	case map[string]any:
+		for key, value := range v {
+			if secretFields[normalizeFieldName(key)] {
+				// Only when something is actually set: marking an absent field
+				// as redacted would misreport the resource.
+				if !isEmptyValue(value) {
+					v[key] = redactedMarker
+				}
+				continue
+			}
+			v[key] = redactSecrets(value)
 		}
-		return string(out)
+		return v
+	case []any:
+		for i, item := range v {
+			v[i] = redactSecrets(item)
+		}
+		return v
+	default:
+		return node
 	}
+}
 
-	jsonBytes, err := protojson.MarshalOptions{Multiline: true, Indent: "  "}.Marshal(msg)
-	if err != nil {
-		return "could not render resource: " + err.Error()
+// normalizeFieldName folds the spellings the same field has across APIs:
+// shared_secret, sharedSecret and SharedSecret are one name.
+func normalizeFieldName(name string) string {
+	var b strings.Builder
+	b.Grow(len(name))
+	for _, r := range strings.ToLower(name) {
+		if r == '_' || r == '-' {
+			continue
+		}
+		b.WriteRune(r)
 	}
+	return b.String()
+}
 
-	var intermediate any
-	if err := json.Unmarshal(jsonBytes, &intermediate); err != nil {
-		return string(jsonBytes)
+func isEmptyValue(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return true
+	case string:
+		return t == ""
+	default:
+		return false
 	}
-
-	out, err := yaml.Marshal(intermediate)
-	if err != nil {
-		return string(jsonBytes)
-	}
-	return string(out)
 }

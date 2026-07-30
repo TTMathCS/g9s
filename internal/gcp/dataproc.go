@@ -39,12 +39,12 @@ func (DataprocLister) Kind() Kind {
 func (DataprocLister) List(ctx context.Context, cfg *config.Config, p config.Project, opts []option.ClientOption) (Result, error) {
 	regions := cfg.DataprocRegions(p)
 
-	result := fanOut(ctx, regions, func(ctx context.Context, region string) ([]Resource, error) {
+	result := fanOut(ctx, regions, func(ctx context.Context, region string) (Result, error) {
 		regionOpts := append([]option.ClientOption{option.WithEndpoint(dataprocEndpoint(region))}, opts...)
 
 		client, err := dataproc.NewClusterControllerClient(ctx, regionOpts...)
 		if err != nil {
-			return nil, fmt.Errorf("client: %w", err)
+			return Result{}, fmt.Errorf("client: %w", err)
 		}
 		defer client.Close()
 
@@ -53,7 +53,7 @@ func (DataprocLister) List(ctx context.Context, cfg *config.Config, p config.Pro
 			Region:    region,
 		})
 
-		var out []Resource
+		var out Result
 		for {
 			cluster, err := it.Next()
 			if err == iterator.Done {
@@ -62,7 +62,7 @@ func (DataprocLister) List(ctx context.Context, cfg *config.Config, p config.Pro
 			if err != nil {
 				return out, err
 			}
-			out = append(out, clusterResource(p, region, cluster))
+			out.Resources = append(out.Resources, clusterResource(p, region, cluster))
 		}
 		return out, nil
 	})

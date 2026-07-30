@@ -107,8 +107,20 @@ defaults:
   # gcloud binary used for login and SSH.
   gcloud_path: gcloud
 
+  # Always use gcloud's --no-browser flow for l, the same as pressing L
+  # every time. Worth setting behind a proxy: the ordinary login ends with your
+  # browser fetching http://localhost:<port>/ to hand the authorization code
+  # back, and a browser that sends localhost through a proxy never delivers it —
+  # the sign-in succeeds and the terminal waits forever.
+  login_no_browser: false
+
   # Upper bound on a single refresh across all regions.
   list_timeout: 90s
+
+  # How far back the BigQuery jobs table looks. Jobs are kept for six months,
+  # so this window is what makes that listing a complete answer rather than a
+  # truncated one; it is also capped at 500 rows, and says so when it hits it.
+  bigquery_job_window: 24h
 
 projects:
   - name: sandbox

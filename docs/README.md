@@ -14,19 +14,23 @@ and instance names. No real infrastructure appears in either image.
 
 ## Regenerating
 
-Two steps. The first renders the views to ANSI, the second turns that into a PNG:
+Three steps: render the views to ANSI, turn that into SVG, rasterize the SVG.
 
 ```sh
 go test -tags screenshot -run TestGenerateScreenshots ./internal/ui
 
 go install github.com/charmbracelet/freeze@latest
 for n in projects dashboard resources; do
-  freeze --language ansi --output docs/$n.png \
+  freeze --language ansi --output docs/$n.svg \
     --background "#1a1b26" --padding 32 --margin 0 --border.radius 10 \
     --border.width 1 --border.color "#2f3145" --font.size 7 --line-height 1.35 \
     --window docs/$n.ansi
 done
 ```
+
+Then rasterize with the script below. `--output docs/$n.png` would be the
+obvious third step, and it is the one that does not work — see the segfault note
+under "Things that will bite you".
 
 The intermediate `.ansi` and `.svg` files are build products and are not
 committed.
@@ -40,11 +44,56 @@ whitespace to absorb the loss; an *empty* trailing line does not work, because
 that gets trimmed before layout.
 
 **freeze's PNG renderer can segfault.** PNG output goes through resvg compiled
-to WASM and hosted by wazero, and it died with `SIGSEGV` in `memmove` on the
-machine these images were last generated on — reproducibly, on input it had
-rendered fine minutes earlier. If that happens, render `--output $n.svg`
-instead (pure Go, unaffected) and rasterize the SVG yourself. Three things
-matter if you go that route:
+to WASM and hosted by wazero, and it died with `SIGSEGV` in `memmove` on both
+machines these images have been generated on — reproducibly, on input it had
+rendered fine minutes earlier. Render `--output $n.svg` instead (pure Go,
+unaffected) and rasterize the SVG. The recipe below is what the current images
+were made with; it screenshots the `<svg>` element through Playwright's
+Chromium, which avoids most of the traps listed after it:
+
+```js
+// node this with playwright available; PLAYWRIGHT_BROWSERS_PATH is already set
+// in the dev container.
+const { chromium } = require('playwright');
+const fs = require('fs'), path = require('path'), os = require('os');
+
+const TARGET_WIDTH = 2345;   // width of the images already in the README
+const LINE_HEIGHT = 7 * 1.35; // --font.size x --line-height
+
+(async () => {
+  const browser = await chromium.launch();
+  for (const name of ['projects', 'dashboard', 'resources']) {
+    const svg = fs.readFileSync(`docs/${name}.svg`, 'utf8');
+    const [, w, h] = svg.match(/<svg width="([\d.]+)" height="([\d.]+)"/);
+
+    const page = await browser.newPage({ deviceScaleFactor: TARGET_WIDTH / parseFloat(w) });
+    const tmp = path.join(os.tmpdir(), `${name}.html`);
+    fs.writeFileSync(tmp, `<!doctype html><html><head><meta charset="utf-8">` +
+      `<style>html,body{margin:0;padding:0}svg{display:block}</style></head>` +
+      `<body>${svg.replace(/<\?xml[^>]*\?>|<!DOCTYPE[^>]*>/g, '')}</body></html>`);
+    await page.goto('file://' + tmp);
+    await page.waitForTimeout(400); // let the embedded webfont settle
+
+    // Clip the spare line back off: it has to be in freeze's input and out of
+    // the image. See the note above.
+    await page.screenshot({
+      path: `docs/${name}.png`, omitBackground: true,
+      clip: { x: 0, y: 0, width: +w, height: +h - LINE_HEIGHT },
+    });
+    await page.close();
+  }
+  await browser.close();
+})();
+```
+
+Note the clip, and note that the spare line the generator appends is *not*
+optional here. Dropping the last line is freeze's layout, not its PNG renderer:
+remove the spare line from the `.ansi` and the footer becomes the last line and
+vanishes from the SVG too — which is easy to miss, because the image still looks
+plausible without it. `grep -c unavailable docs/resources.svg` is the quick
+check; that warning lives in the footer of that shot.
+
+Three more things matter if you rasterize some other way:
 
 - **Chromium's `--window-size` counts browser chrome.** The content area comes
   out 87 css px shorter than requested while the screenshot canvas stays

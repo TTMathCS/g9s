@@ -4,6 +4,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -31,8 +32,23 @@ type Defaults struct {
 	CredentialDir string `yaml:"credential_dir"`
 	// GcloudPath is the gcloud binary to shell out to for login.
 	GcloudPath string `yaml:"gcloud_path"`
+	// LoginNoBrowser makes `l` always use gcloud's --no-browser flow, the same
+	// as pressing `L` every time.
+	//
+	// Worth setting on a machine behind a proxy. gcloud's ordinary login ends
+	// with the browser fetching http://localhost:<port>/ to hand the
+	// authorization code back, and a browser that sends localhost through a
+	// proxy never delivers it — the sign-in succeeds and the terminal waits
+	// forever. Whether the browser does that is a property of this machine, not
+	// of any one project, which is why this lives in defaults.
+	LoginNoBrowser bool `yaml:"login_no_browser"`
 	// ListTimeout bounds a single refresh across all regions.
 	ListTimeout Duration `yaml:"list_timeout"`
+	// BigQueryJobWindow is how far back the BigQuery jobs table looks. Jobs are
+	// kept for six months, which is far more than a "what is running now"
+	// table can show, so the window is what makes the listing a complete
+	// answer rather than a truncated one.
+	BigQueryJobWindow Duration `yaml:"bigquery_job_window"`
 }
 
 // Project is one GCP project as the user works with it: the project ID plus
@@ -84,6 +100,14 @@ func (c *Config) ComposerLocations(p Project) []string {
 	return firstNonEmpty(p.ComposerLocations, p.Regions, c.Defaults.ComposerLocations, c.Defaults.Regions)
 }
 
+// BigQueryJobWindow is how far back to list BigQuery jobs.
+func (c *Config) BigQueryJobWindow() time.Duration {
+	if c.Defaults.BigQueryJobWindow > 0 {
+		return c.Defaults.BigQueryJobWindow.Duration()
+	}
+	return defaultBigQueryJobWindow
+}
+
 // HasDataprocRegions reports whether any region setting applies to Dataproc
 // for this project. When false, DataprocRegions falls back to just "global",
 // and the lister says so rather than letting the narrow sweep look complete.
@@ -111,14 +135,36 @@ func withGlobal(regions []string) []string {
 	return append(out, "global")
 }
 
+// maxConfigBytes bounds the config file. A hand-edited list of projects is
+// kilobytes; anything past this is a mistake or a pipe, and reading it
+// unbounded is an easy way to be handed /dev/zero.
+const maxConfigBytes = 1 << 20
+
 // Load reads and validates the config at path.
 func Load(path string) (*Config, error) {
-	raw, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	if err := checkPermissions(path); err != nil {
+	defer f.Close()
+
+	// Stat the open file rather than the path: checking the path and then
+	// reading it are two lookups, and a config that was safe for the first and
+	// swapped before the second is exactly what the check is meant to catch.
+	info, err := f.Stat()
+	if err != nil {
 		return nil, err
+	}
+	if err := checkPermissions(path, info); err != nil {
+		return nil, err
+	}
+
+	raw, err := io.ReadAll(io.LimitReader(f, maxConfigBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+	if len(raw) > maxConfigBytes {
+		return nil, fmt.Errorf("%s is larger than %d bytes", path, maxConfigBytes)
 	}
 
 	var cfg Config
@@ -135,20 +181,25 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// checkPermissions refuses a config that anyone else can write.
+// checkPermissions refuses a config that anyone else can write, or that sits in
+// a directory anyone else can write.
 //
 // This is not paranoia about the project IDs in the file: defaults.gcloud_path
 // names the binary g9s executes when you press `l`, so write access to the
-// config is code execution as you. Readable-by-others is left alone — that is
-// the default umask on plenty of systems and the contents are not secret.
-func checkPermissions(path string) error {
+// config is code execution as you. Write access to the directory is the same
+// thing one step removed — the file can simply be replaced. Readable-by-others
+// is left alone: that is the default umask on plenty of systems and the
+// contents are not secret.
+func checkPermissions(path string, info os.FileInfo) error {
 	if runtime.GOOS == "windows" {
 		// File modes here do not mean what they mean on Unix.
 		return nil
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return err
+
+	// A fifo would block the read forever and a device would return something
+	// that is not a config; neither is a mistake worth following.
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", path)
 	}
 	if mode := info.Mode().Perm(); mode&0o022 != 0 {
 		return fmt.Errorf(
@@ -156,8 +207,28 @@ func checkPermissions(path string) error {
 				"defaults.gcloud_path decides which binary g9s runs, so fix it with: chmod 600 %s",
 			path, mode, path)
 	}
+
+	dir := filepath.Dir(path)
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	// The sticky bit is the exception that makes /tmp usable: it stops one user
+	// removing or renaming another's files, so a world-writable sticky
+	// directory cannot be used to swap the config out.
+	if mode := dirInfo.Mode().Perm(); mode&0o022 != 0 && dirInfo.Mode()&os.ModeSticky == 0 {
+		return fmt.Errorf(
+			"%s is writable by group or others (mode %04o), so anyone who can write it "+
+				"can replace %s; move the config somewhere private or fix it with: chmod go-w %s",
+			dir, mode, filepath.Base(path), dir)
+	}
 	return nil
 }
+
+// defaultBigQueryJobWindow is a working day's worth of jobs: long enough to
+// cover "what ran overnight", short enough that a busy project's listing is
+// still a complete answer rather than a capped one.
+const defaultBigQueryJobWindow = 24 * time.Hour
 
 func (c *Config) applyDefaults() {
 	if c.Defaults.GcloudPath == "" {
@@ -165,6 +236,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Defaults.ListTimeout == 0 {
 		c.Defaults.ListTimeout = Duration(90 * time.Second)
+	}
+	if c.Defaults.BigQueryJobWindow == 0 {
+		c.Defaults.BigQueryJobWindow = Duration(defaultBigQueryJobWindow)
 	}
 	if c.Defaults.CredentialDir == "" {
 		if home, err := os.UserHomeDir(); err == nil {
@@ -180,6 +254,15 @@ func (c *Config) validate() error {
 	}
 	if c.Defaults.CredentialDir == "" {
 		return errors.New("defaults.credential_dir is unset and the home directory could not be determined")
+	}
+	// applyDefaults fills these when they are zero, so only a negative value
+	// reaches here — a refresh that times out before it starts, or a job window
+	// that ends in the future and matches nothing.
+	if c.Defaults.ListTimeout <= 0 {
+		return fmt.Errorf("defaults.list_timeout must be positive, got %s", c.Defaults.ListTimeout.Duration())
+	}
+	if c.Defaults.BigQueryJobWindow <= 0 {
+		return fmt.Errorf("defaults.bigquery_job_window must be positive, got %s", c.Defaults.BigQueryJobWindow.Duration())
 	}
 
 	seenName := map[string]bool{}
@@ -214,15 +297,23 @@ func (c *Config) Project(name string) (Project, bool) {
 	return Project{}, false
 }
 
+// expandHome resolves a leading ~ to the user's home directory.
+//
+// Only "~" itself and a "~/" prefix expand. "~other/x" names another user's
+// home to a shell, and nothing here can resolve that, so rewriting it to
+// "$HOME/other/x" would silently point at a path the user did not ask for.
 func expandHome(path string) string {
-	if !strings.HasPrefix(path, "~") {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
 		return path
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return path
 	}
-	return filepath.Join(home, strings.TrimPrefix(path, "~"))
+	if path == "~" {
+		return home
+	}
+	return filepath.Join(home, path[len("~/"):])
 }
 
 // DefaultPath resolves the config location: $G9S_CONFIG, then
