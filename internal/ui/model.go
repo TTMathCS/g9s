@@ -572,9 +572,22 @@ func (m Model) selectProject() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) startLogin(noBrowser bool) (tea.Model, tea.Cmd) {
+	if len(m.cfg.Projects) == 0 {
+		return m, nil
+	}
 	p := m.cfg.Projects[m.projCursor]
 	if m.hasActive && (m.screen == screenResources || m.screen == screenOverview) {
 		p = m.active
+	}
+
+	// Choose the flow that can actually finish rather than letting the user
+	// find out by waiting. gcloud's browser login ends with the browser
+	// fetching http://localhost:<port>/ to hand the code back; when the browser
+	// is on a different machine that request never arrives, the sign-in
+	// succeeds, and the terminal sits on the URL forever with nothing to
+	// suggest what went wrong.
+	if !noBrowser && !auth.LoopbackUsable() {
+		noBrowser = true
 	}
 	return m, login(m.auth, p, noBrowser)
 }

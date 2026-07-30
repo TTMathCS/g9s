@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -97,9 +98,82 @@ func login(mgr *auth.Manager, p config.Project, noBrowser bool) tea.Cmd {
 	if err != nil {
 		return func() tea.Msg { return loginFinishedMsg{project: p.Name, err: err} }
 	}
-	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+	return tea.Exec(&noticeCmd{Cmd: cmd, notice: loginNotice(p, noBrowser)}, func(err error) tea.Msg {
 		return loginFinishedMsg{project: p.Name, err: err}
 	})
+}
+
+// loginNotice is printed above gcloud's own output, on the terminal gcloud is
+// about to take over.
+//
+// It exists because of one specific failure: gcloud prints a URL, you sign in,
+// MFA passes — and the terminal never moves. Nothing is wrong at Google's end.
+// The last step of the flow is the browser fetching http://localhost:<port>/ to
+// hand the authorization code back, and if the browser cannot reach this
+// machine that request goes somewhere else and gcloud waits forever. From the
+// browser's side it all worked, so there is nothing on screen to suggest what
+// to do. This is the only moment that guidance is any use — a status line in a
+// TUI that is currently suspended cannot deliver it.
+func loginNotice(p config.Project, noBrowser bool) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "g9s: gcloud auth application-default login for %s\n", p.Name)
+
+	if noBrowser {
+		b.WriteString("     No browser on this machine, so this is the --no-browser flow:\n")
+		b.WriteString("     run the command gcloud prints below on a machine that has one,\n")
+		b.WriteString("     then paste its output back here.\n")
+		return b.String()
+	}
+
+	b.WriteString("     Your browser must be able to reach http://localhost on THIS machine —\n")
+	b.WriteString("     that redirect is how the authorization code gets back to gcloud.\n")
+	if auth.ProxyMayBlockLoopback() {
+		b.WriteString("     A proxy is configured here and does not exempt loopback. If the browser\n")
+		b.WriteString("     proxies localhost too, the code never arrives: add localhost,127.0.0.1\n")
+		b.WriteString("     to its bypass list, or press L to log in without a browser.\n")
+	} else {
+		b.WriteString("     If it stays stuck after you have signed in, the redirect did not arrive:\n")
+		b.WriteString("     ctrl+c, then press L to log in without a browser.\n")
+	}
+	return b.String()
+}
+
+// noticeCmd runs an exec.Cmd after printing a line to the terminal it is about
+// to inherit.
+//
+// bubbletea's own ExecProcess wrapper has no hook for this, and the notice has
+// to land on the real terminal rather than in the suspended UI, so this
+// implements the same tiny interface and writes first. No shell is involved,
+// same as everywhere else g9s runs a program.
+type noticeCmd struct {
+	*exec.Cmd
+	notice string
+}
+
+func (c *noticeCmd) SetStdin(r io.Reader) {
+	if c.Stdin == nil {
+		c.Stdin = r
+	}
+}
+
+func (c *noticeCmd) SetStdout(w io.Writer) {
+	if c.Stdout == nil {
+		c.Stdout = w
+	}
+}
+
+func (c *noticeCmd) SetStderr(w io.Writer) {
+	if c.Stderr == nil {
+		c.Stderr = w
+	}
+}
+
+func (c *noticeCmd) Run() error {
+	// Stdout is assigned by the program just before this runs.
+	if c.notice != "" && c.Stdout != nil {
+		fmt.Fprintln(c.Stdout, c.notice)
+	}
+	return c.Cmd.Run()
 }
 
 // sshTo suspends the TUI and opens an interactive SSH session to a VM.

@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"bytes"
+	"io"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -191,5 +194,63 @@ func TestSelectingAProjectWithoutCredentialsFlashes(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Error("no message explaining why nothing happened")
+	}
+}
+
+// --- login flow ---
+
+func TestLoginNoticeExplainsTheLoopbackRedirect(t *testing.T) {
+	// The notice is the only thing that reaches the user while gcloud has the
+	// terminal, and it exists for one failure: signed in, MFA passed, terminal
+	// still sitting on the URL because the redirect never came back.
+	p := config.Project{Name: "prod-data", ProjectID: "prod-1"}
+
+	browser := loginNotice(p, false)
+	if !strings.Contains(browser, "prod-data") {
+		t.Errorf("notice does not name the project:\n%s", browser)
+	}
+	if !strings.Contains(browser, "http://localhost") {
+		t.Errorf("notice does not say what has to be reachable:\n%s", browser)
+	}
+	if !strings.Contains(browser, "L") {
+		t.Errorf("notice does not point at the way out:\n%s", browser)
+	}
+
+	// The no-browser flow has the opposite problem — it looks like nothing is
+	// happening until you realise you are meant to run something elsewhere.
+	noBrowser := loginNotice(p, true)
+	if !strings.Contains(noBrowser, "--no-browser") {
+		t.Errorf("notice does not name the flow:\n%s", noBrowser)
+	}
+	if strings.Contains(noBrowser, "http://localhost") {
+		t.Errorf("the no-browser flow has no loopback redirect to explain:\n%s", noBrowser)
+	}
+}
+
+func TestNoticeCmdWritesBeforeRunning(t *testing.T) {
+	var out bytes.Buffer
+	c := &noticeCmd{Cmd: exec.Command("true"), notice: "g9s: hello"}
+	c.SetStdout(&out)
+	c.SetStderr(&out)
+	c.SetStdin(strings.NewReader(""))
+
+	// `true` may not exist on every platform; the notice is what is under test.
+	_ = c.Run()
+
+	if !strings.Contains(out.String(), "g9s: hello") {
+		t.Errorf("notice not written: %q", out.String())
+	}
+}
+
+func TestNoticeCmdDoesNotOverrideStreamsAlreadySet(t *testing.T) {
+	// Same contract as bubbletea's own wrapper: the program assigns the
+	// terminal's streams, but only where the caller left them unset.
+	var mine bytes.Buffer
+	c := &noticeCmd{Cmd: exec.Command("true")}
+	c.Stdout = &mine
+
+	c.SetStdout(&bytes.Buffer{})
+	if c.Stdout != io.Writer(&mine) {
+		t.Error("SetStdout replaced a stream the caller had already chosen")
 	}
 }

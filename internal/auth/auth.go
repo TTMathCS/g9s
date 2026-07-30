@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -204,6 +205,80 @@ func (m *Manager) Check(ctx context.Context, p config.Project) Status {
 	status.State = StateValid
 	status.Expiry = token.Expiry
 	return status
+}
+
+// LoopbackUsable reports whether the browser gcloud sends you to could reach a
+// server running on this machine.
+//
+// This decides whether the ordinary login can finish at all. gcloud's flow
+// starts an HTTP server on 127.0.0.1 and points the browser at Google with
+// redirect_uri=http://localhost:<port>/; signing in only completes when the
+// browser's request for that URL arrives back here. Over SSH it arrives at the
+// laptop you are sitting at instead, and gcloud waits forever with the sign-in
+// already done — which reads as a hang with no explanation, because from the
+// browser's side everything worked.
+//
+// X or Wayland forwarding is the exception worth encoding: the browser process
+// still runs on this machine even though its pixels do not, so the redirect
+// comes back here as normal.
+func LoopbackUsable() bool { return loopbackUsable(runtime.GOOS, os.Getenv) }
+
+func loopbackUsable(goos string, env func(string) string) bool {
+	remote := env("SSH_CONNECTION") != "" || env("SSH_CLIENT") != "" || env("SSH_TTY") != ""
+	if !remote {
+		return true
+	}
+	switch goos {
+	case "linux", "freebsd", "openbsd", "netbsd", "dragonfly":
+		return env("DISPLAY") != "" || env("WAYLAND_DISPLAY") != ""
+	default:
+		// A macOS or Windows box reached over SSH has no session to open a
+		// browser into.
+		return false
+	}
+}
+
+// ProxyMayBlockLoopback reports whether an HTTP proxy is configured that does
+// not exempt loopback addresses.
+//
+// The other way the redirect goes missing: a browser told to send everything
+// through a corporate proxy will send http://localhost:<port>/ there too, and
+// the proxy cannot route it back to this machine. The browser's proxy settings
+// are what actually matter and g9s cannot read them, but a proxy in this
+// environment with no loopback exemption is a strong hint that the browser is
+// configured the same way — enough to name the likely cause instead of leaving
+// the user staring at a URL.
+func ProxyMayBlockLoopback() bool { return proxyMayBlockLoopback(os.Getenv) }
+
+func proxyMayBlockLoopback(env func(string) string) bool {
+	proxied := false
+	for _, key := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"} {
+		if env(key) != "" {
+			proxied = true
+			break
+		}
+	}
+	if !proxied {
+		return false
+	}
+	for _, key := range []string{"NO_PROXY", "no_proxy"} {
+		if exemptsLoopback(env(key)) {
+			return false
+		}
+	}
+	return true
+}
+
+func exemptsLoopback(list string) bool {
+	for _, entry := range strings.Split(list, ",") {
+		entry = strings.ToLower(strings.TrimSpace(entry))
+		entry = strings.TrimPrefix(entry, ".")
+		switch entry {
+		case "*", "localhost", "127.0.0.1", "127.0.0.0/8", "::1", "[::1]":
+			return true
+		}
+	}
+	return false
 }
 
 // LoginCmd builds the interactive login command for a project.

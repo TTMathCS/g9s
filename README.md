@@ -334,6 +334,27 @@ If your identity is federated (Entra ID, Okta, or similar), that browser redirec
 
 Press `L` instead of `l`. That adds `--no-browser`, which prints a bootstrap command to run on a trusted machine that has both a browser and gcloud; you paste the resulting URL back. It's fiddlier than the local flow, so prefer running g9s on your workstation if you can.
 
+g9s picks that flow for you when it can tell the browser flow cannot work — an SSH session with no local display, where the redirect below would land on your laptop rather than on the machine gcloud is running on.
+
+### "I signed in, but g9s is still sitting on the URL"
+
+This is the one login failure that gives you nothing to go on, so it's worth understanding.
+
+`gcloud auth application-default login` starts a web server on `127.0.0.1:<port>` **on the machine running g9s**, then sends your browser to Google with `redirect_uri=http://localhost:<port>/`. Your sign-in and MFA happen at Google and succeed. The last step is your *browser* fetching that `localhost` URL to hand the authorization code back. gcloud waits until that request arrives — and from the browser's side everything already worked, so nothing on screen says otherwise.
+
+Two things stop the redirect arriving:
+
+- **A proxy.** If your browser is configured to send everything through an HTTP proxy, it sends `http://localhost:<port>/` there too, and the proxy can't route it back to your machine. Add `localhost,127.0.0.1,::1` to the browser's proxy bypass list (or `no_proxy`, for a browser that reads it). g9s warns about this before handing over when it sees a proxy in its own environment with no loopback exemption — but it's your browser's settings that decide.
+- **The browser is somewhere else.** Running g9s over SSH, the redirect reaches the laptop you're sitting at, not the host gcloud is on.
+
+Either way: `ctrl+c` to abort, then press `L`. Note that `ctrl+c` reaches g9s too, since gcloud runs in its process group — so you'll be back at a shell prompt and can restart g9s.
+
+To confirm it's the environment rather than g9s, run the same command by hand — it will hang in exactly the same place:
+
+```sh
+CLOUDSDK_CONFIG=~/.local/share/g9s/credentials/<project-name> gcloud auth application-default login
+```
+
 ## Configuration
 
 `~/.config/g9s/config.yaml`, or `$G9S_CONFIG`, or `-config <path>`.

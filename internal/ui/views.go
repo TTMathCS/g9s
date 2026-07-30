@@ -660,6 +660,8 @@ func (m Model) helpContent() string {
 			{"l", "gcloud login for the selected project"},
 			{"L", "login without a local browser (--no-browser)"},
 			{"r", "re-check credentials (project list)"},
+			{"", "stuck on the login URL after signing in? the browser could not reach"},
+			{"", "http://localhost here — ctrl+c, then L. See README, How auth works."},
 		}},
 		{"General", []helpEntry{
 			{"?", "toggle this help"},
