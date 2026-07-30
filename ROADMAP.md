@@ -22,15 +22,24 @@ the reason this list is long: most entries are a day's work, not a project.
 | Cloud Storage buckets | global | the simplest lister here — one call, no fan-out, no aggregation trick needed |
 | Dataproc clusters | **regional** | needs a client per region at `<region>-dataproc.googleapis.com`; `global` always swept |
 | Cloud Composer environments | location-scoped | one client, location in the request parent |
+| VPC networks | global | one call |
+| Firewall rules | global | ordered by evaluation priority rather than name, because that is the only order a rule set can be reasoned about |
+| Load balancers | global + regional | forwarding rules; the one kind needing two calls, as global and regional rules live in separate collections and missing the global one hides every external HTTP(S) load balancer |
+| Cloud DNS zones | global | paginated, via the generated REST client |
+| VPN tunnels | regional, aggregated | `aggregatedList` sweeps every region server-side |
+| Interconnect attachments | regional, aggregated | attachments rather than circuits: a circuit being up says nothing about whether a given VPC can reach it |
+| PSC service attachments | regional, aggregated | producer side only; a consumer endpoint *is* a forwarding rule, so listing those here would double-count |
 
 Plus, across all kinds: a per-project dashboard with status rollups, a merged
 *All Resources* table, filtering, describe-as-YAML, Console/Airflow deep links,
 clipboard yank over OSC 52, and SSH to a running VM.
 
-The number keys reach kinds 1–9, so the next three kinds land with no UI work.
-Past nine, `tab`/`shift+tab` cycling, the `0`/`a` merged-view keys and `:`
-commands still reach everything — but a tenth kind is probably better shaped
-as a drill-down than a new top-level tab.
+Thirteen kinds is past what the number keys cover: `1`-`9` reach the first
+nine, while `tab`/`shift+tab`, `0`/`a` and `:<kind>` reach all of them. The tab
+strip scrolls around the active tab and marks hidden tabs with `‹`/`›`. Further
+kinds are cheap to add mechanically, but the next ones are probably better
+shaped as drill-downs than as more top-level tabs — GKE node pools under a
+cluster, DNS record sets under a zone.
 
 ## Next up
 
@@ -58,10 +67,9 @@ templates, Compute disks and snapshots, GPU/TPU reservations.
 (Redis / Memcached), Firestore databases, Datastream streams, Data Fusion
 instances, Artifact Registry repositories, BigQuery reservations.
 
-**Networking** — VPC networks and subnets, firewall rules, routes, Cloud NAT
-and routers, load balancers (forwarding rules and backend services), Cloud DNS
-zones and record sets, VPN tunnels, Interconnect attachments, reserved static
-IPs, Private Service Connect endpoints.
+**Networking** — the core is shipped (see above). Still open: subnets, routes,
+Cloud NAT and routers, backend services with their health, DNS record sets,
+reserved static IPs.
 
 **Security and identity** — project IAM policy bindings, KMS keyrings and keys
 (with rotation age), Certificate Manager certificates, Binary Authorization

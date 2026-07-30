@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/compute/apiv1/computepb"
 	sqladmin "google.golang.org/api/sqladmin/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -245,6 +246,14 @@ func TestResourceRowsMatchColumns(t *testing.T) {
 		"gcs":      bucketResource(testProject(), testBucket()),
 		"dataproc": clusterResource(testProject(), "us-central1", testCluster()),
 		"composer": environmentResource(testProject(), "us-central1", testEnvironment()),
+
+		"vpc":          networkResource(testProject(), testNetwork()),
+		"fw":           firewallResource(testProject(), testFirewall()),
+		"lb":           forwardingRuleResource(testProject(), "global", testForwardingRule()),
+		"dns":          dnsZoneResource(testProject(), testDNSZone()),
+		"vpn":          vpnTunnelResource(testProject(), "us-central1", testVPNTunnel()),
+		"interconnect": interconnectAttachmentResource(testProject(), "us-central1", testInterconnectAttachment()),
+		"psc":          serviceAttachmentResource(testProject(), "us-central1", testServiceAttachment()),
 	}
 
 	for _, l := range Listers() {
@@ -454,5 +463,266 @@ func TestCloudSQLNotSSHOrAirflowTarget(t *testing.T) {
 	}
 	if _, ok := AirflowURI(r); ok {
 		t.Error("a Cloud SQL instance should never report an Airflow URI")
+	}
+}
+
+// --- networking ---
+
+func TestNetworkResourceShape(t *testing.T) {
+	r := networkResource(testProject(), testNetwork())
+
+	if r.Name != "prod-vpc" {
+		t.Errorf("name = %q", r.Name)
+	}
+	// Networks are global. An empty Location would sort them unpredictably
+	// against kinds that set one, and reads as missing data in the merged view.
+	if r.Location != "global" {
+		t.Errorf("location = %q, want global", r.Location)
+	}
+	if r.Row[1] != "custom" {
+		t.Errorf("subnet mode = %q, want custom when AutoCreateSubnetworks is false", r.Row[1])
+	}
+	if r.Row[2] != "2" {
+		t.Errorf("subnet count = %q, want 2", r.Row[2])
+	}
+
+	auto := testNetwork()
+	auto.AutoCreateSubnetworks = boolPtr(true)
+	if got := networkResource(testProject(), auto).Row[1]; got != "auto" {
+		t.Errorf("subnet mode = %q, want auto", got)
+	}
+}
+
+func TestFirewallResourceShape(t *testing.T) {
+	r := firewallResource(testProject(), testFirewall())
+
+	if r.Row[0] != "1000" {
+		t.Errorf("priority cell = %q", r.Row[0])
+	}
+	if r.Row[2] != "prod-vpc" {
+		t.Errorf("network cell = %q, want the bare name not the self-link", r.Row[2])
+	}
+	if r.Row[4] != "ALLOW" {
+		t.Errorf("action = %q, want ALLOW", r.Row[4])
+	}
+	if r.Status != "ENABLED" {
+		t.Errorf("status = %q, want ENABLED", r.Status)
+	}
+	if !strings.Contains(r.Row[5], "tcp:22") || !strings.Contains(r.Row[5], "10.0.0.0/8") {
+		t.Errorf("scope = %q, want protocol/port and source range", r.Row[5])
+	}
+}
+
+func TestFirewallDenyRuleUsesDeniedEntries(t *testing.T) {
+	// Allowed and Denied are separate generated types with the same shape.
+	// Reading only Allowed would render a deny rule with an empty scope.
+	f := testFirewall()
+	f.Allowed = nil
+	f.Denied = []*computepb.Denied{{IPProtocol: strPtr("tcp"), Ports: []string{"3389"}}}
+
+	r := firewallResource(testProject(), f)
+	if r.Row[4] != "DENY" {
+		t.Errorf("action = %q, want DENY", r.Row[4])
+	}
+	if !strings.Contains(r.Row[5], "tcp:3389") {
+		t.Errorf("scope = %q, want the denied protocol and port", r.Row[5])
+	}
+}
+
+func TestFirewallDisabledRuleIsVisible(t *testing.T) {
+	// A rule that looks like it protects something but is inert is a hazard,
+	// so it must not render identically to an active one.
+	f := testFirewall()
+	f.Disabled = boolPtr(true)
+	if got := firewallResource(testProject(), f).Status; got != "DISABLED" {
+		t.Errorf("status = %q, want DISABLED", got)
+	}
+}
+
+func TestFirewallEgressScopeUsesDestinationRanges(t *testing.T) {
+	// Ingress matches on source, egress on destination. Reading source ranges
+	// for an egress rule would show an empty or wrong scope.
+	f := testFirewall()
+	f.Direction = strPtr("EGRESS")
+	f.SourceRanges = nil
+	f.DestinationRanges = []string{"0.0.0.0/0"}
+
+	scope := firewallResource(testProject(), f).Row[5]
+	if !strings.Contains(scope, "to 0.0.0.0/0") {
+		t.Errorf("egress scope = %q, want it to name the destination", scope)
+	}
+}
+
+func TestFirewallRulesSortByEvaluationOrder(t *testing.T) {
+	// Priority order is the order the network applies rules in, and the only
+	// order in which a rule set can be reasoned about.
+	mk := func(name string, priority int32) Resource {
+		f := testFirewall()
+		f.Name, f.Priority = strPtr(name), int32Ptr(priority)
+		return firewallResource(testProject(), f)
+	}
+	resources := []Resource{mk("zzz-low", 65534), mk("aaa-high", 100), mk("mid-b", 1000), mk("mid-a", 1000)}
+
+	sortByFirewallPriority(resources)
+
+	got := []string{resources[0].Name, resources[1].Name, resources[2].Name, resources[3].Name}
+	want := []string{"aaa-high", "mid-a", "mid-b", "zzz-low"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("order = %v, want %v (priority first, then name)", got, want)
+		}
+	}
+}
+
+func TestForwardingRuleScopeAndPorts(t *testing.T) {
+	global := forwardingRuleResource(testProject(), "global", testForwardingRule())
+	if global.Location != "global" || global.Row[1] != "global" {
+		t.Errorf("global rule location = %q / %q", global.Location, global.Row[1])
+	}
+	if global.Row[4] != "443-443" {
+		t.Errorf("ports = %q, want the port range", global.Row[4])
+	}
+
+	// AllPorts is a separate boolean from PortRange; missing it renders a
+	// pass-through load balancer as having no ports at all.
+	all := testForwardingRule()
+	all.PortRange, all.AllPorts = nil, boolPtr(true)
+	if got := forwardingRuleResource(testProject(), "us-central1", all).Row[4]; got != "all" {
+		t.Errorf("ports = %q, want all", got)
+	}
+
+	list := testForwardingRule()
+	list.PortRange, list.Ports = nil, []string{"80", "8080"}
+	if got := forwardingRuleResource(testProject(), "us-central1", list).Row[4]; got != "80,8080" {
+		t.Errorf("ports = %q, want the joined list", got)
+	}
+}
+
+func TestDNSZoneResourceShape(t *testing.T) {
+	r := dnsZoneResource(testProject(), testDNSZone())
+	if r.Name != "example-com" || r.Row[1] != "example.com." {
+		t.Errorf("got name=%q dns=%q", r.Name, r.Row[1])
+	}
+	if r.Row[3] != "2" {
+		t.Errorf("name server count = %q, want 2", r.Row[3])
+	}
+
+	// The API omits visibility for public zones, which is the default.
+	z := testDNSZone()
+	z.Visibility = ""
+	if got := dnsZoneResource(testProject(), z).Row[2]; got != "public" {
+		t.Errorf("visibility = %q, want public when the API omits it", got)
+	}
+}
+
+func TestVPNTunnelResourceShape(t *testing.T) {
+	r := vpnTunnelResource(testProject(), "us-central1", testVPNTunnel())
+	if r.Status != "ESTABLISHED" {
+		t.Errorf("status = %q, want ESTABLISHED", r.Status)
+	}
+	if r.Row[2] != "203.0.113.10" {
+		t.Errorf("peer = %q", r.Row[2])
+	}
+	if r.Row[3] != "ha-vpn-1" {
+		t.Errorf("gateway = %q, want the bare name", r.Row[3])
+	}
+}
+
+func TestVPNTunnelToGCPPeerHasNoPeerIP(t *testing.T) {
+	// A tunnel to another GCP gateway carries a gateway reference instead of a
+	// peer IP, which would otherwise render as an empty cell.
+	tun := testVPNTunnel()
+	tun.PeerIp = nil
+	tun.PeerGcpGateway = strPtr("https://www.googleapis.com/compute/v1/projects/other/regions/us-central1/vpnGateways/peer-gw")
+
+	if got := vpnTunnelResource(testProject(), "us-central1", tun).Row[2]; got != "peer-gw (gcp)" {
+		t.Errorf("peer = %q, want the peer gateway named", got)
+	}
+}
+
+func TestVPNTunnelFallsBackToClassicGateway(t *testing.T) {
+	tun := testVPNTunnel()
+	tun.VpnGateway = nil
+	tun.TargetVpnGateway = strPtr("https://www.googleapis.com/compute/v1/projects/sandbox-123/regions/us-central1/targetVpnGateways/classic-gw")
+
+	if got := vpnTunnelResource(testProject(), "us-central1", tun).Row[3]; got != "classic-gw" {
+		t.Errorf("gateway = %q, want the classic gateway", got)
+	}
+}
+
+func TestInterconnectAttachmentShape(t *testing.T) {
+	r := interconnectAttachmentResource(testProject(), "us-central1", testInterconnectAttachment())
+	if r.Status != "ACTIVE" {
+		t.Errorf("status = %q", r.Status)
+	}
+	if r.Row[4] != "1010" {
+		t.Errorf("vlan = %q", r.Row[4])
+	}
+}
+
+func TestInterconnectDisabledOverridesState(t *testing.T) {
+	// An attachment can read ACTIVE while administratively disabled, which
+	// would look entirely healthy while carrying no traffic.
+	a := testInterconnectAttachment()
+	a.AdminEnabled = boolPtr(false)
+	if got := interconnectAttachmentResource(testProject(), "us-central1", a).Status; got != "DISABLED" {
+		t.Errorf("status = %q, want DISABLED to win over ACTIVE", got)
+	}
+}
+
+func TestServiceAttachmentShape(t *testing.T) {
+	r := serviceAttachmentResource(testProject(), "us-central1", testServiceAttachment())
+	if r.Row[2] != "analytics-ilb" {
+		t.Errorf("target = %q, want the bare name", r.Row[2])
+	}
+	if r.Row[3] != "ACCEPT_MANUAL" {
+		t.Errorf("accepts = %q", r.Row[3])
+	}
+	if r.Row[4] != "2" {
+		t.Errorf("connected = %q, want 2", r.Row[4])
+	}
+}
+
+func TestNetworkingKindsAreNotSSHOrAirflowTargets(t *testing.T) {
+	// Every networking kind flows through the merged view, where SSHTarget and
+	// AirflowURI type-switch on Raw. All must fall through cleanly.
+	for id, r := range map[string]Resource{
+		"vpc":          networkResource(testProject(), testNetwork()),
+		"fw":           firewallResource(testProject(), testFirewall()),
+		"lb":           forwardingRuleResource(testProject(), "global", testForwardingRule()),
+		"dns":          dnsZoneResource(testProject(), testDNSZone()),
+		"vpn":          vpnTunnelResource(testProject(), "us-central1", testVPNTunnel()),
+		"interconnect": interconnectAttachmentResource(testProject(), "us-central1", testInterconnectAttachment()),
+		"psc":          serviceAttachmentResource(testProject(), "us-central1", testServiceAttachment()),
+	} {
+		if _, _, ok := SSHTarget(r); ok {
+			t.Errorf("%s should never report as SSH-able", id)
+		}
+		if _, ok := AirflowURI(r); ok {
+			t.Errorf("%s should never report an Airflow URI", id)
+		}
+	}
+}
+
+func TestMergeResultsCombinesAndDedupes(t *testing.T) {
+	// Load balancers merge a regional listing with a global one, so the combined
+	// result has to stay sorted and must not repeat a shared warning.
+	dst := Result{
+		Resources: []Resource{{Name: "b", Location: "us-central1"}},
+		Warnings:  []string{"us-east4: permission denied"},
+	}
+	mergeResults(&dst, Result{
+		Resources: []Resource{{Name: "a", Location: "global"}},
+		Warnings:  []string{"us-east4: permission denied"},
+	})
+
+	if len(dst.Resources) != 2 {
+		t.Fatalf("got %d resources, want 2", len(dst.Resources))
+	}
+	if dst.Resources[0].Location != "global" {
+		t.Errorf("merged list is not sorted: %v", dst.Resources)
+	}
+	if len(dst.Warnings) != 1 {
+		t.Errorf("warnings = %v, want the duplicate collapsed", dst.Warnings)
 	}
 }

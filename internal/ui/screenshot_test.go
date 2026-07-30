@@ -164,6 +164,27 @@ func resourcesShot() Model {
 	m.cache["sql"] = gcp.Result{
 		Resources: statusOnly(kindByID("sql"), map[string]int{"RUNNABLE": 3, "MAINTENANCE": 1}),
 	}
+	m.cache["vpc"] = gcp.Result{
+		Resources: statusOnly(kindByID("vpc"), map[string]int{"ACTIVE": 3}),
+	}
+	m.cache["fw"] = gcp.Result{
+		Resources: statusOnly(kindByID("fw"), map[string]int{"ENABLED": 22, "DISABLED": 2}),
+	}
+	m.cache["lb"] = gcp.Result{
+		Resources: statusOnly(kindByID("lb"), map[string]int{"ACTIVE": 4}),
+	}
+	m.cache["dns"] = gcp.Result{
+		Resources: statusOnly(kindByID("dns"), map[string]int{"ACTIVE": 2}),
+	}
+	m.cache["vpn"] = gcp.Result{
+		Resources: statusOnly(kindByID("vpn"), map[string]int{"ESTABLISHED": 3, "NO_INCOMING_PACKETS": 1}),
+	}
+	m.cache["interconnect"] = gcp.Result{
+		Resources: statusOnly(kindByID("interconnect"), map[string]int{"ACTIVE": 2}),
+	}
+	m.cache["psc"] = gcp.Result{
+		Resources: statusOnly(kindByID("psc"), map[string]int{"ACTIVE": 1}),
+	}
 	m.cache["gcs"] = gcp.Result{
 		Resources: statusOnly(kindByID("gcs"), map[string]int{"ACTIVE": 5}),
 	}
@@ -196,6 +217,27 @@ func dashboardShot() Model {
 	}
 	m.cache["sql"] = gcp.Result{
 		Resources: statusOnly(kindByID("sql"), map[string]int{"RUNNABLE": 3, "MAINTENANCE": 1}),
+	}
+	m.cache["vpc"] = gcp.Result{
+		Resources: statusOnly(kindByID("vpc"), map[string]int{"ACTIVE": 3}),
+	}
+	m.cache["fw"] = gcp.Result{
+		Resources: statusOnly(kindByID("fw"), map[string]int{"ENABLED": 22, "DISABLED": 2}),
+	}
+	m.cache["lb"] = gcp.Result{
+		Resources: statusOnly(kindByID("lb"), map[string]int{"ACTIVE": 4}),
+	}
+	m.cache["dns"] = gcp.Result{
+		Resources: statusOnly(kindByID("dns"), map[string]int{"ACTIVE": 2}),
+	}
+	m.cache["vpn"] = gcp.Result{
+		Resources: statusOnly(kindByID("vpn"), map[string]int{"ESTABLISHED": 3, "NO_INCOMING_PACKETS": 1}),
+	}
+	m.cache["interconnect"] = gcp.Result{
+		Resources: statusOnly(kindByID("interconnect"), map[string]int{"ACTIVE": 2}),
+	}
+	m.cache["psc"] = gcp.Result{
+		Resources: statusOnly(kindByID("psc"), map[string]int{"ACTIVE": 1}),
 	}
 	m.cache["gcs"] = gcp.Result{
 		Resources: statusOnly(kindByID("gcs"), map[string]int{"ACTIVE": 5}),

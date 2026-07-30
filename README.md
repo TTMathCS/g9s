@@ -72,6 +72,13 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | Cloud Storage buckets | ✅ | global | simplest lister — one call, no fan-out |
 | Dataproc clusters | ✅ | **regional** | a client per region; `global` always swept |
 | Cloud Composer environments | ✅ | location-scoped | one client, location in the request parent |
+| VPC networks | ✅ | global | subnet mode, subnet count, routing mode |
+| Firewall rules | ✅ | global | sorted by evaluation priority, not name; disabled rules flagged |
+| Load balancers | ✅ | global + regional | forwarding rules; the only kind needing two calls, since global and regional live in separate collections |
+| Cloud DNS zones | ✅ | global | |
+| VPN tunnels | ✅ | regional, aggregated | real tunnel status — ESTABLISHED vs a handshake that never finished |
+| Interconnect attachments | ✅ | regional, aggregated | VLAN attachments, not circuits; admin-disabled beats a healthy-looking state |
+| PSC service attachments | ✅ | regional, aggregated | the producer side; consumer endpoints are forwarding rules, already under load balancers |
 | BigQuery datasets & recent jobs | 🔜 | global | jobs answer "what is running", not just "what exists" |
 | Pub/Sub topics & subscriptions | 🔜 | global | subscription backlog is the number people actually want |
 | Secret Manager secrets | 🔜 | global | **names and versions only — never values** |
@@ -82,7 +89,6 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | GKE node pools | 🔜 | per-cluster | drill-down from a GKE row, not a new top-level tab |
 | Compute/serverless (Functions, Batch, instance groups, disks, GPU/TPU) | 💡 | mixed | |
 | Data (Bigtable, Spanner, Memorystore, Firestore, Datastream, Artifact Registry) | 💡 | mixed | |
-| Networking (VPC, firewall, LB, Cloud DNS, VPN, Interconnect, PSC) | 💡 | mixed | |
 | Security/identity (IAM bindings, KMS, Certificate Manager, VPC-SC, Org Policy) | 💡 | mixed | |
 | Operations (Logging, Monitoring alerts, Error Reporting, Scheduler, Cloud Build) | 💡 | mixed | |
 | Cost & quota (usage vs. limits, monthly spend) | 💡 | mixed | needs billing export reachable |
@@ -113,11 +119,11 @@ Cloud Asset Inventory makes "list everything in a project" a single API call. Wi
 
 ## Status
 
-MVP. Six resource kinds — Compute Engine, GKE, Cloud SQL, Cloud Storage, Dataproc, Cloud Composer — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
+MVP. Thirteen resource kinds across compute, data and networking — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
 
 Navigation is three levels deep: projects → dashboard → a category's table, with `esc` walking back up. A new kind appears on the dashboard, in the tab bar and in *All Resources* automatically; there is nothing to register in the UI.
 
-The number keys reach kinds 1–9, so there is room for three more before the digits run out; past that, `tab`/`shift+tab`, `0`/`a` and the `:` commands still reach everything.
+With thirteen kinds the number keys no longer cover them all: `1`–`9` reach the first nine, and `tab`/`shift+tab`, `0`/`a` and `:<kind>` reach every one. The tab strip scrolls to keep the active tab visible, marking hidden tabs with `‹`/`›`, and the dashboard is the reliable way to see everything at once.
 
 ## Requirements
 

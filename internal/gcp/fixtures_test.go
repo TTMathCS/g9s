@@ -8,6 +8,7 @@ import (
 	"cloud.google.com/go/dataproc/v2/apiv1/dataprocpb"
 	"cloud.google.com/go/orchestration/airflow/service/apiv1/servicepb"
 	"cloud.google.com/go/storage"
+	dns "google.golang.org/api/dns/v1"
 	sqladmin "google.golang.org/api/sqladmin/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -15,6 +16,8 @@ import (
 )
 
 func strPtr(s string) *string { return &s }
+func boolPtr(b bool) *bool    { return &b }
+func int32Ptr(i int32) *int32 { return &i }
 
 func testProject() config.Project {
 	return config.Project{
@@ -99,5 +102,91 @@ func testEnvironment() *servicepb.Environment {
 			AirflowUri:     "https://abc123-dot-us-central1.composer.googleusercontent.com",
 		},
 		CreateTime: timestamppb.New(time.Now().Add(-30 * 24 * time.Hour)),
+	}
+}
+
+// --- networking fixtures ---
+
+func testNetwork() *computepb.Network {
+	return &computepb.Network{
+		Name:                  strPtr("prod-vpc"),
+		AutoCreateSubnetworks: boolPtr(false),
+		RoutingConfig:         &computepb.NetworkRoutingConfig{RoutingMode: strPtr("GLOBAL")},
+		Mtu:                   int32Ptr(1460),
+		Subnetworks: []string{
+			"https://www.googleapis.com/compute/v1/projects/sandbox-123/regions/us-central1/subnetworks/prod-us-central1",
+			"https://www.googleapis.com/compute/v1/projects/sandbox-123/regions/us-east1/subnetworks/prod-us-east1",
+		},
+		CreationTimestamp: strPtr(time.Now().Add(-500 * 24 * time.Hour).Format(time.RFC3339)),
+	}
+}
+
+func testFirewall() *computepb.Firewall {
+	return &computepb.Firewall{
+		Name:              strPtr("allow-internal-ssh"),
+		Network:           strPtr("https://www.googleapis.com/compute/v1/projects/sandbox-123/global/networks/prod-vpc"),
+		Direction:         strPtr("INGRESS"),
+		Priority:          int32Ptr(1000),
+		Disabled:          boolPtr(false),
+		SourceRanges:      []string{"10.0.0.0/8"},
+		Allowed:           []*computepb.Allowed{{IPProtocol: strPtr("tcp"), Ports: []string{"22"}}},
+		CreationTimestamp: strPtr(time.Now().Add(-120 * 24 * time.Hour).Format(time.RFC3339)),
+	}
+}
+
+func testForwardingRule() *computepb.ForwardingRule {
+	return &computepb.ForwardingRule{
+		Name:                strPtr("prod-https-lb"),
+		IPAddress:           strPtr("34.120.0.10"),
+		IPProtocol:          strPtr("TCP"),
+		PortRange:           strPtr("443-443"),
+		LoadBalancingScheme: strPtr("EXTERNAL_MANAGED"),
+		CreationTimestamp:   strPtr(time.Now().Add(-45 * 24 * time.Hour).Format(time.RFC3339)),
+	}
+}
+
+func testDNSZone() *dns.ManagedZone {
+	return &dns.ManagedZone{
+		Name:         "example-com",
+		DnsName:      "example.com.",
+		Visibility:   "public",
+		NameServers:  []string{"ns-cloud-a1.googledomains.com.", "ns-cloud-a2.googledomains.com."},
+		CreationTime: time.Now().Add(-800 * 24 * time.Hour).Format(time.RFC3339),
+	}
+}
+
+func testVPNTunnel() *computepb.VpnTunnel {
+	return &computepb.VpnTunnel{
+		Name:              strPtr("onprem-tunnel-1"),
+		Region:            strPtr("https://www.googleapis.com/compute/v1/projects/sandbox-123/regions/us-central1"),
+		PeerIp:            strPtr("203.0.113.10"),
+		VpnGateway:        strPtr("https://www.googleapis.com/compute/v1/projects/sandbox-123/regions/us-central1/vpnGateways/ha-vpn-1"),
+		Status:            strPtr("ESTABLISHED"),
+		CreationTimestamp: strPtr(time.Now().Add(-260 * 24 * time.Hour).Format(time.RFC3339)),
+	}
+}
+
+func testInterconnectAttachment() *computepb.InterconnectAttachment {
+	return &computepb.InterconnectAttachment{
+		Name:              strPtr("dc1-attachment"),
+		Type:              strPtr("DEDICATED"),
+		Bandwidth:         strPtr("BPS_10G"),
+		VlanTag8021Q:      int32Ptr(1010),
+		State:             strPtr("ACTIVE"),
+		AdminEnabled:      boolPtr(true),
+		CreationTimestamp: strPtr(time.Now().Add(-370 * 24 * time.Hour).Format(time.RFC3339)),
+	}
+}
+
+func testServiceAttachment() *computepb.ServiceAttachment {
+	return &computepb.ServiceAttachment{
+		Name:                 strPtr("analytics-psc"),
+		TargetService:        strPtr("https://www.googleapis.com/compute/v1/projects/sandbox-123/regions/us-central1/forwardingRules/analytics-ilb"),
+		ConnectionPreference: strPtr("ACCEPT_MANUAL"),
+		ConnectedEndpoints: []*computepb.ServiceAttachmentConnectedEndpoint{
+			{Endpoint: strPtr("consumer-1")},
+			{Endpoint: strPtr("consumer-2")},
+		},
+		CreationTimestamp: strPtr(time.Now().Add(-90 * 24 * time.Hour).Format(time.RFC3339)),
 	}
 }

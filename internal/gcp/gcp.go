@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -69,12 +70,21 @@ type Lister interface {
 // Listers returns the registered resource kinds, in display order.
 func Listers() []Lister {
 	return []Lister{
+		// Compute and data first, then networking. Order is display order, and
+		// the number keys bind to it, so the kinds reached most often lead.
 		ComputeLister{},
 		GKELister{},
 		CloudSQLLister{},
 		StorageLister{},
 		DataprocLister{},
 		ComposerLister{},
+		VPCLister{},
+		FirewallLister{},
+		LoadBalancerLister{},
+		DNSLister{},
+		VPNLister{},
+		InterconnectLister{},
+		PSCLister{},
 	}
 }
 
@@ -152,6 +162,68 @@ func grpcCode(err error) codes.Code {
 		return s.Code()
 	}
 	return codes.Unknown
+}
+
+// nexter is the shape every google-cloud-go iterator has. Depending on it
+// rather than the concrete iterator types is what lets one collector serve
+// resources whose only difference is the element type.
+type nexter[T any] interface {
+	Next() (T, error)
+}
+
+// collectList drains a flat, global iterator — the shape of Networks,
+// Firewalls, GlobalForwardingRules and anything else with no location axis.
+func collectList[T any](it nexter[T], build func(T) Resource) (Result, error) {
+	var result Result
+	for {
+		v, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			// A hard failure means the whole listing failed rather than one
+			// scope, so it goes back to the caller instead of degrading to a
+			// table that looks empty.
+			return result, err
+		}
+		result.Resources = append(result.Resources, build(v))
+	}
+	sortResources(result.Resources)
+	return result, nil
+}
+
+// collectAggregated drains a Compute aggregatedList iterator, which hands back
+// (scope, items) pairs covering every region or zone in one call.
+//
+// This is why none of the networking kinds need a fan-out: Compute will do the
+// sweep server-side, unlike Dataproc where the endpoint itself is regional.
+func collectAggregated[P, V any](it nexter[P], split func(P) (string, []V), build func(scope string, v V) Resource) (Result, error) {
+	var result Result
+	for {
+		pair, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return result, err
+		}
+		scope, items := split(pair)
+		for _, v := range items {
+			result.Resources = append(result.Resources, build(scope, v))
+		}
+	}
+	sortResources(result.Resources)
+	return result, nil
+}
+
+// mergeResults folds one Result into another, keeping the combined list sorted
+// and the warnings deduplicated. Load balancers need it because regional and
+// global forwarding rules come from two different calls.
+func mergeResults(dst *Result, src Result) {
+	dst.Resources = append(dst.Resources, src.Resources...)
+	dst.Warnings = append(dst.Warnings, src.Warnings...)
+	sortResources(dst.Resources)
+	dedupeSortWarnings(dst)
 }
 
 // dedupeSortWarnings collapses repeated warnings and gives them a stable order.

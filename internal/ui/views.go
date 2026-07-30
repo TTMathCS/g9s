@@ -82,8 +82,9 @@ func (m Model) headerView() string {
 
 func (m Model) tabsView() string {
 	tabs := m.tabs()
-	parts := make([]string, 0, len(tabs))
 
+	labels := make([]string, len(tabs))
+	widths := make([]int, len(tabs))
 	for i, kind := range tabs {
 		// The merged tab answers to "a" rather than a number, since the digits
 		// are spoken for by the real kinds.
@@ -99,14 +100,85 @@ func (m Model) tabsView() string {
 		if m.tabLoading(kind) {
 			label += " …"
 		}
+		labels[i] = label
+		// Both tab styles pad by one cell on each side.
+		widths[i] = lipgloss.Width(label) + 2
+	}
 
+	start, end, more := tabWindow(widths, m.kindIdx, m.width)
+
+	parts := make([]string, 0, end-start+2)
+	if more.left {
+		parts = append(parts, tabStyle.Render("‹"))
+	}
+	for i := start; i < end; i++ {
 		if i == m.kindIdx {
-			parts = append(parts, tabActiveStyle.Render(label))
+			parts = append(parts, tabActiveStyle.Render(labels[i]))
 		} else {
-			parts = append(parts, tabStyle.Render(label))
+			parts = append(parts, tabStyle.Render(labels[i]))
 		}
 	}
+	if more.right {
+		parts = append(parts, tabStyle.Render("›"))
+	}
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, parts...)
+}
+
+// overflow records which sides of the tab strip have tabs scrolled out of view.
+type overflow struct{ left, right bool }
+
+// tabWindow picks the run of tabs to show so that the strip fits the terminal
+// and always contains the active one.
+//
+// Thirteen kinds do not fit across 132 columns, and a bar that overflows wraps
+// into the table or gets cut off mid-label. So the strip scrolls: it grows
+// outward from the active tab, and marks the sides that still have tabs on them
+// so it never looks like the list simply ends.
+func tabWindow(widths []int, active, available int) (start, end int, more overflow) {
+	if len(widths) == 0 {
+		return 0, 0, overflow{}
+	}
+	if active < 0 || active >= len(widths) {
+		active = 0
+	}
+
+	total := 0
+	for _, w := range widths {
+		total += w
+	}
+	// Everything fits, so show everything — the common case below ten kinds.
+	if available <= 0 || total <= available {
+		return 0, len(widths), overflow{}
+	}
+
+	// Reserve room for the two overflow markers, each one cell plus padding.
+	budget := available - 6
+	if budget < widths[active] {
+		// Even the active tab alone overruns; show it and let it truncate
+		// rather than rendering an empty strip.
+		return active, active + 1, overflow{left: active > 0, right: active < len(widths)-1}
+	}
+
+	start, end = active, active+1
+	used := widths[active]
+	// Alternate outwards so the active tab stays roughly centred.
+	for {
+		grew := false
+		if end < len(widths) && used+widths[end] <= budget {
+			used += widths[end]
+			end++
+			grew = true
+		}
+		if start > 0 && used+widths[start-1] <= budget {
+			start--
+			used += widths[start]
+			grew = true
+		}
+		if !grew {
+			break
+		}
+	}
+	return start, end, overflow{left: start > 0, right: end < len(widths)}
 }
 
 // tabCount reports a tab's resource count, and whether it is known yet. The
@@ -154,13 +226,18 @@ func (m Model) overviewView() string {
 		labelWidth = max(labelWidth, len(kind.Title))
 	}
 
+	// Past nine kinds the shortcut column has to hold two characters, or every
+	// double-digit row shifts the category text one cell right of the rest.
+	keyWidth := len(fmt.Sprintf("%d", len(tabs)))
+
 	b.WriteString(headerRowStyle.Render(
-		"   "+pad("CATEGORY", labelWidth)+"  "+pad("COUNT", 6)+"  "+"STATE") + "\n")
+		strings.Repeat(" ", keyWidth+2)+pad("CATEGORY", labelWidth)+"  "+pad("COUNT", 6)+"  "+"STATE") + "\n")
 
 	for i, kind := range tabs {
-		key := fmt.Sprintf("%d", i+1)
+		// Right-aligned so the digits line up under each other.
+		key := fmt.Sprintf("%*d", keyWidth, i+1)
 		if kind.ID == allKind.ID {
-			key = "a"
+			key = fmt.Sprintf("%*s", keyWidth, "a")
 		}
 
 		count := "—"
@@ -168,9 +245,12 @@ func (m Model) overviewView() string {
 			count = fmt.Sprintf("%d", n)
 		}
 
-		line := fmt.Sprintf(" %s %s  %s  ", key, pad(kind.Title, labelWidth), pad(count, 6))
+		cursor := " "
 		if i == m.ovCursor {
-			line = fmt.Sprintf("▸%s %s  %s  ", key, pad(kind.Title, labelWidth), pad(count, 6))
+			cursor = "▸"
+		}
+		line := fmt.Sprintf("%s%s %s  %s  ", cursor, key, pad(kind.Title, labelWidth), pad(count, 6))
+		if i == m.ovCursor {
 			b.WriteString(selectedRowStyle.Render(line))
 		} else {
 			b.WriteString(rowStyle.Render(line))
@@ -513,7 +593,7 @@ func (m Model) helpView() string {
 			{"q / esc", "back up one level"},
 			{"p", "back to the project list"},
 			{"/", "filter rows (esc clears)"},
-			{":", "command — :vm :gke :sql :gcs :dataproc :composer :all :projects :q"},
+			{":", "command — :<kind> by id or title prefix, :all :projects :help :q"},
 		}},
 		{"Actions", []helpEntry{
 			{"d / enter", "describe as YAML"},

@@ -61,15 +61,27 @@ var (
 // running, amber is in flight, red needs attention.
 func statusStyle(status string) lipgloss.Style {
 	switch strings.ToUpper(status) {
-	// RUNNABLE is Cloud SQL's healthy state — the API's own spelling of running.
-	case "RUNNING", "RUNNABLE", "ACTIVE", "READY":
+	// Each API spells "healthy" its own way: RUNNABLE is Cloud SQL's, ESTABLISHED
+	// is a VPN tunnel that finished its handshake, ENABLED is a live firewall rule.
+	case "RUNNING", "RUNNABLE", "ACTIVE", "READY", "ESTABLISHED", "ENABLED":
 		return goodStyle
 	case "PROVISIONING", "STAGING", "CREATING", "UPDATING", "STOPPING", "DELETING",
 		"REPAIRING", "SUSPENDING", "RECONCILING",
 		// Cloud SQL's in-flight and maintenance states.
-		"PENDING_CREATE", "PENDING_DELETE", "MAINTENANCE":
+		"PENDING_CREATE", "PENDING_DELETE", "MAINTENANCE",
+		// VPN tunnels mid-handshake or being torn down.
+		"WAITING_FOR_FULL_CONFIG", "FIRST_HANDSHAKE", "ALLOCATING_RESOURCES", "DEPROVISIONING",
+		// Interconnect attachments waiting on the other party.
+		"PARTNER_REQUEST_RECEIVED", "PENDING_CUSTOMER", "PENDING_PARTNER",
+		// Something that exists but is doing nothing: a firewall rule that looks
+		// like it protects an network but does not is worth drawing the eye to.
+		"DISABLED":
 		return warnStyle
-	case "ERROR", "FAILED", "TERMINATED", "STOPPED", "SUSPENDED", "UNHEALTHY", "DEGRADED":
+	case "ERROR", "FAILED", "TERMINATED", "STOPPED", "SUSPENDED", "UNHEALTHY", "DEGRADED",
+		// VPN tunnels that will never carry traffic without intervention.
+		"AUTHORIZATION_ERROR", "NEGOTIATION_FAILURE", "NETWORK_ERROR", "NO_INCOMING_PACKETS", "REJECTED",
+		// Interconnect attachments that are broken or never came up.
+		"DEFUNCT", "UNPROVISIONED":
 		return badStyle
 	default:
 		return rowStyle

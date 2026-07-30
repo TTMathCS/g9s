@@ -295,17 +295,55 @@ func TestWrapHandlesDegenerateWidths(t *testing.T) {
 	}
 }
 
-func TestKindTabsCoverAllListers(t *testing.T) {
-	// The number keys 1..N are wired to lister indices, so a lister that the
-	// tab bar cannot reach would be invisible. Past nine kinds the digits run
-	// out; tab-cycling and `:` commands still reach everything, but the tenth
-	// kind should probably be a drill-down rather than a new tab.
+func TestEveryKindIsReachable(t *testing.T) {
+	// The real invariant is that no registered lister is unreachable, not that
+	// it has a digit. Past nine kinds the digits run out — `1`-`9` cover the
+	// first nine, and `tab`/`shift+tab` plus `:<id>` reach all of them. A kind
+	// that no key or command could select would be dead code with an API cost.
 	m := New(&config.Config{Projects: []config.Project{{Name: "a", ProjectID: "a-1"}}}, nil)
 	if len(m.listers) == 0 {
 		t.Fatal("no listers registered")
 	}
-	if len(m.listers) > 9 {
-		t.Errorf("%d listers registered but only keys 1-9 are bound", len(m.listers))
+
+	tabs := m.tabs()
+	for want, kind := range tabs {
+		got, ok := m.matchKind(kind.ID)
+		if !ok {
+			t.Errorf("kind %q cannot be selected by `:%s`", kind.ID, kind.ID)
+			continue
+		}
+		// An exact ID must win outright. Without that, a shorter ID earlier in
+		// the list would shadow a longer one — `:vpc` landing on `vm` because
+		// prefix matching got there first.
+		if got != want {
+			t.Errorf("`:%s` selected tab %d (%q), want tab %d", kind.ID, got, tabs[got].ID, want)
+		}
+	}
+}
+
+func TestCycleReachesEveryKind(t *testing.T) {
+	// Tab-cycling is the only mechanism that covers kinds past the ninth
+	// without typing a command, so it has to visit all of them and wrap.
+	m := New(&config.Config{Projects: []config.Project{{Name: "a", ProjectID: "a-1"}}}, nil)
+	m.active = m.cfg.Projects[0]
+	m.hasActive = true
+	m.authStatus["a"] = auth.Status{State: auth.StateValid}
+	m.screen = screenResources
+
+	seen := map[string]bool{}
+	for i := 0; i < len(m.tabs()); i++ {
+		seen[m.currentKind().ID] = true
+		next, _ := m.handleResourcesKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("]")})
+		m = next.(Model)
+	}
+
+	for _, kind := range m.tabs() {
+		if !seen[kind.ID] {
+			t.Errorf("cycling never reached %q", kind.ID)
+		}
+	}
+	if m.kindIdx != 0 {
+		t.Errorf("a full lap ended on tab %d, want it to wrap to 0", m.kindIdx)
 	}
 }
 
@@ -971,6 +1009,127 @@ func TestStatusStyleCoversCloudSQLStates(t *testing.T) {
 	for _, s := range []string{"SUSPENDED", "FAILED"} {
 		if statusStyle(s).GetForeground() != statusStyle("ERROR").GetForeground() {
 			t.Errorf("%s should read as needing attention", s)
+		}
+	}
+}
+
+func TestStatusStyleCoversNetworkingStates(t *testing.T) {
+	// Each networking API has its own vocabulary for the same three ideas.
+	// Falling through to the default style would render a healthy VPN tunnel
+	// and a failed one identically.
+	healthy := statusStyle("RUNNING").GetForeground()
+	inflight := statusStyle("CREATING").GetForeground()
+	broken := statusStyle("ERROR").GetForeground()
+
+	for _, s := range []string{"ESTABLISHED", "ENABLED"} {
+		if statusStyle(s).GetForeground() != healthy {
+			t.Errorf("%s should read as healthy", s)
+		}
+	}
+	for _, s := range []string{
+		"WAITING_FOR_FULL_CONFIG", "FIRST_HANDSHAKE", "ALLOCATING_RESOURCES", "DEPROVISIONING",
+		"PARTNER_REQUEST_RECEIVED", "PENDING_CUSTOMER",
+		// Inert rather than failing, but worth drawing the eye to: a firewall
+		// rule or interconnect attachment that carries nothing.
+		"DISABLED",
+	} {
+		if statusStyle(s).GetForeground() != inflight {
+			t.Errorf("%s should read as in-flight/attention", s)
+		}
+	}
+	for _, s := range []string{
+		"AUTHORIZATION_ERROR", "NEGOTIATION_FAILURE", "NETWORK_ERROR",
+		"NO_INCOMING_PACKETS", "REJECTED", "DEFUNCT", "UNPROVISIONED",
+	} {
+		if statusStyle(s).GetForeground() != broken {
+			t.Errorf("%s should read as needing attention", s)
+		}
+	}
+}
+
+func TestTabWindowShowsEverythingWhenItFits(t *testing.T) {
+	widths := []int{10, 10, 10}
+	start, end, more := tabWindow(widths, 1, 100)
+	if start != 0 || end != 3 {
+		t.Errorf("window = [%d,%d), want the whole strip", start, end)
+	}
+	if more.left || more.right {
+		t.Error("no overflow markers when everything fits")
+	}
+}
+
+func TestTabWindowAlwaysContainsActiveTab(t *testing.T) {
+	// Thirteen kinds do not fit across a normal terminal, so the strip scrolls.
+	// If it ever excluded the active tab there would be no visual indication of
+	// which table is on screen.
+	widths := make([]int, 14)
+	for i := range widths {
+		widths[i] = 20
+	}
+
+	for active := 0; active < len(widths); active++ {
+		start, end, _ := tabWindow(widths, active, 132)
+		if active < start || active >= end {
+			t.Errorf("active %d fell outside window [%d,%d)", active, start, end)
+		}
+	}
+}
+
+func TestTabWindowFitsTheBudgetAndMarksOverflow(t *testing.T) {
+	widths := make([]int, 14)
+	for i := range widths {
+		widths[i] = 20
+	}
+
+	start, end, more := tabWindow(widths, 0, 132)
+	used := 0
+	for i := start; i < end; i++ {
+		used += widths[i]
+	}
+	if used > 132 {
+		t.Errorf("window uses %d cells, want it inside 132", used)
+	}
+	// At the far left there is nothing hidden to the left, but plenty right.
+	if more.left {
+		t.Error("no left overflow expected at the first tab")
+	}
+	if !more.right {
+		t.Error("right overflow marker expected with 14 tabs at width 132")
+	}
+
+	_, _, lastMore := tabWindow(widths, len(widths)-1, 132)
+	if !lastMore.left || lastMore.right {
+		t.Errorf("at the last tab want left overflow only, got %+v", lastMore)
+	}
+}
+
+func TestTabWindowSurvivesDegenerateInput(t *testing.T) {
+	if start, end, _ := tabWindow(nil, 0, 80); start != 0 || end != 0 {
+		t.Errorf("empty widths gave [%d,%d)", start, end)
+	}
+	// A single tab wider than the terminal must still render, not vanish.
+	if start, end, _ := tabWindow([]int{500}, 0, 80); start != 0 || end != 1 {
+		t.Errorf("oversized single tab gave [%d,%d), want [0,1)", start, end)
+	}
+	// An out-of-range active index must not panic or produce an empty strip.
+	if start, end, _ := tabWindow([]int{10, 10}, 99, 80); start >= end {
+		t.Errorf("out-of-range active gave empty window [%d,%d)", start, end)
+	}
+}
+
+func TestTabBarFitsTerminalWidthWithEveryKind(t *testing.T) {
+	// The end-to-end version: the rendered strip must not overrun the terminal,
+	// because a bar that overflows wraps into the table below it.
+	m := populatedModel(t)
+	m.screen = screenResources
+
+	for _, width := range []int{80, 100, 132, 200} {
+		m.width = width
+		for idx := 0; idx < len(m.tabs()); idx++ {
+			m.kindIdx = idx
+			if got := lipgloss.Width(m.tabsView()); got > width {
+				t.Errorf("width=%d tab=%d: strip rendered %d cells", width, idx, got)
+			}
 		}
 	}
 }

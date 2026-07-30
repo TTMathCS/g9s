@@ -94,8 +94,11 @@ places and the contents are not secret.
 
 ## Dependencies
 
-14 direct dependencies; about 106 module roots and 506 packages linked into the
-binary as of the GKE and Cloud Storage listers. All from Google
+16 direct dependencies; about 108 module roots and 508 packages linked into the
+binary as of the networking listers. Cloud SQL, Cloud DNS and all seven
+networking kinds added no new modules at all — they live in
+`google.golang.org/api` and `cloud.google.com/go/compute`, both already
+present. All from Google
 (`cloud.google.com/go/*`, `google.golang.org/*`), the CNCF (gRPC's xDS
 machinery, OpenTelemetry), the Go team (`golang.org/x/*`), charmbracelet (the
 TUI stack) or go-yaml. No unmaintained or single-author-obscure packages in the
