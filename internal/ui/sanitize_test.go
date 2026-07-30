@@ -120,3 +120,36 @@ func TestSafeToOpenRejectsEscapeSequences(t *testing.T) {
 		t.Error("a real console link was refused")
 	}
 }
+
+func TestWarningCountReadsForEveryKindOfWarning(t *testing.T) {
+	// The badge used to say "scope(s) unavailable". An unreachable region is
+	// still the common warning, but a listing bounded by a time window or a row
+	// cap is also a result that is not the whole truth, and that wording made
+	// the BigQuery jobs cap read as a permissions problem.
+	if got := warningCount(1); got != "1 warning" {
+		t.Errorf("warningCount(1) = %q", got)
+	}
+	if got := warningCount(3); got != "3 warnings" {
+		t.Errorf("warningCount(3) = %q", got)
+	}
+}
+
+func TestFooterShowsTheWarningTextItself(t *testing.T) {
+	m := testModel(t, []gcp.Resource{{Name: "a", Row: []string{"a"}}})
+	m.width, m.height = 160, 24
+	m.screen = screenResources
+	m.cache[m.currentKind().ID] = gcp.Result{
+		Resources: []gcp.Resource{{Name: "a", Row: []string{"a"}}},
+		Warnings:  []string{"only the 500 most recent jobs are shown"},
+	}
+
+	got := m.footerView()
+	if !strings.Contains(got, "1 warning") {
+		t.Errorf("footer does not count the warning: %q", got)
+	}
+	// The count alone says nothing; the text is what distinguishes a capped
+	// listing from an unreachable region.
+	if !strings.Contains(got, "most recent jobs") {
+		t.Errorf("footer does not show the warning text: %q", got)
+	}
+}

@@ -34,6 +34,11 @@ type Defaults struct {
 	GcloudPath string `yaml:"gcloud_path"`
 	// ListTimeout bounds a single refresh across all regions.
 	ListTimeout Duration `yaml:"list_timeout"`
+	// BigQueryJobWindow is how far back the BigQuery jobs table looks. Jobs are
+	// kept for six months, which is far more than a "what is running now"
+	// table can show, so the window is what makes the listing a complete
+	// answer rather than a truncated one.
+	BigQueryJobWindow Duration `yaml:"bigquery_job_window"`
 }
 
 // Project is one GCP project as the user works with it: the project ID plus
@@ -83,6 +88,14 @@ func (c *Config) DataprocRegions(p Project) []string {
 // ComposerLocations returns the locations to sweep for Composer environments.
 func (c *Config) ComposerLocations(p Project) []string {
 	return firstNonEmpty(p.ComposerLocations, p.Regions, c.Defaults.ComposerLocations, c.Defaults.Regions)
+}
+
+// BigQueryJobWindow is how far back to list BigQuery jobs.
+func (c *Config) BigQueryJobWindow() time.Duration {
+	if c.Defaults.BigQueryJobWindow > 0 {
+		return c.Defaults.BigQueryJobWindow.Duration()
+	}
+	return defaultBigQueryJobWindow
 }
 
 // HasDataprocRegions reports whether any region setting applies to Dataproc
@@ -202,12 +215,20 @@ func checkPermissions(path string, info os.FileInfo) error {
 	return nil
 }
 
+// defaultBigQueryJobWindow is a working day's worth of jobs: long enough to
+// cover "what ran overnight", short enough that a busy project's listing is
+// still a complete answer rather than a capped one.
+const defaultBigQueryJobWindow = 24 * time.Hour
+
 func (c *Config) applyDefaults() {
 	if c.Defaults.GcloudPath == "" {
 		c.Defaults.GcloudPath = "gcloud"
 	}
 	if c.Defaults.ListTimeout == 0 {
 		c.Defaults.ListTimeout = Duration(90 * time.Second)
+	}
+	if c.Defaults.BigQueryJobWindow == 0 {
+		c.Defaults.BigQueryJobWindow = Duration(defaultBigQueryJobWindow)
 	}
 	if c.Defaults.CredentialDir == "" {
 		if home, err := os.UserHomeDir(); err == nil {
@@ -223,6 +244,15 @@ func (c *Config) validate() error {
 	}
 	if c.Defaults.CredentialDir == "" {
 		return errors.New("defaults.credential_dir is unset and the home directory could not be determined")
+	}
+	// applyDefaults fills these when they are zero, so only a negative value
+	// reaches here — a refresh that times out before it starts, or a job window
+	// that ends in the future and matches nothing.
+	if c.Defaults.ListTimeout <= 0 {
+		return fmt.Errorf("defaults.list_timeout must be positive, got %s", c.Defaults.ListTimeout.Duration())
+	}
+	if c.Defaults.BigQueryJobWindow <= 0 {
+		return fmt.Errorf("defaults.bigquery_job_window must be positive, got %s", c.Defaults.BigQueryJobWindow.Duration())
 	}
 
 	seenName := map[string]bool{}

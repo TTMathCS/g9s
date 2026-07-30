@@ -164,6 +164,14 @@ func resourcesShot() Model {
 	m.cache["sql"] = gcp.Result{
 		Resources: statusOnly(kindByID("sql"), map[string]int{"RUNNABLE": 3, "MAINTENANCE": 1}),
 	}
+	m.cache["bq"] = gcp.Result{
+		Resources: statusOnly(kindByID("bq"), map[string]int{"ACTIVE": 12}),
+	}
+	// A capped listing is a warning like any other, and the dashboard is where
+	// that has to be visible without drilling in.
+	m.cache["bqjobs"] = gcp.Result{
+		Resources: statusOnly(kindByID("bqjobs"), map[string]int{"DONE": 38, "RUNNING": 2, "FAILED": 1}),
+	}
 	m.cache["vpc"] = gcp.Result{
 		Resources: statusOnly(kindByID("vpc"), map[string]int{"ACTIVE": 3}),
 	}
@@ -217,6 +225,15 @@ func dashboardShot() Model {
 	}
 	m.cache["sql"] = gcp.Result{
 		Resources: statusOnly(kindByID("sql"), map[string]int{"RUNNABLE": 3, "MAINTENANCE": 1}),
+	}
+	m.cache["bq"] = gcp.Result{
+		Resources: statusOnly(kindByID("bq"), map[string]int{"ACTIVE": 12}),
+	}
+	// A listing bounded on purpose reports itself the same way an unreachable
+	// region does, which is the second warning on this shot.
+	m.cache["bqjobs"] = gcp.Result{
+		Resources: statusOnly(kindByID("bqjobs"), map[string]int{"DONE": 38, "RUNNING": 2, "FAILED": 1}),
+		Warnings:  []string{"only the 500 most recent jobs are shown"},
 	}
 	m.cache["vpc"] = gcp.Result{
 		Resources: statusOnly(kindByID("vpc"), map[string]int{"ACTIVE": 3}),

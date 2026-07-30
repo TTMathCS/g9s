@@ -20,6 +20,8 @@ the reason this list is long: most entries are a day's work, not a project.
 | GKE clusters | zonal + regional, aggregated | `parent: projects/*/locations/-` covers every zone and region in one call, same as Compute; no fan-out despite being both zonal and regional |
 | Cloud SQL instances | global | one paginated `Instances.List`; the only lister whose partial failures arrive as `Warnings` in the response body rather than as an error, so unreachable regions are collected from there instead of through `fanOut` |
 | Cloud Storage buckets | global | the simplest lister here — one call, no fan-out, no aggregation trick needed |
+| BigQuery datasets | global | one paginated call; name, location, type and labels are everything the list response carries, and anything more costs a `Get` per dataset |
+| BigQuery jobs | global | jobs are project-global with the location on each row; scoped by `defaults.bigquery_job_window`, which defines the listing rather than truncating it, and capped at 500 rows, which does truncate it and says so |
 | Dataproc clusters | **regional** | needs a client per region at `<region>-dataproc.googleapis.com`; `global` always swept |
 | Cloud Composer environments | location-scoped | one client, location in the request parent |
 | VPC networks | global | one call |
@@ -34,7 +36,7 @@ Plus, across all kinds: a per-project dashboard with status rollups, a merged
 *All Resources* table, filtering, describe-as-YAML, Console/Airflow deep links,
 clipboard yank over OSC 52, and SSH to a running VM.
 
-Thirteen kinds is past what the digits cover, so the hotkey sequence continues
+Fifteen kinds is past what the digits cover, so the hotkey sequence continues
 into letters — `1`-`9`, then `b e f h i m n t u v w x z`, skipping every letter
 already bound to an action. Each kind's key is printed beside it on the
 dashboard and in the tab strip, and `tab`/`shift+tab`, `0`/`a` and `:<kind>`
@@ -53,7 +55,6 @@ The ones that would earn their place first, roughly in order.
 
 | Resource | Scope | Why it's near the top |
 |---|---|---|
-| BigQuery datasets and recent jobs | global | where the data actually is; jobs answer "what is running" |
 | Pub/Sub topics and subscriptions | global | subscription backlog is the number people want |
 | Secret Manager secrets | global | **names and versions only, never values** |
 | Cloud Run services and jobs | regional | replaces a lot of "is it deployed" Console trips |

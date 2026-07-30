@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -172,8 +173,10 @@ func TestFooterShowsPositionOnEveryListScreen(t *testing.T) {
 		screen screen
 		want   string
 	}{
-		{screenProjects, "1/40"},
-		{screenOverview, "1/14"},
+		{screenProjects, fmt.Sprintf("1/%d", len(m.cfg.Projects))},
+		// Derived rather than hard-coded: adding a kind must not fail a test
+		// about the footer.
+		{screenOverview, fmt.Sprintf("1/%d", len(m.tabs()))},
 	} {
 		m.screen = tt.screen
 		if got := m.footerView(); !strings.Contains(got, tt.want) {

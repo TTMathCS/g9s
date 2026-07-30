@@ -76,6 +76,8 @@ func Listers() []Lister {
 		GKELister{},
 		CloudSQLLister{},
 		StorageLister{},
+		BigQueryDatasetLister{},
+		BigQueryJobLister{},
 		DataprocLister{},
 		ComposerLister{},
 		VPCLister{},

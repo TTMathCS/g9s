@@ -8,6 +8,7 @@ import (
 	"cloud.google.com/go/dataproc/v2/apiv1/dataprocpb"
 	"cloud.google.com/go/orchestration/airflow/service/apiv1/servicepb"
 	"cloud.google.com/go/storage"
+	bigquery "google.golang.org/api/bigquery/v2"
 	dns "google.golang.org/api/dns/v1"
 	sqladmin "google.golang.org/api/sqladmin/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -188,5 +189,34 @@ func testServiceAttachment() *computepb.ServiceAttachment {
 			{Endpoint: strPtr("consumer-2")},
 		},
 		CreationTimestamp: strPtr(time.Now().Add(-90 * 24 * time.Hour).Format(time.RFC3339)),
+	}
+}
+
+func testBigQueryDataset() *bigquery.DatasetListDatasets {
+	return &bigquery.DatasetListDatasets{
+		Id:               "sandbox-123:analytics",
+		DatasetReference: &bigquery.DatasetReference{ProjectId: "sandbox-123", DatasetId: "analytics"},
+		Location:         "northamerica-northeast1",
+		Type:             "DEFAULT",
+		Labels:           map[string]string{"team": "dataeng", "env": "prod"},
+	}
+}
+
+func testBigQueryJob() *bigquery.JobListJobs {
+	start := time.Now().Add(-4 * time.Minute)
+	return &bigquery.JobListJobs{
+		Id:           "sandbox-123:northamerica-northeast1.bquxjob_1a2b3c",
+		JobReference: &bigquery.JobReference{ProjectId: "sandbox-123", JobId: "bquxjob_1a2b3c", Location: "northamerica-northeast1"},
+		Configuration: &bigquery.JobConfiguration{
+			JobType: "QUERY",
+			Query:   &bigquery.JobConfigurationQuery{Query: "SELECT count(*) FROM `analytics.events`"},
+		},
+		Status:    &bigquery.JobStatus{State: "RUNNING"},
+		UserEmail: "svc-dataeng-prod@example.com",
+		Statistics: &bigquery.JobStatistics{
+			CreationTime: start.Add(-time.Second).UnixMilli(),
+			StartTime:    start.UnixMilli(),
+			Query:        &bigquery.JobStatistics2{TotalBytesProcessed: 3 * 1024 * 1024 * 1024},
+		},
 	}
 }

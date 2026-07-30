@@ -317,7 +317,7 @@ func (m Model) categoryState(kind gcp.Kind) string {
 
 	out := strings.Join(parts, mutedStyle.Render(" · "))
 	if warnings := m.warningsFor(kind); len(warnings) > 0 {
-		out += warnStyle.Render(fmt.Sprintf("   ⚠ %d scope(s) unavailable", len(warnings)))
+		out += warnStyle.Render("   ⚠ " + warningCount(len(warnings)))
 	}
 	return out
 }
@@ -363,6 +363,19 @@ func statusCounts(resources []gcp.Resource) []statusCount {
 		out = append(out[:maxBuckets-1], statusCount{status: "OTHER", count: other})
 	}
 	return out
+}
+
+// warningCount labels the warning badge.
+//
+// Not "scope(s) unavailable" any more: an unreachable region is the common
+// warning but no longer the only one — a listing bounded by a time window or a
+// row cap is also a result that is not the whole truth, and the warnings
+// themselves say which it is.
+func warningCount(n int) string {
+	if n == 1 {
+		return "1 warning"
+	}
+	return fmt.Sprintf("%d warnings", n)
 }
 
 // warningsFor returns the partial-listing warnings attached to a tab.
@@ -692,7 +705,7 @@ func (m Model) footerView() string {
 	// Warnings earn the footer over the key hints: a partial listing that
 	// looks complete is the one failure mode worth being loud about.
 	if warnings := m.currentWarnings(); len(warnings) > 0 {
-		text := fmt.Sprintf("⚠ %d scope(s) unavailable: %s", len(warnings), strings.Join(warnings, "; "))
+		text := fmt.Sprintf("⚠ %s: %s", warningCount(len(warnings)), strings.Join(warnings, "; "))
 		return m.withPosition(warnStyle.Render(truncate(text, m.width-8)))
 	}
 

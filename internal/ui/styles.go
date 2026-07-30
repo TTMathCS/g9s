@@ -64,12 +64,16 @@ func statusStyle(status string) lipgloss.Style {
 	switch strings.ToUpper(status) {
 	// Each API spells "healthy" its own way: RUNNABLE is Cloud SQL's, ESTABLISHED
 	// is a VPN tunnel that finished its handshake, ENABLED is a live firewall rule.
-	case "RUNNING", "RUNNABLE", "ACTIVE", "READY", "ESTABLISHED", "ENABLED":
+	// DONE is BigQuery's word for a job that finished; a job that finished
+	// badly reports FAILED instead, which is why DONE is unambiguously green.
+	case "RUNNING", "RUNNABLE", "ACTIVE", "READY", "ESTABLISHED", "ENABLED", "DONE":
 		return goodStyle
 	case "PROVISIONING", "STAGING", "CREATING", "UPDATING", "STOPPING", "DELETING",
 		"REPAIRING", "SUSPENDING", "RECONCILING",
 		// Cloud SQL's in-flight and maintenance states.
 		"PENDING_CREATE", "PENDING_DELETE", "MAINTENANCE",
+		// A BigQuery job that has been admitted but is waiting on slots.
+		"PENDING",
 		// VPN tunnels mid-handshake or being torn down.
 		"WAITING_FOR_FULL_CONFIG", "FIRST_HANDSHAKE", "ALLOCATING_RESOURCES", "DEPROVISIONING",
 		// Interconnect attachments waiting on the other party.

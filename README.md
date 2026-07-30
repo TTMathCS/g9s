@@ -70,6 +70,8 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | GKE clusters | ✅ | zonal + regional, aggregated | `parent: projects/*/locations/-` covers everything in one call |
 | Cloud SQL instances | ✅ | global | one paginated call; unreachable regions arrive as response warnings, not errors |
 | Cloud Storage buckets | ✅ | global | simplest lister — one call, no fan-out |
+| BigQuery datasets | ✅ | global | name, location, type and labels; anything more costs a `Get` per dataset |
+| BigQuery jobs | ✅ | global | recent jobs, newest first; window from `defaults.bigquery_job_window`, capped at 500 rows |
 | Dataproc clusters | ✅ | **regional** | a client per region; `global` always swept |
 | Cloud Composer environments | ✅ | location-scoped | one client, location in the request parent |
 | VPC networks | ✅ | global | subnet mode, subnet count, routing mode |
@@ -79,7 +81,6 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | VPN tunnels | ✅ | regional, aggregated | real tunnel status — ESTABLISHED vs a handshake that never finished |
 | Interconnect attachments | ✅ | regional, aggregated | VLAN attachments, not circuits; admin-disabled beats a healthy-looking state |
 | PSC service attachments | ✅ | regional, aggregated | the producer side; consumer endpoints are forwarding rules, already under load balancers |
-| BigQuery datasets & recent jobs | 🔜 | global | jobs answer "what is running", not just "what exists" |
 | Pub/Sub topics & subscriptions | 🔜 | global | subscription backlog is the number people actually want |
 | Secret Manager secrets | 🔜 | global | **names and versions only — never values** |
 | Cloud Run services & jobs | 🔜 | regional | |
@@ -119,7 +120,7 @@ Cloud Asset Inventory makes "list everything in a project" a single API call. Wi
 
 ## Status
 
-MVP. Thirteen resource kinds across compute, data and networking — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
+MVP. Fifteen resource kinds across compute, data and networking — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
 
 Navigation is three levels deep: projects → dashboard → a category's table, with `esc` walking back up. A new kind appears on the dashboard, in the tab bar and in *All Resources* automatically; there is nothing to register in the UI.
 
@@ -349,6 +350,11 @@ defaults:
   gcloud_path: gcloud
   list_timeout: 90s
 
+  # How far back the BigQuery jobs table looks. Jobs are kept for six months,
+  # which is far more than a "what is running" table can show, so this window
+  # is what makes that listing a complete answer rather than a truncated one.
+  bigquery_job_window: 24h
+
 projects:
   - name: sandbox                    # label in the picker; names the credential dir
     project_id: my-sandbox-project
@@ -400,7 +406,13 @@ With a least-privilege account, some regions and some APIs will refuse you. A to
 So listers return whatever succeeded plus a warning per failed scope, and the footer says so:
 
 ```
-⚠ 2 scope(s) unavailable: europe-west1: permission denied; us-east4: permission denied
+⚠ 2 warnings: europe-west1: permission denied; us-east4: permission denied
+```
+
+An unreachable scope is the common case but not the only one. A listing bounded on purpose reports itself the same way, because a bounded list that looks complete is the same failure:
+
+```
+⚠ 1 warning: only the 500 most recent jobs are shown — narrow defaults.bigquery_job_window for a complete list
 ```
 
 Errors that are *expected* rather than informative — the API simply isn't enabled in that region, or the region doesn't exist — are suppressed, or the footer would be permanently full of noise.

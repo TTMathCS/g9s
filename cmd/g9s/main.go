@@ -110,6 +110,11 @@ defaults:
   # Upper bound on a single refresh across all regions.
   list_timeout: 90s
 
+  # How far back the BigQuery jobs table looks. Jobs are kept for six months,
+  # so this window is what makes that listing a complete answer rather than a
+  # truncated one; it is also capped at 500 rows, and says so when it hits it.
+  bigquery_job_window: 24h
+
 projects:
   - name: sandbox
     project_id: my-sandbox-project

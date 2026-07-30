@@ -699,7 +699,7 @@ func TestDashboardRendersCountsStatusesAndWarnings(t *testing.T) {
 	}
 	// The Dataproc listing came back partial; that has to be visible without
 	// drilling in, or a truncated list reads as complete.
-	if !strings.Contains(out, "unavailable") {
+	if !strings.Contains(out, "1 warning") {
 		t.Error("dashboard should flag the partial Dataproc listing")
 	}
 }

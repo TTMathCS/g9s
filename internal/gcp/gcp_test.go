@@ -244,6 +244,8 @@ func TestResourceRowsMatchColumns(t *testing.T) {
 		"gke":      clusterNodeResource(testProject(), testGKECluster()),
 		"sql":      sqlInstanceResource(testProject(), testSQLInstance()),
 		"gcs":      bucketResource(testProject(), testBucket()),
+		"bq":       datasetResource(testProject(), testBigQueryDataset()),
+		"bqjobs":   jobResource(testProject(), testBigQueryJob()),
 		"dataproc": clusterResource(testProject(), "us-central1", testCluster()),
 		"composer": environmentResource(testProject(), "us-central1", testEnvironment()),
 

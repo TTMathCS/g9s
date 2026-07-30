@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadRefusesAConfigInAWorldWritableDirectory(t *testing.T) {
@@ -108,5 +109,58 @@ func TestExpandHomeOnlyExpandsTheUsersOwnHome(t *testing.T) {
 		if got := expandHome(tt.in); got != tt.want {
 			t.Errorf("expandHome(%q) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+func TestBigQueryJobWindowDefaultsAndOverrides(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `
+projects:
+  - name: sandbox
+    project_id: sandbox-123
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := cfg.BigQueryJobWindow(); got != 24*time.Hour {
+		t.Errorf("default job window = %v, want 24h", got)
+	}
+
+	cfg, err = Load(writeConfig(t, `
+defaults:
+  bigquery_job_window: 4h
+projects:
+  - name: sandbox
+    project_id: sandbox-123
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := cfg.BigQueryJobWindow(); got != 4*time.Hour {
+		t.Errorf("configured job window = %v, want 4h", got)
+	}
+}
+
+func TestNegativeDurationsAreRejected(t *testing.T) {
+	// applyDefaults only fills a zero value, so a negative one would otherwise
+	// reach the API as a refresh that times out before it starts, or a job
+	// window that ends in the future and matches nothing.
+	for _, body := range []string{
+		"defaults:\n  list_timeout: -5s\nprojects:\n  - name: a\n    project_id: a-1\n",
+		"defaults:\n  bigquery_job_window: -1h\nprojects:\n  - name: a\n    project_id: a-1\n",
+	} {
+		if _, err := Load(writeConfig(t, body)); err == nil {
+			t.Errorf("a negative duration was accepted: %s", body)
+		} else if !strings.Contains(err.Error(), "must be positive") {
+			t.Errorf("unhelpful error: %v", err)
+		}
+	}
+}
+
+// A zero-valued Config is what several callers build by hand; the window
+// accessor has to answer without a Load having run.
+func TestBigQueryJobWindowOnAnUnloadedConfig(t *testing.T) {
+	var cfg Config
+	if got := cfg.BigQueryJobWindow(); got != 24*time.Hour {
+		t.Errorf("window on a zero Config = %v, want the 24h default", got)
 	}
 }
