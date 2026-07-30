@@ -41,8 +41,15 @@ jobs:
 
           elif [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/main" ]; then
             # Every merge to main publishes the next patch version.
-            if printf '%s' "$COMMIT_MSG" | grep -qF '[skip release]'; then
-              echo "Commit asked to skip the release."
+            #
+            # Only the subject line is searched for the skip marker, not the
+            # whole message. Scanning the body means any commit that *mentions*
+            # the marker — documenting it, or reviewing this workflow — silently
+            # suppresses its own release. That happened on the commit that
+            # introduced this job.
+            subject="$(printf '%s' "$COMMIT_MSG" | head -n 1)"
+            if printf '%s' "$subject" | grep -qF '[skip release]'; then
+              echo "Subject line asked to skip the release."
               version="dev-$(echo "${GITHUB_SHA}" | cut -c1-7)"
             else
               latest="$(gh release view --json tagName --jq .tagName 2>/dev/null || true)"

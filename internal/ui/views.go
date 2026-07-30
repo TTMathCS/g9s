@@ -513,7 +513,7 @@ func (m Model) helpView() string {
 			{"q / esc", "back up one level"},
 			{"p", "back to the project list"},
 			{"/", "filter rows (esc clears)"},
-			{":", "command — :vm :gke :gcs :dataproc :composer :all :projects :q"},
+			{":", "command — :vm :gke :sql :gcs :dataproc :composer :all :projects :q"},
 		}},
 		{"Actions", []helpEntry{
 			{"d / enter", "describe as YAML"},

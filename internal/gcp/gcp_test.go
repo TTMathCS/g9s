@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	sqladmin "google.golang.org/api/sqladmin/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -240,6 +241,7 @@ func TestResourceRowsMatchColumns(t *testing.T) {
 	fixtures := map[string]Resource{
 		"vm":       instanceResource(testProject(), "us-central1-a", testInstance()),
 		"gke":      clusterNodeResource(testProject(), testGKECluster()),
+		"sql":      sqlInstanceResource(testProject(), testSQLInstance()),
 		"gcs":      bucketResource(testProject(), testBucket()),
 		"dataproc": clusterResource(testProject(), "us-central1", testCluster()),
 		"composer": environmentResource(testProject(), "us-central1", testEnvironment()),
@@ -345,5 +347,112 @@ func TestGKEAndStorageNotSSHOrAirflowTargets(t *testing.T) {
 	}
 	if _, ok := AirflowURI(bucket); ok {
 		t.Error("a bucket should never report an Airflow URI")
+	}
+}
+
+// --- Cloud SQL ---
+
+func TestSQLInstanceResourceShape(t *testing.T) {
+	r := sqlInstanceResource(testProject(), testSQLInstance())
+
+	if r.Name != "orders-primary" || r.Location != "us-central1" {
+		t.Errorf("got name=%q location=%q", r.Name, r.Location)
+	}
+	// RUNNABLE is Cloud SQL's spelling of healthy; it has to survive as-is so
+	// the dashboard rollup and row colouring key off the real API value.
+	if r.Status != "RUNNABLE" {
+		t.Errorf("status = %q, want RUNNABLE", r.Status)
+	}
+	if got := r.Row[2]; got != "POSTGRES 15" {
+		t.Errorf("version cell = %q, want the underscore replaced for readability", got)
+	}
+	if got := r.Row[3]; got != "db-custom-4-15360" {
+		t.Errorf("tier cell = %q", got)
+	}
+	if got := r.Row[4]; got != "REGIONAL" {
+		t.Errorf("HA cell = %q, want REGIONAL", got)
+	}
+}
+
+func TestSQLInstanceToleratesMissingSettings(t *testing.T) {
+	// Settings is a pointer and the API omits it for some instance states, so
+	// reading through it unguarded would panic on a real listing.
+	inst := testSQLInstance()
+	inst.Settings = nil
+	inst.DatabaseVersion = ""
+
+	r := sqlInstanceResource(testProject(), inst)
+	if len(r.Row) != len(CloudSQLLister{}.Kind().Columns) {
+		t.Fatalf("row has %d cells, kind declares %d", len(r.Row), len(CloudSQLLister{}.Kind().Columns))
+	}
+	for i, want := range map[int]string{2: "-", 3: "-", 4: "-"} {
+		if r.Row[i] != want {
+			t.Errorf("cell %d = %q, want %q when the API omits it", i, r.Row[i], want)
+		}
+	}
+}
+
+func TestSQLWarningFormatting(t *testing.T) {
+	tests := []struct {
+		name string
+		in   *sqladmin.ApiWarning
+		want string
+	}{
+		{"region named", &sqladmin.ApiWarning{Region: "us-east4", Message: "region unreachable"}, "us-east4: region unreachable"},
+		{"no region falls back", &sqladmin.ApiWarning{Message: "something"}, "cloudsql: something"},
+		{"code when no message", &sqladmin.ApiWarning{Region: "us-west1", Code: "REGION_UNREACHABLE"}, "us-west1: REGION_UNREACHABLE"},
+		{"empty is dropped", &sqladmin.ApiWarning{}, ""},
+		{"nil is dropped", nil, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sqlWarning(tc.in); got != tc.want {
+				t.Errorf("sqlWarning = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSQLWarningTruncatesLongMessages(t *testing.T) {
+	w := &sqladmin.ApiWarning{Region: "us-east4", Message: strings.Repeat("x", 500)}
+	if n := len([]rune(sqlWarning(w))); n > 120 {
+		t.Errorf("warning is %d runes, want it truncated", n)
+	}
+}
+
+func TestDedupeSortWarnings(t *testing.T) {
+	// Cloud SQL repeats the same warning on every page of a paginated listing,
+	// so five pages for one bad region must not read as five bad scopes.
+	r := Result{Warnings: []string{
+		"us-east4: region unreachable",
+		"us-east4: region unreachable",
+		"us-central1: region unreachable",
+		"us-east4: region unreachable",
+	}}
+	dedupeSortWarnings(&r)
+
+	if len(r.Warnings) != 2 {
+		t.Fatalf("got %d warnings, want 2 unique: %v", len(r.Warnings), r.Warnings)
+	}
+	if r.Warnings[0] != "us-central1: region unreachable" {
+		t.Errorf("warnings should be sorted, got %v", r.Warnings)
+	}
+}
+
+func TestDedupeSortWarningsHandlesEmpty(t *testing.T) {
+	r := Result{}
+	dedupeSortWarnings(&r)
+	if r.Warnings != nil {
+		t.Errorf("expected nil warnings to stay nil, got %v", r.Warnings)
+	}
+}
+
+func TestCloudSQLNotSSHOrAirflowTarget(t *testing.T) {
+	r := sqlInstanceResource(testProject(), testSQLInstance())
+	if _, _, ok := SSHTarget(r); ok {
+		t.Error("a Cloud SQL instance should never report as SSH-able")
+	}
+	if _, ok := AirflowURI(r); ok {
+		t.Error("a Cloud SQL instance should never report an Airflow URI")
 	}
 }

@@ -954,3 +954,23 @@ func TestConsoleURLsPassTheOpenGuard(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusStyleCoversCloudSQLStates(t *testing.T) {
+	// Cloud SQL uses its own vocabulary: RUNNABLE rather than RUNNING, and
+	// PENDING_CREATE/PENDING_DELETE rather than CREATING/DELETING. Falling
+	// through to the default style would render a healthy database the same
+	// colourless grey as an unrecognised state.
+	if statusStyle("RUNNABLE").GetForeground() != statusStyle("RUNNING").GetForeground() {
+		t.Error("RUNNABLE should read as healthy, like RUNNING")
+	}
+	for _, s := range []string{"PENDING_CREATE", "PENDING_DELETE", "MAINTENANCE"} {
+		if statusStyle(s).GetForeground() != statusStyle("CREATING").GetForeground() {
+			t.Errorf("%s should read as in-flight", s)
+		}
+	}
+	for _, s := range []string{"SUSPENDED", "FAILED"} {
+		if statusStyle(s).GetForeground() != statusStyle("ERROR").GetForeground() {
+			t.Errorf("%s should read as needing attention", s)
+		}
+	}
+}

@@ -161,6 +161,9 @@ func resourcesShot() Model {
 	m.cache["gke"] = gcp.Result{
 		Resources: statusOnly(kindByID("gke"), map[string]int{"RUNNING": 2}),
 	}
+	m.cache["sql"] = gcp.Result{
+		Resources: statusOnly(kindByID("sql"), map[string]int{"RUNNABLE": 3, "MAINTENANCE": 1}),
+	}
 	m.cache["gcs"] = gcp.Result{
 		Resources: statusOnly(kindByID("gcs"), map[string]int{"ACTIVE": 5}),
 	}
@@ -190,6 +193,9 @@ func dashboardShot() Model {
 	}
 	m.cache["gke"] = gcp.Result{
 		Resources: statusOnly(kindByID("gke"), map[string]int{"RUNNING": 2}),
+	}
+	m.cache["sql"] = gcp.Result{
+		Resources: statusOnly(kindByID("sql"), map[string]int{"RUNNABLE": 3, "MAINTENANCE": 1}),
 	}
 	m.cache["gcs"] = gcp.Result{
 		Resources: statusOnly(kindByID("gcs"), map[string]int{"ACTIVE": 5}),

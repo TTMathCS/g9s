@@ -8,6 +8,7 @@ import (
 	"cloud.google.com/go/dataproc/v2/apiv1/dataprocpb"
 	"cloud.google.com/go/orchestration/airflow/service/apiv1/servicepb"
 	"cloud.google.com/go/storage"
+	sqladmin "google.golang.org/api/sqladmin/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/TTMathCS/g9s/internal/config"
@@ -62,6 +63,20 @@ func testGKECluster() *containerpb.Cluster {
 		CurrentMasterVersion: "1.31.1-gke.1146000",
 		CreateTime:           time.Now().Add(-90 * 24 * time.Hour).Format(time.RFC3339),
 		Autopilot:            &containerpb.Autopilot{Enabled: true},
+	}
+}
+
+func testSQLInstance() *sqladmin.DatabaseInstance {
+	return &sqladmin.DatabaseInstance{
+		Name:            "orders-primary",
+		Region:          "us-central1",
+		DatabaseVersion: "POSTGRES_15",
+		State:           "RUNNABLE",
+		CreateTime:      time.Now().Add(-200 * 24 * time.Hour).Format(time.RFC3339),
+		Settings: &sqladmin.Settings{
+			Tier:             "db-custom-4-15360",
+			AvailabilityType: "REGIONAL",
+		},
 	}
 }
 

@@ -71,6 +71,7 @@ func Listers() []Lister {
 	return []Lister{
 		ComputeLister{},
 		GKELister{},
+		CloudSQLLister{},
 		StorageLister{},
 		DataprocLister{},
 		ComposerLister{},
@@ -151,6 +152,28 @@ func grpcCode(err error) codes.Code {
 		return s.Code()
 	}
 	return codes.Unknown
+}
+
+// dedupeSortWarnings collapses repeated warnings and gives them a stable order.
+//
+// A paginated listing repeats the same "region unreachable" warning on every
+// page, which the footer would otherwise report as five unavailable scopes when
+// only one region actually failed.
+func dedupeSortWarnings(r *Result) {
+	if len(r.Warnings) == 0 {
+		return
+	}
+	seen := make(map[string]bool, len(r.Warnings))
+	unique := make([]string, 0, len(r.Warnings))
+	for _, w := range r.Warnings {
+		if seen[w] {
+			continue
+		}
+		seen[w] = true
+		unique = append(unique, w)
+	}
+	sort.Strings(unique)
+	r.Warnings = unique
 }
 
 // sortResources gives the table a stable order: location, then name.

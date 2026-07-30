@@ -18,6 +18,7 @@ the reason this list is long: most entries are a day's work, not a project.
 |---|---|---|
 | Compute Engine instances | zonal, aggregated | one `aggregatedList` call covers every zone |
 | GKE clusters | zonal + regional, aggregated | `parent: projects/*/locations/-` covers every zone and region in one call, same as Compute; no fan-out despite being both zonal and regional |
+| Cloud SQL instances | global | one paginated `Instances.List`; the only lister whose partial failures arrive as `Warnings` in the response body rather than as an error, so unreachable regions are collected from there instead of through `fanOut` |
 | Cloud Storage buckets | global | the simplest lister here — one call, no fan-out, no aggregation trick needed |
 | Dataproc clusters | **regional** | needs a client per region at `<region>-dataproc.googleapis.com`; `global` always swept |
 | Cloud Composer environments | location-scoped | one client, location in the request parent |
@@ -26,7 +27,7 @@ Plus, across all kinds: a per-project dashboard with status rollups, a merged
 *All Resources* table, filtering, describe-as-YAML, Console/Airflow deep links,
 clipboard yank over OSC 52, and SSH to a running VM.
 
-The number keys reach kinds 1–9, so the next four kinds land with no UI work.
+The number keys reach kinds 1–9, so the next three kinds land with no UI work.
 Past nine, `tab`/`shift+tab` cycling, the `0`/`a` merged-view keys and `:`
 commands still reach everything — but a tenth kind is probably better shaped
 as a drill-down than a new top-level tab.
@@ -38,14 +39,13 @@ The ones that would earn their place first, roughly in order.
 | Resource | Scope | Why it's near the top |
 |---|---|---|
 | BigQuery datasets and recent jobs | global | where the data actually is; jobs answer "what is running" |
-| Cloud SQL instances | global list | version, tier, HA state, maintenance window |
 | Pub/Sub topics and subscriptions | global | subscription backlog is the number people want |
 | Secret Manager secrets | global | **names and versions only, never values** |
 | Cloud Run services and jobs | regional | replaces a lot of "is it deployed" Console trips |
 | Dataproc **jobs** | regional | clusters without jobs only tells half the story |
 | Dataflow jobs | regional | |
 | Service accounts and their keys | global | key age is a standing audit question |
-| GKE node pools | per-cluster | one call per cluster once you know which clusters exist; a natural drill-down from the GKE row rather than a sixth top-level tab |
+| GKE node pools | per-cluster | one call per cluster once you know which clusters exist; a natural drill-down from the GKE row rather than another top-level tab |
 
 ## Candidates
 
@@ -94,6 +94,7 @@ These change how the whole tool behaves rather than adding a kind.
 - **Saved filters and bookmarks**, for the query you type ten times a day.
 - **Export** the current table to CSV or JSON, for when the answer needs to
   leave the terminal.
+
 *(Prebuilt release binaries shipped — see [Install](README.md#install).)*
 
 ## Not planned

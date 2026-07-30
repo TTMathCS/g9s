@@ -61,9 +61,13 @@ var (
 // running, amber is in flight, red needs attention.
 func statusStyle(status string) lipgloss.Style {
 	switch strings.ToUpper(status) {
-	case "RUNNING", "ACTIVE", "READY":
+	// RUNNABLE is Cloud SQL's healthy state — the API's own spelling of running.
+	case "RUNNING", "RUNNABLE", "ACTIVE", "READY":
 		return goodStyle
-	case "PROVISIONING", "STAGING", "CREATING", "UPDATING", "STOPPING", "DELETING", "REPAIRING", "SUSPENDING", "RECONCILING":
+	case "PROVISIONING", "STAGING", "CREATING", "UPDATING", "STOPPING", "DELETING",
+		"REPAIRING", "SUSPENDING", "RECONCILING",
+		// Cloud SQL's in-flight and maintenance states.
+		"PENDING_CREATE", "PENDING_DELETE", "MAINTENANCE":
 		return warnStyle
 	case "ERROR", "FAILED", "TERMINATED", "STOPPED", "SUSPENDED", "UNHEALTHY", "DEGRADED":
 		return badStyle

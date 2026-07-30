@@ -68,11 +68,11 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 |---|---|---|---|
 | Compute Engine instances | ✅ | zonal, aggregated | one `aggregatedList` call covers every zone |
 | GKE clusters | ✅ | zonal + regional, aggregated | `parent: projects/*/locations/-` covers everything in one call |
+| Cloud SQL instances | ✅ | global | one paginated call; unreachable regions arrive as response warnings, not errors |
 | Cloud Storage buckets | ✅ | global | simplest lister — one call, no fan-out |
 | Dataproc clusters | ✅ | **regional** | a client per region; `global` always swept |
 | Cloud Composer environments | ✅ | location-scoped | one client, location in the request parent |
 | BigQuery datasets & recent jobs | 🔜 | global | jobs answer "what is running", not just "what exists" |
-| Cloud SQL instances | 🔜 | global | version, tier, HA state, maintenance window |
 | Pub/Sub topics & subscriptions | 🔜 | global | subscription backlog is the number people actually want |
 | Secret Manager secrets | 🔜 | global | **names and versions only — never values** |
 | Cloud Run services & jobs | 🔜 | regional | |
@@ -113,11 +113,11 @@ Cloud Asset Inventory makes "list everything in a project" a single API call. Wi
 
 ## Status
 
-MVP. Five resource kinds — Compute Engine, GKE, Cloud Storage, Dataproc, Cloud Composer — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
+MVP. Six resource kinds — Compute Engine, GKE, Cloud SQL, Cloud Storage, Dataproc, Cloud Composer — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
 
 Navigation is three levels deep: projects → dashboard → a category's table, with `esc` walking back up. A new kind appears on the dashboard, in the tab bar and in *All Resources* automatically; there is nothing to register in the UI.
 
-The number keys reach kinds 1–9, so there is room for four more before the digits run out; past that, `tab`/`shift+tab`, `0`/`a` and the `:` commands still reach everything.
+The number keys reach kinds 1–9, so there is room for three more before the digits run out; past that, `tab`/`shift+tab`, `0`/`a` and the `:` commands still reach everything.
 
 ## Requirements
 

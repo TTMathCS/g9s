@@ -102,7 +102,7 @@ func New(cfg *config.Config, mgr *auth.Manager) Model {
 
 	command := textinput.New()
 	command.Prompt = ":"
-	command.Placeholder = "vm · gke · gcs · dataproc · composer · all · projects · q"
+	command.Placeholder = "vm · gke · sql · gcs · dataproc · composer · all · projects · q"
 	command.CharLimit = 40
 
 	return Model{
@@ -418,7 +418,7 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 
 	idx, ok := m.matchKind(line)
 	if !ok {
-		return m, flash(fmt.Sprintf("unknown command %q — a kind (vm, gke, gcs…), all, projects, help or q", line), flashWarn)
+		return m, flash(fmt.Sprintf("unknown command %q — a kind (vm, gke, sql…), all, projects, help or q", line), flashWarn)
 	}
 	if !m.hasActive {
 		return m, flash("select a project first", flashWarn)
