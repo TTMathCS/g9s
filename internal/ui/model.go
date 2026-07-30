@@ -84,8 +84,18 @@ type Model struct {
 	command    textinput.Model
 	commanding bool
 
-	// detail pane
-	detail viewport.Model
+	// detail pane. detailRes is the resource the pane was opened on, kept
+	// because the table underneath keeps moving: a fetch landing while the pane
+	// is open reorders rows, and reading the row back out of the table would
+	// leave the header naming one resource while the body describes another.
+	detail    viewport.Model
+	detailRes gcp.Resource
+	hasDetail bool
+
+	// help pane. A viewport because the panel is longer than a short terminal is
+	// tall: it scrolls — a line on j/k, half a page on space — rather than
+	// pushing the footer off the screen.
+	help viewport.Model
 
 	// transient status line
 	flashText  string
@@ -118,6 +128,7 @@ func New(cfg *config.Config, mgr *auth.Manager) Model {
 		filter:       filter,
 		command:      command,
 		detail:       viewport.New(0, 0),
+		help:         viewport.New(0, 0),
 	}
 }
 
@@ -219,6 +230,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.detail.Width = msg.Width - 4
 		m.detail.Height = m.bodyHeight()
+		m.sizeHelp()
 		return m, nil
 
 	case authCheckedMsg:
@@ -298,12 +310,26 @@ func (m Model) handleLoginFinished(msg loginFinishedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		return m, flash("login failed: "+msg.err.Error(), flashError)
 	}
-	// Drop anything fetched with the old identity.
+	// Drop anything fetched with the old identity, in flight included: a fetch
+	// started before the login still carries the old token, and without bumping
+	// the refresh tokens its result would land in the freshly cleared cache and
+	// be shown as belonging to the new identity.
 	if m.hasActive && m.active.Name == msg.project {
-		m.cache = map[string]gcp.Result{}
-		m.loadErr = map[string]error{}
+		m.invalidate()
 	}
 	return m, tea.Batch(checkAuth(m.auth, p), flash("login complete for "+msg.project, flashInfo))
+}
+
+// invalidate discards every cached listing and supersedes every fetch still in
+// flight, so nothing fetched before this point can be presented as current.
+func (m *Model) invalidate() {
+	for _, l := range m.listers {
+		m.refreshToken[l.Kind().ID]++
+	}
+	m.cache = map[string]gcp.Result{}
+	m.loadErr = map[string]error{}
+	m.loading = map[string]bool{}
+	m.hasDetail = false
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -360,11 +386,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		if m.screen == screenHelp {
 			m.screen = m.homeScreen()
-		} else {
-			m.helpReturn = m.screen
-			m.screen = screenHelp
+			return m, nil
 		}
-		return m, nil
+		return m.openHelp()
 	}
 
 	switch m.screen {
@@ -377,20 +401,51 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case screenDetail:
 		return m.handleDetailKey(msg)
 	case screenHelp:
-		if msg.String() == "esc" || msg.String() == "q" {
-			m.screen = m.homeScreen()
-		}
-		return m, nil
+		return m.handleHelpKey(msg)
 	}
 	return m, nil
 }
 
-// homeScreen is where esc lands from a modal screen: back where help was
-// opened from when that is known, otherwise the most sensible default.
+// openHelp shows the help panel, remembering where it was opened from.
+func (m Model) openHelp() (tea.Model, tea.Cmd) {
+	m.helpReturn = m.screen
+	m.screen = screenHelp
+	m.sizeHelp()
+	m.help.SetContent(m.helpContent())
+	m.help.GotoTop()
+	return m, nil
+}
+
+// sizeHelp fits the help viewport inside the bordered panel it renders into:
+// the border and padding cost two cells on each side and one line top and
+// bottom.
+func (m *Model) sizeHelp() {
+	m.help.Width = max(10, m.width-6)
+	m.help.Height = max(3, m.bodyHeight()-2)
+}
+
+func (m Model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		m.screen = m.homeScreen()
+		return m, nil
+	}
+	// Anything else scrolls: the panel is taller than a short terminal.
+	var cmd tea.Cmd
+	m.help, cmd = m.help.Update(msg)
+	return m, cmd
+}
+
+// homeScreen is where esc lands from a modal screen: back where it was opened
+// from when that is still reachable, otherwise the most sensible default.
 func (m Model) homeScreen() screen {
 	switch {
+	case m.helpReturn == screenDetail && m.hasDetail:
+		return screenDetail
 	case m.helpReturn == screenResources && m.hasActive:
 		return screenResources
+	case m.helpReturn == screenProjects:
+		return screenProjects
 	case m.hasActive:
 		return screenOverview
 	default:
@@ -408,9 +463,7 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	case "help":
-		m.helpReturn = m.screen
-		m.screen = screenHelp
-		return m, nil
+		return m.openHelp()
 	case "proj", "projects":
 		m.screen = screenProjects
 		return m, nil
@@ -423,7 +476,6 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 	if !m.hasActive {
 		return m, flash("select a project first", flashWarn)
 	}
-	m.screen = screenOverview // openTab drills in from the dashboard level
 	return m.openTab(idx)
 }
 
@@ -447,6 +499,13 @@ func (m Model) matchKind(word string) (int, bool) {
 }
 
 func (m Model) handleProjectsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Every key below the quit case indexes into the project list. Load
+	// rejects an empty one, but New is exported and nothing else here would
+	// stop an empty config from panicking on the first arrow key.
+	if len(m.cfg.Projects) == 0 && msg.String() != "q" && msg.String() != "esc" {
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "q", "esc":
 		m.quitting = true
@@ -498,9 +557,7 @@ func (m Model) selectProject() (tea.Model, tea.Cmd) {
 
 	// Switching projects invalidates everything fetched for the previous one.
 	if !m.hasActive || m.active.Name != p.Name {
-		m.cache = map[string]gcp.Result{}
-		m.loadErr = map[string]error{}
-		m.loading = map[string]bool{}
+		m.invalidate()
 		m.kindIdx = 0
 	}
 	m.active, m.hasActive = p, true
@@ -554,17 +611,6 @@ func (m Model) handleOverviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.ovCursor = len(tabs) - 1
 		return m, nil
 
-	case "a", "0":
-		// 0 is the k9s reflex for "everything at once".
-		return m.openTab(m.allTabIdx())
-
-	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-		idx := int(msg.String()[0] - '1')
-		if idx < len(m.listers) {
-			return m.openTab(idx)
-		}
-		return m, nil
-
 	case "enter":
 		return m.openTab(m.ovCursor)
 
@@ -577,10 +623,22 @@ func (m Model) handleOverviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "L":
 		return m.startLogin(true)
 	}
+
+	// Anything left is a candidate hotkey. Reached last so a kind can never
+	// shadow one of the actions above; the two key sets are disjoint by
+	// construction, and a test holds them that way.
+	if idx, ok := m.tabForKey(msg.String()); ok {
+		return m.openTab(idx)
+	}
 	return m, nil
 }
 
-// openTab drills from the dashboard into one category's table.
+// openTab opens one category's table: from the dashboard, from a hotkey, or by
+// cycling. Every route goes through here so switching kinds always means the
+// same thing — cursor at the top, no filter carried over from the last kind
+// (a query typed for VMs matches nothing in DNS and reads as an empty project),
+// and the dashboard cursor left on the kind you are looking at, so esc returns
+// to where you were.
 func (m Model) openTab(idx int) (tea.Model, tea.Cmd) {
 	if idx < 0 || idx >= len(m.tabs()) {
 		return m, nil
@@ -589,6 +647,8 @@ func (m Model) openTab(idx int) (tea.Model, tea.Cmd) {
 	m.ovCursor = idx
 	m.cursor = 0
 	m.filter.SetValue("")
+	m.filtering = false
+	m.filter.Blur()
 	m.screen = screenResources
 	return m.loadCurrentIfEmpty()
 }
@@ -629,28 +689,10 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "tab", "]":
-		m.kindIdx = (m.kindIdx + 1) % len(m.tabs())
-		m.cursor = 0
-		return m.loadCurrentIfEmpty()
+		return m.openTab((m.kindIdx + 1) % len(m.tabs()))
 
 	case "shift+tab", "[":
-		m.kindIdx = (m.kindIdx - 1 + len(m.tabs())) % len(m.tabs())
-		m.cursor = 0
-		return m.loadCurrentIfEmpty()
-
-	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-		idx := int(msg.String()[0] - '1')
-		if idx < len(m.listers) {
-			m.kindIdx = idx
-			m.cursor = 0
-			return m.loadCurrentIfEmpty()
-		}
-		return m, nil
-
-	case "a", "0":
-		m.kindIdx = m.allTabIdx()
-		m.cursor = 0
-		return m.loadCurrentIfEmpty()
+		return m.openTab((m.kindIdx - 1 + len(m.tabs())) % len(m.tabs()))
 
 	case "/":
 		m.filtering = true
@@ -677,6 +719,7 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.detail.Height = m.bodyHeight()
 		m.detail.SetContent(renderDetail(r))
 		m.detail.GotoTop()
+		m.detailRes, m.hasDetail = r, true
 		m.screen = screenDetail
 		return m, nil
 
@@ -708,6 +751,11 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "s":
 		return m.startSSH()
 	}
+
+	// Same as the dashboard: unclaimed keys fall through to the kind hotkeys.
+	if idx, ok := m.tabForKey(msg.String()); ok {
+		return m.openTab(idx)
+	}
 	return m, nil
 }
 
@@ -729,10 +777,14 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenResources
 		return m, nil
 	case "y":
-		if r, ok := m.selectedResource(); ok {
-			return m, copyToClipboard(renderDetail(r))
+		// The pane's own resource, not whatever the cursor now points at: a
+		// fetch landing while the pane is open moves the rows underneath it,
+		// and copying a different resource from the one on screen is worse
+		// than not copying at all.
+		if !m.hasDetail {
+			return m, nil
 		}
-		return m, nil
+		return m, copyToClipboard(renderDetail(m.detailRes))
 	}
 	var cmd tea.Cmd
 	m.detail, cmd = m.detail.Update(msg)

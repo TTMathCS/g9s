@@ -2,6 +2,7 @@ package ui
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
@@ -88,14 +89,78 @@ func statusStyle(status string) lipgloss.Style {
 	}
 }
 
+// sanitizeLine makes an API-supplied string safe to render on one line:
+// control characters are dropped, and newlines and tabs become spaces.
+//
+// This is not cosmetic. Everything on screen — resource names, statuses, bucket
+// labels, Airflow URIs, API warnings, error strings — arrives from a GCP API
+// response, and a terminal executes escape sequences in whatever it is handed.
+// A row cell carrying an ESC byte can repaint the screen, move the cursor,
+// relabel the window title, or on terminals with the feature enabled, push text
+// back onto stdin. Stripping the control range means a hostile or merely
+// mangled value can be ugly but not active.
+func sanitizeLine(s string) string {
+	return sanitizeControl(s, false)
+}
+
+// sanitizeBlock is sanitizeLine for multi-line content: the detail pane's YAML
+// keeps its newlines and tabs, and loses everything else.
+func sanitizeBlock(s string) string {
+	return sanitizeControl(s, true)
+}
+
+// isControl reports whether r is a control character: the C0 range and DEL,
+// plus the C1 range, which is where a bare 0x9b is a CSI introducer all by
+// itself on terminals that decode it.
+func isControl(r rune) bool {
+	return r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f)
+}
+
+func sanitizeControl(s string, keepBreaks bool) string {
+	// The overwhelmingly common case is a clean string, and this runs on every
+	// cell of every frame, so check before building anything.
+	//
+	// Invalid UTF-8 counts as unclean even with no control rune in sight: a
+	// stray 0x9b byte does not decode to U+009B, so IndexFunc walks straight
+	// past it, and a terminal in 8-bit mode reads it as a CSI introducer.
+	// Rebuilding turns it into U+FFFD, which is inert.
+	if utf8.ValidString(s) && strings.IndexFunc(s, isControl) < 0 {
+		return s
+	}
+
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r == '\n' || r == '\t':
+			if keepBreaks {
+				b.WriteRune(r)
+			} else {
+				b.WriteRune(' ')
+			}
+		case isControl(r):
+			// Dropped, not replaced: a run of them should not stretch a column.
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // truncate shortens s to width display cells, marking the cut with an
 // ellipsis. Cells, not runes: a CJK character occupies two columns, and
 // counting runes would let one wide name push every column after it out of
 // alignment.
+//
+// Every cell, header, crumb, footer and flash string in the UI goes through
+// here, which makes it the one place worth sanitizing at. Nothing already
+// styled is ever passed in — styles are applied to the result, never before —
+// so stripping escapes here cannot eat the tool's own colours.
 func truncate(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
+	s = sanitizeLine(s)
 	if lipgloss.Width(s) <= width {
 		return s
 	}

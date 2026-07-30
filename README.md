@@ -123,7 +123,7 @@ MVP. Thirteen resource kinds across compute, data and networking — read-only p
 
 Navigation is three levels deep: projects → dashboard → a category's table, with `esc` walking back up. A new kind appears on the dashboard, in the tab bar and in *All Resources* automatically; there is nothing to register in the UI.
 
-With thirteen kinds the number keys no longer cover them all: `1`–`9` reach the first nine, and `tab`/`shift+tab`, `0`/`a` and `:<kind>` reach every one. The tab strip scrolls to keep the active tab visible, marking hidden tabs with `‹`/`›`, and the dashboard is the reliable way to see everything at once.
+Every kind has a one-press key, past the ninth included. The digits run out at nine, so the sequence carries on into letters — `1`–`9`, then `b e f h i m n t u v w x z` — skipping every letter that is already an action, which is why the run starts at `b` and not at `a` (`a` is *All Resources*). Nothing to memorise: each kind's key is printed beside it on the dashboard and in the tab strip. `tab`/`shift+tab` and `:<kind>` still reach everything, and the tab strip scrolls to keep the active tab visible, marking hidden tabs with `‹`/`›`.
 
 ## Requirements
 
@@ -378,7 +378,7 @@ The bindings follow k9s muscle memory where the two tools overlap: `:` jumps by 
 | `enter` | dashboard: open the category · table: describe (YAML, as `gcloud describe` shows it) |
 | `d` | describe the selected resource |
 | `:` | command — `:vm` `:gke` `:gcs` `:dataproc` `:composer` `:all` `:projects` `:q` (prefixes work: `:data`) |
-| `1`–`9` | jump straight to a resource kind |
+| `1`–`9`, then `b e f h i m n t u v w x z` | jump straight to a resource kind — one key each, printed beside the kind on the dashboard and in the tab strip |
 | `0` / `a` | all resources — every kind in one table |
 | `tab` / `shift+tab` | cycle resource kinds |
 | `q` / `esc` | back up one level — table to dashboard, dashboard to projects |
@@ -418,7 +418,9 @@ type Lister interface {
 
 Use `fanOut` for anything region-scoped; it handles the concurrency, the partial-failure collection and the stable ordering. `internal/gcp/dataproc.go` is the shortest example.
 
-Two things the table relies on: your `Resource.Row` must have exactly as many cells as `Kind.Columns`, and the number keys only reach the first nine listers. Both are covered by tests.
+Two things the UI relies on, both covered by tests: your `Resource.Row` must have exactly as many cells as `Kind.Columns`, and there has to be a hotkey left for your kind. The alphabet in `internal/ui/hotkeys.go` holds twenty-two; `TestKindKeysCoverEveryLister` is what fails when it runs out, rather than the kind quietly becoming reachable only by typing a command.
+
+If the raw object your lister puts in `Resource.Raw` carries a secret — an API that returns a key, a password, a token — add its field name to `secretFields` in `internal/ui/commands.go`. The detail pane renders `Raw` in full, and `y` copies it.
 
 ## Design notes
 
@@ -430,9 +432,11 @@ Two things the table relies on: your `Resource.Row` must have exactly as many ce
 
 ## Security
 
-g9s never sees your password, never writes a credential, and issues no mutating API call — every request is a `List` or a `Get`. Credentials are isolated per project under a `0700` directory, and the config file is refused if anyone else can write it, since `gcloud_path` decides which binary gets executed.
+g9s never sees your password, never writes a credential, and issues no mutating API call — every request is a `List` or a `Get`. Credentials are isolated per project under a `0700` directory, and the config file is refused if anyone else can write it — or write the directory holding it — since `gcloud_path` decides which binary gets executed.
 
-**[SECURITY.md](SECURITY.md)** covers the threat model, what the tool can reach and run, the findings from a July 2026 code review (two issues found and fixed, plus the paths examined and cleared), and the dependency posture. CI runs `govulncheck ./...` on every push.
+Two things worth knowing about what reaches your terminal. Secrets that GCP returns inside otherwise ordinary objects — a VPN tunnel's IPsec pre-shared key, a GKE cluster's client private key — are redacted from the detail pane rather than printed into your scrollback and copied by `y`. And every API-supplied string is stripped of control characters before rendering, so a resource name cannot carry an escape sequence into a terminal that would act on it.
+
+**[SECURITY.md](SECURITY.md)** covers the threat model, what the tool can reach and run, the findings from the code reviews (with the paths examined and cleared), and the dependency posture. CI runs `govulncheck ./...` on every push.
 
 ## License
 

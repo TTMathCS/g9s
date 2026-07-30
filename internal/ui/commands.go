@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -125,7 +126,16 @@ func safeToOpen(raw string) bool {
 	if err != nil {
 		return false
 	}
-	return (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return false
+	}
+	if parsed.Host == "" {
+		return false
+	}
+	// url.Parse rejects ASCII control characters but not DEL or the C1 range,
+	// and this string is handed to a platform opener and echoed into the status
+	// line. See sanitizeLine for why that matters.
+	return strings.IndexFunc(raw, isControl) < 0
 }
 
 // openURL launches the system browser without blocking the TUI.
@@ -160,14 +170,43 @@ func openURL(target string) tea.Cmd {
 	}
 }
 
+// maxClipboardBytes bounds an OSC 52 payload. Terminals cap the sequence — the
+// limit is 8KB in a stock xterm — and drop anything longer without saying so.
+// Refusing loudly beats reporting a copy that never reached the clipboard.
+const maxClipboardBytes = 64 * 1024
+
 // copyToClipboard uses the OSC 52 terminal escape, which works over SSH and
 // needs no platform clipboard binary.
 func copyToClipboard(text string) tea.Cmd {
 	return func() tea.Msg {
+		if text == "" {
+			return flashMsg{text: "nothing to copy", level: flashWarn}
+		}
+		if len(text) > maxClipboardBytes {
+			return flashMsg{
+				text:  fmt.Sprintf("too large to copy: %dKB, limit %dKB", len(text)/1024, maxClipboardBytes/1024),
+				level: flashWarn,
+			}
+		}
+		// The escape goes to stderr because bubbletea owns stdout. If stderr
+		// has been redirected the sequence lands in a file, where it does
+		// nothing at all — worth saying rather than claiming a copy.
+		if !isTerminal(os.Stderr) {
+			return flashMsg{text: "cannot copy: stderr is not a terminal", level: flashWarn}
+		}
+
 		encoded := base64.StdEncoding.EncodeToString([]byte(text))
 		fmt.Fprintf(os.Stderr, "\x1b]52;c;%s\x07", encoded)
 		return flashMsg{text: "copied: " + truncate(text, 50), level: flashInfo}
 	}
+}
+
+func isTerminal(f *os.File) bool {
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 // flash shows a transient message and schedules its removal.
@@ -180,33 +219,139 @@ func clearFlashAfter(id int, d time.Duration) tea.Cmd {
 }
 
 // renderDetail converts a resource's raw API object into YAML, the way
-// `gcloud describe` presents it.
+// `gcloud describe` presents it, with secrets removed.
 //
-// The objects are protobuf messages, so they go through protojson first:
-// marshalling them directly would leak the generated struct's internal fields.
+// Everything goes through JSON on the way to a generic tree — protojson for
+// protobuf messages, encoding/json for the REST types — for two reasons. It
+// gives the field names the API documents rather than the generated Go struct's
+// internals, and it produces a tree that redactSecrets can walk.
 func renderDetail(r gcp.Resource) string {
-	msg, ok := r.Raw.(proto.Message)
-	if !ok {
-		out, err := yaml.Marshal(r.Raw)
-		if err != nil {
-			return fmt.Sprintf("%+v", r.Raw)
+	doc, err := detailDocument(r.Raw)
+	if err != nil {
+		return "could not render resource: " + sanitizeLine(err.Error())
+	}
+
+	doc = redactSecrets(doc)
+
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return "could not render resource: " + sanitizeLine(err.Error())
+	}
+	// The values in here are API-supplied strings being written straight to the
+	// terminal by the viewport. See sanitizeLine.
+	return sanitizeBlock(string(out))
+}
+
+// detailDocument converts a raw API object into maps, slices and scalars.
+func detailDocument(raw any) (any, error) {
+	var (
+		encoded []byte
+		err     error
+	)
+	if msg, isProto := raw.(proto.Message); isProto {
+		encoded, err = protojson.Marshal(msg)
+	} else {
+		encoded, err = json.Marshal(raw)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var doc any
+	if err := json.Unmarshal(encoded, &doc); err != nil {
+		return nil, err
+	}
+	return doc, nil
+}
+
+// redactedMarker replaces a secret's value. Visible rather than silent: the
+// field is there, and knowing a shared secret is set is part of reading a
+// tunnel's configuration.
+const redactedMarker = "«redacted by g9s»"
+
+// secretFields are the field names whose values must not reach the screen.
+//
+// g9s is a read-only browser, but "read" is the whole problem: the API returns
+// live secrets inside otherwise ordinary objects. Describing a VPN tunnel hands
+// back its IPsec pre-shared key; describing a GKE cluster hands back the
+// cluster's client private key and, where basic auth still exists, its
+// password. Rendering those puts them in the terminal, in the scrollback, in
+// whatever is capturing the session — and `y` copies them to the clipboard.
+//
+// Matching is on the exact field name, normalised for case and separators, not
+// on substrings. A rule that redacted anything containing "password" would also
+// blank out Cloud SQL's passwordValidationPolicy, which is configuration worth
+// reading and holds no secret.
+var secretFields = map[string]bool{
+	"password":         true, // GKE basic auth, Cloud SQL root password
+	"rootpassword":     true,
+	"passphrase":       true,
+	"clientkey":        true, // GKE client private key
+	"privatekey":       true,
+	"privatekeydata":   true,
+	"privatekeybytes":  true,
+	"sharedsecret":     true, // Cloud VPN IPsec pre-shared key
+	"sharedsecrethash": true, // a hash of the same key, offline-crackable
+	"secret":           true,
+	"secretkey":        true,
+	"clientsecret":     true,
+	"apikey":           true,
+	"accesstoken":      true,
+	"refreshtoken":     true,
+	"idtoken":          true,
+	"token":            true,
+	"credentials":      true,
+	"authorization":    true,
+}
+
+// redactSecrets walks a decoded API object and replaces the value of every
+// secret-bearing field, however deeply nested.
+func redactSecrets(node any) any {
+	switch v := node.(type) {
+	case map[string]any:
+		for key, value := range v {
+			if secretFields[normalizeFieldName(key)] {
+				// Only when something is actually set: marking an absent field
+				// as redacted would misreport the resource.
+				if !isEmptyValue(value) {
+					v[key] = redactedMarker
+				}
+				continue
+			}
+			v[key] = redactSecrets(value)
 		}
-		return string(out)
+		return v
+	case []any:
+		for i, item := range v {
+			v[i] = redactSecrets(item)
+		}
+		return v
+	default:
+		return node
 	}
+}
 
-	jsonBytes, err := protojson.MarshalOptions{Multiline: true, Indent: "  "}.Marshal(msg)
-	if err != nil {
-		return "could not render resource: " + err.Error()
+// normalizeFieldName folds the spellings the same field has across APIs:
+// shared_secret, sharedSecret and SharedSecret are one name.
+func normalizeFieldName(name string) string {
+	var b strings.Builder
+	b.Grow(len(name))
+	for _, r := range strings.ToLower(name) {
+		if r == '_' || r == '-' {
+			continue
+		}
+		b.WriteRune(r)
 	}
+	return b.String()
+}
 
-	var intermediate any
-	if err := json.Unmarshal(jsonBytes, &intermediate); err != nil {
-		return string(jsonBytes)
+func isEmptyValue(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return true
+	case string:
+		return t == ""
+	default:
+		return false
 	}
-
-	out, err := yaml.Marshal(intermediate)
-	if err != nil {
-		return string(jsonBytes)
-	}
-	return string(out)
 }

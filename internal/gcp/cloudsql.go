@@ -86,10 +86,7 @@ func sqlWarning(w *sqladmin.ApiWarning) string {
 	if detail == "" {
 		return ""
 	}
-	if len(detail) > 100 {
-		detail = detail[:97] + "…"
-	}
-	return fmt.Sprintf("%s: %s", scope, detail)
+	return fmt.Sprintf("%s: %s", scope, clip(detail, 100))
 }
 
 func sqlInstanceResource(p config.Project, inst *sqladmin.DatabaseInstance) Resource {

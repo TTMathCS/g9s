@@ -151,10 +151,24 @@ func describeFailure(scope string, err error) string {
 	if strings.Contains(msg, "SERVICE_DISABLED") || strings.Contains(msg, "accessNotConfigured") {
 		return ""
 	}
-	if len(msg) > 120 {
-		msg = msg[:117] + "…"
+	return fmt.Sprintf("%s: %s", scope, clip(msg, 120))
+}
+
+// clip shortens s to at most max runes, marking the cut with an ellipsis.
+//
+// Runes, not bytes: API error strings carry quoted resource names and server
+// messages that are not always ASCII, and slicing a byte offset lands in the
+// middle of a multi-byte character. The replacement characters that produces
+// are the kind of thing that gets mistaken for a corrupt response.
+func clip(s string, max int) string {
+	if max <= 0 {
+		return ""
 	}
-	return fmt.Sprintf("%s: %s", scope, msg)
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max-1]) + "…"
 }
 
 func grpcCode(err error) codes.Code {

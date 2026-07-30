@@ -30,6 +30,22 @@ func TestNewManagerRejectsCredentialDirCollisions(t *testing.T) {
 	}
 }
 
+func TestNewManagerRejectsCollisionsThatOnlyDifferInCase(t *testing.T) {
+	// macOS and Windows treat "Prod" and "prod" as one directory, so a check
+	// that only caught exact collisions would pass on Linux and hand two
+	// projects the same credentials on a laptop.
+	cfg := &config.Config{Projects: []config.Project{
+		{Name: "Prod", ProjectID: "p-1"},
+		{Name: "prod", ProjectID: "p-2"},
+	}}
+
+	if _, err := NewManager(cfg); err == nil {
+		t.Fatal("names differing only in case should be refused")
+	} else if !strings.Contains(err.Error(), "case") {
+		t.Errorf("error should explain the case collision: %v", err)
+	}
+}
+
 func TestNewManagerAcceptsDistinctProjects(t *testing.T) {
 	cfg := &config.Config{Projects: []config.Project{
 		{Name: "prod-data", ProjectID: "p-1"},

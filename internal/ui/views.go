@@ -86,13 +86,9 @@ func (m Model) tabsView() string {
 	labels := make([]string, len(tabs))
 	widths := make([]int, len(tabs))
 	for i, kind := range tabs {
-		// The merged tab answers to "a" rather than a number, since the digits
-		// are spoken for by the real kinds.
-		key := fmt.Sprintf("%d", i+1)
-		if kind.ID == allKind.ID {
-			key = "a"
-		}
-		label := key + " " + kind.Title
+		// Each tab carries the key that jumps to it, so the strip doubles as
+		// the legend for a scheme nobody should have to memorise.
+		label := m.tabKey(i) + " " + kind.Title
 
 		if n, known := m.tabCount(kind); known {
 			label += fmt.Sprintf(" (%d)", n)
@@ -212,6 +208,36 @@ func (m Model) tabLoading(kind gcp.Kind) bool {
 	return false
 }
 
+// listWindow picks the slice of a list to render so that it fits in rows lines
+// and always contains the cursor.
+//
+// All three list screens need this. Without it a list longer than the terminal
+// renders every row, the body outgrows the space the header and footer left it,
+// and the footer scrolls off the bottom — which the dashboard did as soon as the
+// kinds outnumbered the terminal's rows, and the project list did for anyone
+// with thirty projects.
+func listWindow(cursor, total, rows int) (start, end int) {
+	if rows <= 0 || total <= 0 {
+		return 0, 0
+	}
+	if total <= rows {
+		return 0, total
+	}
+
+	// Keep the cursor on screen, then pull the window back inside the list so
+	// the last page is full rather than trailing off into blank rows.
+	if cursor >= rows {
+		start = cursor - rows + 1
+	}
+	if start > total-rows {
+		start = total - rows
+	}
+	if start < 0 {
+		start = 0
+	}
+	return start, min(total, start+rows)
+}
+
 // --- overview ---
 
 // overviewView is the dashboard: every category with its count and a breakdown
@@ -226,19 +252,17 @@ func (m Model) overviewView() string {
 		labelWidth = max(labelWidth, len(kind.Title))
 	}
 
-	// Past nine kinds the shortcut column has to hold two characters, or every
-	// double-digit row shifts the category text one cell right of the rest.
-	keyWidth := len(fmt.Sprintf("%d", len(tabs)))
-
 	b.WriteString(headerRowStyle.Render(
-		strings.Repeat(" ", keyWidth+2)+pad("CATEGORY", labelWidth)+"  "+pad("COUNT", 6)+"  "+"STATE") + "\n")
+		strings.Repeat(" ", hotkeyWidth+2)+pad("CATEGORY", labelWidth)+"  "+pad("COUNT", 6)+"  "+"STATE") + "\n")
 
-	for i, kind := range tabs {
-		// Right-aligned so the digits line up under each other.
-		key := fmt.Sprintf("%*d", keyWidth, i+1)
-		if kind.ID == allKind.ID {
-			key = fmt.Sprintf("%*s", keyWidth, "a")
-		}
+	rows := m.bodyHeight()
+	start, end := listWindow(m.ovCursor, len(tabs), rows)
+
+	for i := start; i < end; i++ {
+		kind := tabs[i]
+		// One cell wide for every kind, which is what the letters past the
+		// ninth buy: no row shifts sideways as the list grows.
+		key := m.tabKey(i)
 
 		count := "—"
 		if n, known := m.tabCount(kind); known {
@@ -262,7 +286,7 @@ func (m Model) overviewView() string {
 		b.WriteString("\n")
 	}
 
-	for i := len(tabs) + 1; i < m.bodyHeight()+1; i++ {
+	for i := end - start; i < rows; i++ {
 		b.WriteString("\n")
 	}
 	return b.String()
@@ -369,7 +393,11 @@ func (m Model) projectsView() string {
 	b.WriteString(headerRowStyle.Render(
 		"  "+pad("PROJECT", nameWidth)+"  "+pad("PROJECT ID", idWidth)+"  "+"CREDENTIALS") + "\n")
 
-	for i, p := range m.cfg.Projects {
+	rows := m.bodyHeight()
+	start, end := listWindow(m.projCursor, len(m.cfg.Projects), rows)
+
+	for i := start; i < end; i++ {
+		p := m.cfg.Projects[i]
 		status, known := m.authStatus[p.Name]
 
 		line := "  " + pad(p.Name, nameWidth) + "  " + pad(p.ProjectID, idWidth) + "  "
@@ -385,7 +413,7 @@ func (m Model) projectsView() string {
 	}
 
 	// Pad so the footer sits at the bottom of the terminal.
-	for i := len(m.cfg.Projects) + 1; i < m.bodyHeight()+1; i++ {
+	for i := end - start; i < rows; i++ {
 		b.WriteString("\n")
 	}
 	return b.String()
@@ -436,11 +464,7 @@ func (m Model) resourcesView() string {
 
 	// Scroll so the cursor stays on screen.
 	rows := m.bodyHeight() - 1
-	start := 0
-	if m.cursor >= rows {
-		start = m.cursor - rows + 1
-	}
-	end := min(len(visible), start+rows)
+	start, end := listWindow(m.cursor, len(visible), rows)
 
 	for i := start; i < end; i++ {
 		r := visible[i]
@@ -490,6 +514,12 @@ func columnTitles(cols []gcp.Column) []string {
 func columnWidths(cols []gcp.Column, available int) []int {
 	const gap = 2
 	const minWidth = 6
+
+	// A kind with no columns is a bug in that kind, but it must not take the
+	// whole table down: the arithmetic below divides and indexes.
+	if len(cols) == 0 {
+		return nil
+	}
 
 	available -= gap * (len(cols) - 1)
 	if available < minWidth*len(cols) {
@@ -563,13 +593,17 @@ func renderStyledRow(r gcp.Resource, widths []int, kind gcp.Kind) string {
 // --- detail ---
 
 func (m Model) detailView() string {
-	r, ok := m.selectedResource()
-	if !ok {
-		return ""
+	if !m.hasDetail {
+		// Nothing to describe. A notice rather than an empty string, because an
+		// empty body collapses the layout and pulls the footer up to the header.
+		return m.centeredNotice(mutedStyle.Render("no resource selected — esc to go back"))
 	}
+	// The resource the pane was opened on, so the name above the YAML is always
+	// the name of the YAML — even if a fetch has since moved the table.
+	r := m.detailRes
 	header := lipgloss.JoinHorizontal(lipgloss.Left,
-		lipgloss.NewStyle().Bold(true).Foreground(colorAccent).Render(r.Name),
-		mutedStyle.Render("  "+r.Location),
+		lipgloss.NewStyle().Bold(true).Foreground(colorAccent).Render(sanitizeLine(r.Name)),
+		mutedStyle.Render("  "+sanitizeLine(r.Location)),
 	)
 	return header + "\n" + m.detail.View()
 }
@@ -578,7 +612,13 @@ func (m Model) detailView() string {
 
 type helpEntry struct{ keys, desc string }
 
+// helpView renders the help panel. The content is built once on open and
+// scrolled here, because it is longer than a short terminal is tall.
 func (m Model) helpView() string {
+	return panelStyle.Width(m.width - 2).Render(m.help.View())
+}
+
+func (m Model) helpContent() string {
 	sections := []struct {
 		title   string
 		entries []helpEntry
@@ -587,12 +627,12 @@ func (m Model) helpView() string {
 			{"↑/k ↓/j", "move cursor"},
 			{"g / G", "jump to top / bottom"},
 			{"enter", "open category (dashboard) / describe (table)"},
-			{"1-9", "jump straight to a resource kind"},
+			{m.hotkeyLegend(), "jump straight to a resource kind — the key is printed beside it"},
 			{"0 / a", "all resources, every kind in one table"},
 			{"tab / shift+tab", "cycle resource kinds"},
 			{"q / esc", "back up one level"},
 			{"p", "back to the project list"},
-			{"/", "filter rows (esc clears)"},
+			{"/", "filter rows (cleared when you switch kinds)"},
 			{":", "command — :<kind> by id or title prefix, :all :projects :help :q"},
 		}},
 		{"Actions", []helpEntry{
@@ -610,19 +650,30 @@ func (m Model) helpView() string {
 		}},
 		{"General", []helpEntry{
 			{"?", "toggle this help"},
+			{"↑/↓", "scroll this help"},
 			{"ctrl+c / :q", "quit (or q from the project list)"},
 		}},
+	}
+
+	// Widest key column across every section, so the descriptions line up as a
+	// single column rather than per section. The legend row grows with the
+	// number of kinds, which is what makes measuring beat a fixed width.
+	keyWidth := 0
+	for _, s := range sections {
+		for _, e := range s.entries {
+			keyWidth = max(keyWidth, lipgloss.Width(e.keys))
+		}
 	}
 
 	var b strings.Builder
 	for _, s := range sections {
 		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorAccent).Render(s.title) + "\n")
 		for _, e := range s.entries {
-			b.WriteString("  " + helpKeyStyle.Render(pad(e.keys, 18)) + helpDescStyle.Render(e.desc) + "\n")
+			b.WriteString("  " + helpKeyStyle.Render(pad(e.keys, keyWidth)) + "  " + helpDescStyle.Render(e.desc) + "\n")
 		}
 		b.WriteString("\n")
 	}
-	return panelStyle.Width(m.width - 2).Render(strings.TrimRight(b.String(), "\n"))
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // --- footer ---
@@ -648,17 +699,25 @@ func (m Model) footerView() string {
 	return m.withPosition(mutedStyle.Render(truncate(m.keyHint(), m.width-8)))
 }
 
-// withPosition right-aligns a cursor/total indicator on the resources table,
-// so "where am I in this list" never needs counting rows.
+// withPosition right-aligns a cursor/total indicator on every list screen, so
+// "where am I in this list" never needs counting rows — and so a list long
+// enough to scroll says how much of it is off screen.
 func (m Model) withPosition(left string) string {
-	if m.screen != screenResources {
+	var cursor, n int
+	switch m.screen {
+	case screenResources:
+		cursor, n = m.cursor, len(m.visibleResources())
+	case screenOverview:
+		cursor, n = m.ovCursor, len(m.tabs())
+	case screenProjects:
+		cursor, n = m.projCursor, len(m.cfg.Projects)
+	default:
 		return left
 	}
-	n := len(m.visibleResources())
 	if n == 0 {
 		return left
 	}
-	pos := mutedStyle.Render(fmt.Sprintf("%d/%d", m.cursor+1, n))
+	pos := mutedStyle.Render(fmt.Sprintf("%d/%d", min(cursor+1, n), n))
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(pos) - 1
 	if gap < 1 {
 		return left
@@ -698,25 +757,32 @@ func (m Model) keyHint() string {
 	case screenProjects:
 		return "enter select · l login · r re-check · : cmd · ? help · q quit"
 	case screenOverview:
-		return "enter open · 0/a all resources · r refresh all · : cmd · esc projects · ? help"
+		return "kind keys: " + m.hotkeyLegend() + " · enter open · 0/a all resources · r refresh all · : cmd · ? help"
 	case screenResources:
 		return "d describe · o open · s ssh · y yank · / filter · : cmd · r refresh · esc back · ? help"
 	case screenDetail:
 		return "↑/↓ scroll · y copy yaml · esc back"
+	case screenHelp:
+		return "↑/↓ scroll · esc back"
 	default:
 		return "esc back"
 	}
 }
 
-// wrap breaks text onto lines no longer than width.
+// wrap breaks text onto lines no longer than width. Used for API error strings,
+// hence the sanitizing: see sanitizeLine.
 func wrap(text string, width int) string {
+	text = sanitizeLine(text)
 	if width <= 0 {
 		return text
 	}
 	var b strings.Builder
 	lineLen := 0
 	for _, word := range strings.Fields(text) {
-		if lineLen > 0 && lineLen+1+len(word) > width {
+		// Display cells, like everywhere else: counting bytes wraps a line of
+		// accented or CJK text far short of the width.
+		wordLen := lipgloss.Width(word)
+		if lineLen > 0 && lineLen+1+wordLen > width {
 			b.WriteString("\n")
 			lineLen = 0
 		} else if lineLen > 0 {
@@ -724,7 +790,7 @@ func wrap(text string, width int) string {
 			lineLen++
 		}
 		b.WriteString(word)
-		lineLen += len(word)
+		lineLen += wordLen
 	}
 	return b.String()
 }

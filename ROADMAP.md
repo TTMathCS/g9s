@@ -34,12 +34,18 @@ Plus, across all kinds: a per-project dashboard with status rollups, a merged
 *All Resources* table, filtering, describe-as-YAML, Console/Airflow deep links,
 clipboard yank over OSC 52, and SSH to a running VM.
 
-Thirteen kinds is past what the number keys cover: `1`-`9` reach the first
-nine, while `tab`/`shift+tab`, `0`/`a` and `:<kind>` reach all of them. The tab
-strip scrolls around the active tab and marks hidden tabs with `‹`/`›`. Further
-kinds are cheap to add mechanically, but the next ones are probably better
-shaped as drill-downs than as more top-level tabs — GKE node pools under a
-cluster, DNS record sets under a zone.
+Thirteen kinds is past what the digits cover, so the hotkey sequence continues
+into letters — `1`-`9`, then `b e f h i m n t u v w x z`, skipping every letter
+already bound to an action. Each kind's key is printed beside it on the
+dashboard and in the tab strip, and `tab`/`shift+tab`, `0`/`a` and `:<kind>`
+still reach everything. The strip scrolls around the active tab and marks hidden
+tabs with `‹`/`›`.
+
+That scheme holds twenty-two kinds, which is roughly where the dashboard stops
+being scannable anyway. Further kinds are cheap to add mechanically, but the next
+ones are probably better shaped as drill-downs than as more top-level tabs — GKE
+node pools under a cluster, DNS record sets under a zone — and a drill-down
+costs no hotkey at all.
 
 ## Next up
 

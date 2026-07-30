@@ -44,15 +44,22 @@ func NewManager(cfg *config.Config) (*Manager, error) {
 	// names into one directory ("prod/data" and "prod-data" both become
 	// "prod-data"), and sharing a credential dir means logging into one
 	// project silently re-identifies the other. Refuse up front.
+	//
+	// The comparison is case-insensitive because the filesystem may be: macOS
+	// and Windows both treat "Prod" and "prod" as one directory, so a check
+	// that only caught exact collisions would pass on Linux and hand two
+	// projects the same credentials on a laptop.
 	seen := map[string]string{}
 	for _, p := range cfg.Projects {
 		dir := sanitize(p.Name)
-		if other, dup := seen[dir]; dup {
+		key := strings.ToLower(dir)
+		if other, dup := seen[key]; dup {
 			return nil, fmt.Errorf(
-				"projects %q and %q would share the credential directory %q — rename one",
+				"projects %q and %q would share the credential directory %q "+
+					"(names that differ only in case collide on macOS and Windows) — rename one",
 				other, p.Name, dir)
 		}
-		seen[dir] = p.Name
+		seen[key] = p.Name
 	}
 
 	return &Manager{
