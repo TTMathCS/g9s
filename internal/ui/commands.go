@@ -119,9 +119,11 @@ func loginNotice(p config.Project, noBrowser bool) string {
 	fmt.Fprintf(&b, "g9s: gcloud auth application-default login for %s\n", p.Name)
 
 	if noBrowser {
-		b.WriteString("     No browser on this machine, so this is the --no-browser flow:\n")
-		b.WriteString("     run the command gcloud prints below on a machine that has one,\n")
-		b.WriteString("     then paste its output back here.\n")
+		// No loopback redirect in this flow, so no proxy and no other machine
+		// can swallow it. Nothing to warn about — just say what to do, because
+		// waiting for something to happen here is the wrong instinct.
+		b.WriteString("     --no-browser flow: run the command gcloud prints below on a machine\n")
+		b.WriteString("     that has a browser and gcloud, then paste its output back here.\n")
 		return b.String()
 	}
 
@@ -135,6 +137,7 @@ func loginNotice(p config.Project, noBrowser bool) string {
 		b.WriteString("     If it stays stuck after you have signed in, the redirect did not arrive:\n")
 		b.WriteString("     ctrl+c, then press L to log in without a browser.\n")
 	}
+	b.WriteString("     Set defaults.login_no_browser: true to skip the browser flow for good.\n")
 	return b.String()
 }
 

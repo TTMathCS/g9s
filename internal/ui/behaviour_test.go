@@ -254,3 +254,35 @@ func TestNoticeCmdDoesNotOverrideStreamsAlreadySet(t *testing.T) {
 		t.Error("SetStdout replaced a stream the caller had already chosen")
 	}
 }
+
+func TestLoginNoBrowserSettingAlwaysWins(t *testing.T) {
+	// The setting exists because the one thing g9s cannot detect is whether the
+	// browser proxies localhost — only the person running it knows that, and
+	// getting it wrong means an indefinite hang.
+	cfg := &config.Config{
+		Defaults: config.Defaults{LoginNoBrowser: true},
+		Projects: []config.Project{{Name: "prod", ProjectID: "prod-1"}},
+	}
+	m := New(cfg, nil)
+
+	if !m.cfg.Defaults.LoginNoBrowser {
+		t.Fatal("the setting did not reach the model")
+	}
+	// The notice is the observable difference, and it must not talk about a
+	// loopback redirect that this flow does not use.
+	notice := loginNotice(cfg.Projects[0], true)
+	if strings.Contains(notice, "localhost") {
+		t.Errorf("the no-browser notice mentions the loopback redirect:\n%s", notice)
+	}
+	if !strings.Contains(notice, "--no-browser") {
+		t.Errorf("the notice does not name the flow:\n%s", notice)
+	}
+}
+
+func TestBrowserNoticePointsAtTheSetting(t *testing.T) {
+	// Someone who hits the hang once should not have to hit it twice.
+	notice := loginNotice(config.Project{Name: "p"}, false)
+	if !strings.Contains(notice, "login_no_browser") {
+		t.Errorf("the browser notice does not mention the setting:\n%s", notice)
+	}
+}

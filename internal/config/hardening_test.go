@@ -164,3 +164,33 @@ func TestBigQueryJobWindowOnAnUnloadedConfig(t *testing.T) {
 		t.Errorf("window on a zero Config = %v, want the 24h default", got)
 	}
 }
+
+func TestLoginNoBrowserDefaultsOffAndParses(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `
+projects:
+  - name: sandbox
+    project_id: sandbox-123
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Defaults.LoginNoBrowser {
+		// Off by default: the browser flow is the better one when it works, and
+		// on most machines it does.
+		t.Error("login_no_browser defaulted to true")
+	}
+
+	cfg, err = Load(writeConfig(t, `
+defaults:
+  login_no_browser: true
+projects:
+  - name: sandbox
+    project_id: sandbox-123
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Defaults.LoginNoBrowser {
+		t.Error("login_no_browser: true did not take effect")
+	}
+}

@@ -349,6 +349,15 @@ Two things stop the redirect arriving:
 
 Either way: `ctrl+c` to abort, then press `L`. Note that `ctrl+c` reaches g9s too, since gcloud runs in its process group — so you'll be back at a shell prompt and can restart g9s.
 
+**If this is your normal setup, stop pressing `L`:**
+
+```yaml
+defaults:
+  login_no_browser: true
+```
+
+`l` then behaves like `L` every time. That is the right answer behind a proxy you don't control: fighting the bypass list per browser, per profile, per machine is more work than the one extra paste the `--no-browser` flow costs, and it fails in a way that looks like nothing happening. g9s can see a proxy in its own environment, but not in your browser's settings, so it will not make this choice for you.
+
 To confirm it's the environment rather than g9s, run the same command by hand — it will hang in exactly the same place:
 
 ```sh
@@ -370,6 +379,10 @@ defaults:
   credential_dir: ~/.local/share/g9s/credentials
   gcloud_path: gcloud
   list_timeout: 90s
+
+  # Always use gcloud's --no-browser flow for `l`. Set this behind a proxy —
+  # see "I signed in, but g9s is still sitting on the URL" below.
+  login_no_browser: false
 
   # How far back the BigQuery jobs table looks. Jobs are kept for six months,
   # which is far more than a "what is running" table can show, so this window

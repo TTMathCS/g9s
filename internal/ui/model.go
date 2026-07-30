@@ -586,7 +586,11 @@ func (m Model) startLogin(noBrowser bool) (tea.Model, tea.Cmd) {
 	// is on a different machine that request never arrives, the sign-in
 	// succeeds, and the terminal sits on the URL forever with nothing to
 	// suggest what went wrong.
-	if !noBrowser && !auth.LoopbackUsable() {
+	//
+	// The config setting comes first because it is the one signal that is not a
+	// guess: a browser that proxies localhost breaks the same way, and only the
+	// person running g9s knows whether theirs does.
+	if m.cfg.Defaults.LoginNoBrowser || !auth.LoopbackUsable() {
 		noBrowser = true
 	}
 	return m, login(m.auth, p, noBrowser)

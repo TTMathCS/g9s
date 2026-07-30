@@ -32,6 +32,16 @@ type Defaults struct {
 	CredentialDir string `yaml:"credential_dir"`
 	// GcloudPath is the gcloud binary to shell out to for login.
 	GcloudPath string `yaml:"gcloud_path"`
+	// LoginNoBrowser makes `l` always use gcloud's --no-browser flow, the same
+	// as pressing `L` every time.
+	//
+	// Worth setting on a machine behind a proxy. gcloud's ordinary login ends
+	// with the browser fetching http://localhost:<port>/ to hand the
+	// authorization code back, and a browser that sends localhost through a
+	// proxy never delivers it — the sign-in succeeds and the terminal waits
+	// forever. Whether the browser does that is a property of this machine, not
+	// of any one project, which is why this lives in defaults.
+	LoginNoBrowser bool `yaml:"login_no_browser"`
 	// ListTimeout bounds a single refresh across all regions.
 	ListTimeout Duration `yaml:"list_timeout"`
 	// BigQueryJobWindow is how far back the BigQuery jobs table looks. Jobs are
