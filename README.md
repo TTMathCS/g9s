@@ -336,6 +336,39 @@ Press `L` instead of `l`. That adds `--no-browser`, which prints a bootstrap com
 
 g9s picks that flow for you when it can tell the browser flow cannot work — an SSH session with no local display, where the redirect below would land on your laptop rather than on the machine gcloud is running on.
 
+**gcloud prints a command, not a link.** This is the one thing to get right:
+
+```
+gcloud auth application-default login --remote-bootstrap="https://accounts.google.com/o/oauth2/auth?..."
+```
+
+Run that **whole command** on the machine with the browser — it needs gcloud 372.0.0 or newer there. It opens the browser, you sign in, and it prints a `https://localhost:8085/?state=...&code=...` line that you paste back into g9s.
+
+Do **not** copy the URL out of `--remote-bootstrap=` and open it in a browser. On its own it has no `redirect_uri` — the gcloud on the other machine is what adds one, pointing at its own loopback — so Google answers:
+
+```
+Error 400: invalid_request
+Missing required parameter: redirect_uri
+```
+
+That looks like g9s produced a broken link. It didn't; the URL is half a request until gcloud completes it.
+
+### When nothing involving a browser works
+
+If the other machine has no gcloud, or its browser can't reach its own localhost either, sidestep the handshake entirely. Log in on whichever machine *does* work:
+
+```sh
+gcloud auth application-default login
+```
+
+then copy the file it writes (`~/.config/gcloud/application_default_credentials.json`) to the per-project path g9s reads:
+
+```
+<credential_dir>/<project-name>/application_default_credentials.json
+```
+
+g9s prints that exact path in the `--no-browser` notice, so you can copy it from there. Keep the file `0600`; g9s only ever reads it.
+
 ### "I signed in, but g9s is still sitting on the URL"
 
 This is the one login failure that gives you nothing to go on, so it's worth understanding.
