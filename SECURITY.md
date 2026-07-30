@@ -137,6 +137,15 @@ places and the contents are not secret.
 
 ### Residual, by design
 
+- **Secret Manager is listed, values are not.** The `secrets` kind calls
+  `projects.secrets.list` and nothing else: names, replication, rotation and
+  expiry. `AccessSecretVersion` is never called, so a payload never enters the
+  process — not the table, not the detail pane, not the clipboard, not the
+  scrollback. That is a property of the API surface used rather than of
+  filtering applied afterwards, and a test parses `secrets.go` and fails the
+  build if it ever reaches for a value. Read one with
+  `gcloud secrets versions access`, where the access is logged against your
+  identity.
 - **The detail pane renders the full API object,** minus the fields listed in
   `secretFields`. That is the point — it is what `gcloud describe` shows you —
   but it means everything else GCP returns about a resource is on screen, and

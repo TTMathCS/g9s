@@ -10,6 +10,7 @@ import (
 	"cloud.google.com/go/storage"
 	bigquery "google.golang.org/api/bigquery/v2"
 	dns "google.golang.org/api/dns/v1"
+	secretmanager "google.golang.org/api/secretmanager/v1"
 	sqladmin "google.golang.org/api/sqladmin/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -218,5 +219,35 @@ func testBigQueryJob() *bigquery.JobListJobs {
 			StartTime:    start.UnixMilli(),
 			Query:        &bigquery.JobStatistics2{TotalBytesProcessed: 3 * 1024 * 1024 * 1024},
 		},
+	}
+}
+
+func testDataprocJob() *dataprocpb.Job {
+	submitted := time.Now().Add(-25 * time.Minute)
+	return &dataprocpb.Job{
+		Reference: &dataprocpb.JobReference{ProjectId: "sandbox-123", JobId: "nightly-etl-0417"},
+		Placement: &dataprocpb.JobPlacement{ClusterName: "analytics-cluster"},
+		TypeJob:   &dataprocpb.Job_PysparkJob{PysparkJob: &dataprocpb.PySparkJob{MainPythonFileUri: "gs://acme/etl/main.py"}},
+		Status: &dataprocpb.JobStatus{
+			State:          dataprocpb.JobStatus_RUNNING,
+			StateStartTime: timestamppb.New(submitted.Add(time.Minute)),
+		},
+		StatusHistory: []*dataprocpb.JobStatus{{
+			State:          dataprocpb.JobStatus_PENDING,
+			StateStartTime: timestamppb.New(submitted),
+		}},
+	}
+}
+
+func testSecret() *secretmanager.Secret {
+	return &secretmanager.Secret{
+		Name:        "projects/sandbox-123/secrets/prod-db-password",
+		CreateTime:  time.Now().Add(-180 * 24 * time.Hour).Format(time.RFC3339),
+		Replication: &secretmanager.Replication{Automatic: &secretmanager.Automatic{}},
+		// Not a whole number of days from now: a real rotation time is a
+		// fixed instant, and pinning the fixture to an exact boundary would
+		// make the test flake on the sub-second precision RFC3339 drops.
+		Rotation: &secretmanager.Rotation{NextRotationTime: time.Now().Add(12*24*time.Hour + 6*time.Hour).Format(time.RFC3339)},
+		Labels:   map[string]string{"env": "prod", "owner": "dataeng"},
 	}
 }

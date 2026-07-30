@@ -72,8 +72,12 @@ func statusStyle(status string) lipgloss.Style {
 		"REPAIRING", "SUSPENDING", "RECONCILING",
 		// Cloud SQL's in-flight and maintenance states.
 		"PENDING_CREATE", "PENDING_DELETE", "MAINTENANCE",
-		// A BigQuery job that has been admitted but is waiting on slots.
-		"PENDING",
+		// A BigQuery job that has been admitted but is waiting on slots, and a
+		// Dataproc job between submission and its driver starting.
+		"PENDING", "SETUP_DONE", "CANCEL_PENDING", "CANCEL_STARTED",
+		// A secret with an expiry still ahead of it: not broken, but it and
+		// every version of it will be deleted on that date.
+		"EXPIRING",
 		// VPN tunnels mid-handshake or being torn down.
 		"WAITING_FOR_FULL_CONFIG", "FIRST_HANDSHAKE", "ALLOCATING_RESOURCES", "DEPROVISIONING",
 		// Interconnect attachments waiting on the other party.
@@ -86,7 +90,10 @@ func statusStyle(status string) lipgloss.Style {
 		// VPN tunnels that will never carry traffic without intervention.
 		"AUTHORIZATION_ERROR", "NEGOTIATION_FAILURE", "NETWORK_ERROR", "NO_INCOMING_PACKETS", "REJECTED",
 		// Interconnect attachments that are broken or never came up.
-		"DEFUNCT", "UNPROVISIONED":
+		"DEFUNCT", "UNPROVISIONED",
+		// A Dataproc job that was killed or never got off the ground, and a
+		// secret whose expiry has passed — it and its versions are gone.
+		"CANCELLED", "ATTEMPT_FAILURE", "EXPIRED":
 		return badStyle
 	default:
 		return rowStyle

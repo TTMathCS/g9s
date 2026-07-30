@@ -75,11 +75,11 @@ func TestFanOutCollectsPartialResults(t *testing.T) {
 	// results from the good ones.
 	locations := []string{"good-1", "bad", "good-2"}
 
-	result := fanOut(context.Background(), locations, func(_ context.Context, loc string) ([]Resource, error) {
+	result := fanOut(context.Background(), locations, func(_ context.Context, loc string) (Result, error) {
 		if loc == "bad" {
-			return nil, status.Error(codes.PermissionDenied, "denied")
+			return Result{}, status.Error(codes.PermissionDenied, "denied")
 		}
-		return []Resource{{Name: "cluster", Location: loc}}, nil
+		return Result{Resources: []Resource{{Name: "cluster", Location: loc}}}, nil
 	})
 
 	if len(result.Resources) != 2 {
@@ -95,24 +95,43 @@ func TestFanOutCollectsPartialResults(t *testing.T) {
 
 func TestFanOutKeepsPartialResourcesFromFailingScope(t *testing.T) {
 	// A paginated list can fail halfway through. Whatever arrived before the
-	// error is still real and should be kept.
-	result := fanOut(context.Background(), []string{"half"}, func(_ context.Context, loc string) ([]Resource, error) {
-		return []Resource{{Name: "a", Location: loc}}, status.Error(codes.PermissionDenied, "denied on page 2")
+	// error is still real, and dropping it is the failure mode this package
+	// exists to avoid — a page of results followed by a 403 on the next one is
+	// still a page of results, and the warning says the rest is missing.
+	result := fanOut(context.Background(), []string{"half"}, func(_ context.Context, loc string) (Result, error) {
+		return Result{Resources: []Resource{{Name: "a", Location: loc}}},
+			status.Error(codes.PermissionDenied, "denied on page 2")
 	})
 
 	if len(result.Warnings) != 1 {
 		t.Errorf("got %d warnings, want 1", len(result.Warnings))
 	}
-	// Current behaviour drops them; assert it explicitly so a future change is
-	// a deliberate decision rather than an accident.
-	if len(result.Resources) != 0 {
-		t.Errorf("got %d resources, want 0 (partial page results are discarded)", len(result.Resources))
+	if len(result.Resources) != 1 {
+		t.Errorf("got %d resources, want the one that arrived before the error", len(result.Resources))
+	}
+}
+
+func TestFanOutCarriesWarningsFromSuccessfulScopes(t *testing.T) {
+	// A leg can succeed and still not have told the whole truth — a region
+	// whose listing was capped is the case this exists for.
+	result := fanOut(context.Background(), []string{"busy"}, func(_ context.Context, loc string) (Result, error) {
+		return Result{
+			Resources: []Resource{{Name: "a", Location: loc}},
+			Warnings:  []string{loc + ": stopped after 200 jobs"},
+		}, nil
+	})
+
+	if len(result.Resources) != 1 {
+		t.Errorf("got %d resources, want 1", len(result.Resources))
+	}
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "stopped after") {
+		t.Errorf("warnings = %v, want the cap warning carried through", result.Warnings)
 	}
 }
 
 func TestFanOutSuppressedErrorsProduceNoWarnings(t *testing.T) {
-	result := fanOut(context.Background(), []string{"a", "b"}, func(_ context.Context, _ string) ([]Resource, error) {
-		return nil, status.Error(codes.NotFound, "no such region")
+	result := fanOut(context.Background(), []string{"a", "b"}, func(_ context.Context, _ string) (Result, error) {
+		return Result{}, status.Error(codes.NotFound, "no such region")
 	})
 	if len(result.Warnings) != 0 {
 		t.Errorf("warnings = %v, want none", result.Warnings)
@@ -124,12 +143,11 @@ func TestFanOutSortsDeterministically(t *testing.T) {
 	// reshuffle between refreshes.
 	locations := []string{"us-west1", "us-central1", "us-east1"}
 
-	first := fanOut(context.Background(), locations, func(_ context.Context, loc string) ([]Resource, error) {
-		return []Resource{{Name: "b", Location: loc}, {Name: "a", Location: loc}}, nil
-	})
-	second := fanOut(context.Background(), locations, func(_ context.Context, loc string) ([]Resource, error) {
-		return []Resource{{Name: "b", Location: loc}, {Name: "a", Location: loc}}, nil
-	})
+	rows := func(_ context.Context, loc string) (Result, error) {
+		return Result{Resources: []Resource{{Name: "b", Location: loc}, {Name: "a", Location: loc}}}, nil
+	}
+	first := fanOut(context.Background(), locations, rows)
+	second := fanOut(context.Background(), locations, rows)
 
 	if len(first.Resources) != 6 {
 		t.Fatalf("got %d resources, want 6", len(first.Resources))
@@ -240,14 +258,16 @@ func TestListersHaveDistinctIDsAndColumns(t *testing.T) {
 // on: a lister's rows must have exactly as many cells as it declared columns.
 func TestResourceRowsMatchColumns(t *testing.T) {
 	fixtures := map[string]Resource{
-		"vm":       instanceResource(testProject(), "us-central1-a", testInstance()),
-		"gke":      clusterNodeResource(testProject(), testGKECluster()),
-		"sql":      sqlInstanceResource(testProject(), testSQLInstance()),
-		"gcs":      bucketResource(testProject(), testBucket()),
-		"bq":       datasetResource(testProject(), testBigQueryDataset()),
-		"bqjobs":   jobResource(testProject(), testBigQueryJob()),
-		"dataproc": clusterResource(testProject(), "us-central1", testCluster()),
-		"composer": environmentResource(testProject(), "us-central1", testEnvironment()),
+		"vm":           instanceResource(testProject(), "us-central1-a", testInstance()),
+		"gke":          clusterNodeResource(testProject(), testGKECluster()),
+		"sql":          sqlInstanceResource(testProject(), testSQLInstance()),
+		"gcs":          bucketResource(testProject(), testBucket()),
+		"bq":           datasetResource(testProject(), testBigQueryDataset()),
+		"bqjobs":       jobResource(testProject(), testBigQueryJob()),
+		"dataproc":     clusterResource(testProject(), "us-central1", testCluster()),
+		"dataprocjobs": dataprocJobResource(testProject(), "us-central1", testDataprocJob()),
+		"secrets":      secretResource(testProject(), testSecret()),
+		"composer":     environmentResource(testProject(), "us-central1", testEnvironment()),
 
 		"vpc":          networkResource(testProject(), testNetwork()),
 		"fw":           firewallResource(testProject(), testFirewall()),

@@ -23,6 +23,7 @@ the reason this list is long: most entries are a day's work, not a project.
 | BigQuery datasets | global | one paginated call; name, location, type and labels are everything the list response carries, and anything more costs a `Get` per dataset |
 | BigQuery jobs | global | jobs are project-global with the location on each row; scoped by `defaults.bigquery_job_window`, which defines the listing rather than truncating it, and capped at 500 rows, which does truncate it and says so |
 | Dataproc clusters | **regional** | needs a client per region at `<region>-dataproc.googleapis.com`; `global` always swept |
+| Dataproc jobs | **regional** | same per-region clients as the clusters; every state, newest first, capped at 200 per region because the API has no time filter |
 | Cloud Composer environments | location-scoped | one client, location in the request parent |
 | VPC networks | global | one call |
 | Firewall rules | global | ordered by evaluation priority rather than name, because that is the only order a rule set can be reasoned about |
@@ -31,12 +32,13 @@ the reason this list is long: most entries are a day's work, not a project.
 | VPN tunnels | regional, aggregated | `aggregatedList` sweeps every region server-side |
 | Interconnect attachments | regional, aggregated | attachments rather than circuits: a circuit being up says nothing about whether a given VPC can reach it |
 | PSC service attachments | regional, aggregated | producer side only; a consumer endpoint *is* a forwarding rule, so listing those here would double-count |
+| Secret Manager secrets | global | **metadata only — never values.** One paginated call to `secrets.list`; `AccessSecretVersion` is never called, so no payload enters the process |
 
 Plus, across all kinds: a per-project dashboard with status rollups, a merged
 *All Resources* table, filtering, describe-as-YAML, Console/Airflow deep links,
 clipboard yank over OSC 52, and SSH to a running VM.
 
-Fifteen kinds is past what the digits cover, so the hotkey sequence continues
+Seventeen kinds is past what the digits cover, so the hotkey sequence continues
 into letters — `1`-`9`, then `b e f h i m n t u v w x z`, skipping every letter
 already bound to an action. Each kind's key is printed beside it on the
 dashboard and in the tab strip, and `tab`/`shift+tab`, `0`/`a` and `:<kind>`
@@ -56,9 +58,7 @@ The ones that would earn their place first, roughly in order.
 | Resource | Scope | Why it's near the top |
 |---|---|---|
 | Pub/Sub topics and subscriptions | global | subscription backlog is the number people want |
-| Secret Manager secrets | global | **names and versions only, never values** |
 | Cloud Run services and jobs | regional | replaces a lot of "is it deployed" Console trips |
-| Dataproc **jobs** | regional | clusters without jobs only tells half the story |
 | Dataflow jobs | regional | |
 | Service accounts and their keys | global | key age is a standing audit question |
 | GKE node pools | per-cluster | one call per cluster once you know which clusters exist; a natural drill-down from the GKE row rather than another top-level tab |
@@ -119,7 +119,9 @@ These change how the whole tool behaves rather than adding a kind.
 - **Storing credentials.** g9s never sees your password and never writes a
   credential itself — `gcloud` owns that, and g9s only points it at a
   per-project directory. That does not change.
-- **Displaying secret values.** Secret Manager support means names, versions
-  and rotation age. Values belong in `gcloud secrets versions access`, where
-  the access is logged against your identity and not sitting in a TUI's scroll
-  buffer or your clipboard.
+- **Displaying secret values.** The shipped Secret Manager kind lists names,
+  replication, rotation and expiry. Values belong in
+  `gcloud secrets versions access`, where the read is logged against your
+  identity rather than sitting in a TUI's scroll buffer or your clipboard.
+  g9s does not call `AccessSecretVersion` at all, and a test fails the build if
+  that changes.

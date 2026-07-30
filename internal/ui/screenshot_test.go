@@ -202,6 +202,12 @@ func resourcesShot() Model {
 	m.cache["composer"] = gcp.Result{
 		Resources: statusOnly(kindByID("composer"), map[string]int{"RUNNING": 1}),
 	}
+	m.cache["dataprocjobs"] = gcp.Result{
+		Resources: statusOnly(kindByID("dataprocjobs"), map[string]int{"RUNNING": 2, "DONE": 9, "ERROR": 1}),
+	}
+	m.cache["secrets"] = gcp.Result{
+		Resources: statusOnly(kindByID("secrets"), map[string]int{"ACTIVE": 7, "EXPIRING": 1}),
+	}
 	return m
 }
 
@@ -264,6 +270,12 @@ func dashboardShot() Model {
 	}
 	m.cache["composer"] = gcp.Result{
 		Resources: statusOnly(kindByID("composer"), map[string]int{"RUNNING": 1}),
+	}
+	m.cache["dataprocjobs"] = gcp.Result{
+		Resources: statusOnly(kindByID("dataprocjobs"), map[string]int{"RUNNING": 2, "DONE": 9, "ERROR": 1}),
+	}
+	m.cache["secrets"] = gcp.Result{
+		Resources: statusOnly(kindByID("secrets"), map[string]int{"ACTIVE": 7, "EXPIRING": 1}),
 	}
 	return m
 }

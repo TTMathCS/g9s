@@ -73,6 +73,7 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | BigQuery datasets | ✅ | global | name, location, type and labels; anything more costs a `Get` per dataset |
 | BigQuery jobs | ✅ | global | recent jobs, newest first; window from `defaults.bigquery_job_window`, capped at 500 rows |
 | Dataproc clusters | ✅ | **regional** | a client per region; `global` always swept |
+| Dataproc jobs | ✅ | **regional** | every state, newest first; capped at 200 per region — the API has no time filter |
 | Cloud Composer environments | ✅ | location-scoped | one client, location in the request parent |
 | VPC networks | ✅ | global | subnet mode, subnet count, routing mode |
 | Firewall rules | ✅ | global | sorted by evaluation priority, not name; disabled rules flagged |
@@ -81,10 +82,9 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | VPN tunnels | ✅ | regional, aggregated | real tunnel status — ESTABLISHED vs a handshake that never finished |
 | Interconnect attachments | ✅ | regional, aggregated | VLAN attachments, not circuits; admin-disabled beats a healthy-looking state |
 | PSC service attachments | ✅ | regional, aggregated | the producer side; consumer endpoints are forwarding rules, already under load balancers |
+| Secret Manager secrets | ✅ | global | **metadata only — never values**; replication, rotation and expiry |
 | Pub/Sub topics & subscriptions | 🔜 | global | subscription backlog is the number people actually want |
-| Secret Manager secrets | 🔜 | global | **names and versions only — never values** |
 | Cloud Run services & jobs | 🔜 | regional | |
-| Dataproc jobs | 🔜 | regional | clusters without jobs is half the story |
 | Dataflow jobs | 🔜 | regional | |
 | Service accounts & keys | 🔜 | global | key age is a standing audit question |
 | GKE node pools | 🔜 | per-cluster | drill-down from a GKE row, not a new top-level tab |
@@ -120,7 +120,7 @@ Cloud Asset Inventory makes "list everything in a project" a single API call. Wi
 
 ## Status
 
-MVP. Fifteen resource kinds across compute, data and networking — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
+MVP. Seventeen resource kinds across compute, data and networking — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
 
 Navigation is three levels deep: projects → dashboard → a category's table, with `esc` walking back up. A new kind appears on the dashboard, in the tab bar and in *All Resources* automatically; there is nothing to register in the UI.
 

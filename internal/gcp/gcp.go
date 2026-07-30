@@ -79,6 +79,7 @@ func Listers() []Lister {
 		BigQueryDatasetLister{},
 		BigQueryJobLister{},
 		DataprocLister{},
+		DataprocJobLister{},
 		ComposerLister{},
 		VPCLister{},
 		FirewallLister{},
@@ -87,6 +88,9 @@ func Listers() []Lister {
 		VPNLister{},
 		InterconnectLister{},
 		PSCLister{},
+		// Last, and on its own: not compute, not data, not networking. Metadata
+		// only — see SecretLister.
+		SecretLister{},
 	}
 }
 
@@ -95,7 +99,11 @@ func Listers() []Lister {
 // This is the shape every region-scoped GCP API forces on you: there is no
 // "list across all regions" call for Dataproc or Composer, so the tool has to
 // do the fan-out and be honest about which legs failed.
-func fanOut(ctx context.Context, locations []string, fn func(ctx context.Context, location string) ([]Resource, error)) Result {
+//
+// fn returns a Result rather than a slice so a leg can report a warning about a
+// listing that succeeded: a region whose jobs were capped is not a failure, but
+// it is not the whole truth either, and those are the same thing to a reader.
+func fanOut(ctx context.Context, locations []string, fn func(ctx context.Context, location string) (Result, error)) Result {
 	var (
 		mu     sync.Mutex
 		result Result
@@ -106,17 +114,20 @@ func fanOut(ctx context.Context, locations []string, fn func(ctx context.Context
 		wg.Add(1)
 		go func(loc string) {
 			defer wg.Done()
-			resources, err := fn(ctx, loc)
+			partial, err := fn(ctx, loc)
 
 			mu.Lock()
 			defer mu.Unlock()
+			// Whatever the leg did produce is kept even when it then failed:
+			// a page of results followed by a 403 on the next one is still a
+			// page of results.
+			result.Resources = append(result.Resources, partial.Resources...)
+			result.Warnings = append(result.Warnings, partial.Warnings...)
 			if err != nil {
 				if w := describeFailure(loc, err); w != "" {
 					result.Warnings = append(result.Warnings, w)
 				}
-				return
 			}
-			result.Resources = append(result.Resources, resources...)
 		}(loc)
 	}
 	wg.Wait()
