@@ -294,6 +294,10 @@ func TestResourceRowsMatchColumns(t *testing.T) {
 		"sqlusers": sqlUserResource(testProject(), testSQLInstance(), testSQLUser()),
 		"records":  recordSetResource(testProject(), testDNSZone(), testRecordSet()),
 		"subnets":  subnetResource(testProject(), "us-central1", testSubnet()),
+		"bqtables": tableResource(testProject(), "sandbox-123", "analytics", testBigQueryTable()),
+		"runrevs": revisionResource(testProject(),
+			runServiceResource(testProject(), "us-central1", testCloudRunService()),
+			testCloudRunRevision(), map[string]int64{"api-gateway-00042-xyz": 100}),
 		"lbhealth": backendHealthResource(testProject(), testBackendService(),
 			testBackendService().Backends[0].Group, testHealthStatus()),
 	}

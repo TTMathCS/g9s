@@ -437,3 +437,34 @@ func testSubnet() *computepb.Subnetwork {
 		},
 	}
 }
+
+// testBigQueryTable is partitioned with a required filter, which is the
+// configuration that stops a SELECT * scanning the whole history.
+func testBigQueryTable() *bigquery.TableListTables {
+	return &bigquery.TableListTables{
+		Id:             "sandbox-123:analytics.events",
+		TableReference: &bigquery.TableReference{ProjectId: "sandbox-123", DatasetId: "analytics", TableId: "events"},
+		Type:           "TABLE",
+		CreationTime:   time.Now().Add(-140 * 24 * time.Hour).UnixMilli(),
+		TimePartitioning: &bigquery.TimePartitioning{
+			Type: "DAY", Field: "event_date", RequirePartitionFilter: true,
+		},
+		Clustering: &bigquery.Clustering{Fields: []string{"customer_id", "event_type"}},
+	}
+}
+
+// testCloudRunRevision is the revision the test service's traffic points at.
+func testCloudRunRevision() *run.GoogleCloudRunV2Revision {
+	return &run.GoogleCloudRunV2Revision{
+		Name:    "projects/sandbox-123/locations/us-central1/services/api-gateway/revisions/api-gateway-00042-xyz",
+		Service: "projects/sandbox-123/locations/us-central1/services/api-gateway",
+		Conditions: []*run.GoogleCloudRunV2Condition{
+			{Type: "Ready", State: "CONDITION_SUCCEEDED"},
+		},
+		Containers: []*run.GoogleCloudRunV2Container{
+			{Image: "us-docker.pkg.dev/acme-dataeng-prod-4471/services/api-gateway:v2.14.0"},
+		},
+		Scaling:    &run.GoogleCloudRunV2RevisionScaling{MinInstanceCount: 1, MaxInstanceCount: 40},
+		CreateTime: time.Now().Add(-9 * 24 * time.Hour).Format(time.RFC3339),
+	}
+}

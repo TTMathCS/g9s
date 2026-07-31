@@ -45,7 +45,7 @@ shape rather than another tab — see [The alphabet is full](#the-alphabet-is-fu
 | Secret Manager secrets | global | **metadata only — never values.** One paginated call to `secrets.list`; `AccessSecretVersion` is never called, so no payload enters the process |
 | Service accounts | global | one paginated call for the accounts, then `keys.list` per account — bounded to 200 accounts, twelve at a time. N+1 is the only shape on offer, and it is worth paying: key age is the standing audit question, and putting it on the row is the difference between a table you scan and one you have to interrogate account by account. User-managed keys only; Google-managed ones rotate themselves and would put "2 keys" on every row |
 
-Seven listings hang underneath these, reached with `enter` on the row rather
+Nine listings hang underneath these, reached with `enter` on the row rather
 than a hotkey of their own. A row may hold more than one — `tab` moves between
 them the way it moves between kinds one level up:
 
@@ -56,6 +56,8 @@ them the way it moves between kinds one level up:
 | Cloud SQL users | an instance | one call. `tab` moves between this and the databases; a disabled account still appears in the list, which is exactly the row worth colouring — it looks like access that exists and is not |
 | Load balancer backend health | a forwarding rule | the expensive one, and the argument for the whole mechanism: rule → target proxy → URL map → every backend service it routes to → `getHealth` per backend group. Four-plus round trips to answer for one row, which nobody would pay on every refresh of the load balancers table and everybody would pay once, on the rule they are actually looking at |
 | Subnets | a VPC network | one `aggregatedList` covers every region server-side, then filtered to this network. Filtered on the last URL segment rather than the whole self-link: the two references come back from different calls and the API is not consistent about the host or api-version prefix it writes, so comparing full strings silently matches nothing and renders as a network with no subnets. Secondary ranges are shown named, because "which one is pods" is the question a GKE range is opened for |
+| BigQuery tables | a dataset | one paginated call, capped at 1000. No row counts or byte sizes — `tables.list` does not return them and a `Get` per table would be thousands of calls for a listing that is mostly scrolled past. The cost question it *can* answer without them is the one that bites: whether a partitioned table requires a filter, which is the difference between a query reading one day and one reading four years |
+| Cloud Run revisions | a service | one call, joined with the parent. The revisions come from the list; the traffic split is a field on the *service*, so answering "which revision is actually serving" takes both halves. A service row can say READY while the revision serving all its traffic is three deploys old, which is most of "I deployed but nothing changed" |
 | DNS record sets | a zone | one paginated call, capped at 1000. Grouped by name rather than sorted flat, so a name's A and AAAA sit on adjacent rows — they are read as a group |
 | Service account keys | an account | free: the accounts listing fetched them to compute the oldest-key age. Oldest first — that is the row the table was opened to find |
 
@@ -110,8 +112,6 @@ Everything here is a drill-down, and that is not a coincidence — see above.
 
 | Resource | Parent | Why it's near the top |
 |---|---|---|
-| BigQuery tables | a dataset | a dataset with no way into it is a row that only tells you the dataset exists |
-| Cloud Run revisions | a service | which revision is actually serving, and what the traffic split is — the question behind most "I deployed but nothing changed" |
 | Attached disks | a VM instance | |
 | Subscriptions on a topic | a topic | the subscriptions kind lists them project-wide; per topic is the other axis, and the one "who is reading this" is asked on |
 
@@ -135,7 +135,8 @@ Plausible, lower priority, grouped by area.
 reservations. (Cloud Functions, Compute disks and Batch jobs are up under
 *Blocked on the keyspace*.)
 
-**Data** — Cloud SQL is shipped, databases and users included. Still open:
+**Data** — Cloud SQL and BigQuery are shipped, down to databases, users and
+tables. Still open:
 Bigtable instances, Spanner instances and databases, Memorystore
 (Redis / Memcached), Firestore databases, Datastream streams, Data Fusion
 instances, Artifact Registry repositories, BigQuery reservations.
