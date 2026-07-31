@@ -101,9 +101,11 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | Service account keys | ✅ | drill-down | `enter` on an account; free — the accounts listing already fetched them |
 | DNS record sets | ✅ | drill-down | `enter` on a zone; one call, capped at 1000, grouped by name so a name's A and AAAA sit together |
 | Subnets | ✅ | drill-down | `enter` on a VPC; one `aggregatedList` covers every region, then filtered to that network. Secondary ranges are named, since "which one is pods" is the question |
+| BigQuery tables | ✅ | drill-down | `enter` on a dataset; one call, capped at 1000. Says whether a partitioned table *requires* a filter, which is the cost question a row count would not answer |
+| Cloud Run revisions | ✅ | drill-down | `enter` on a service; joins the revisions list with the traffic split, which lives on the service and not on any revision |
 | Cloud SQL databases & users | ✅ | drill-down | `enter` on an instance, `tab` between the two — the pair that made a row allowed more than one listing |
 | Load balancer backend health | ✅ | drill-down | `enter` on a forwarding rule; walks rule → proxy → URL map → backend services → `getHealth` per group, which is four-plus round trips nobody would pay per refresh |
-| BigQuery tables, Cloud Run revisions, a VM's disks | 🔜 | drill-down | each hangs off a row that already exists and can already count them |
+| A VM's disks, subscriptions per topic | 🔜 | drill-down | each hangs off a row that already exists |
 | Cloud Functions, Compute disks, Batch jobs | 🔜 | needs a key | real kinds with nowhere to bind — see [The alphabet is full](ROADMAP.md#the-alphabet-is-full) |
 | Compute/serverless (Batch, instance groups, GPU/TPU) | 💡 | mixed | |
 | Data (Bigtable, Spanner, Memorystore, Firestore, Datastream, Artifact Registry) | 💡 | mixed | |
@@ -137,7 +139,7 @@ Cloud Asset Inventory makes "list everything in a project" a single API call. Wi
 
 ## Status
 
-MVP. Twenty-three resource kinds across compute, data, messaging, networking and identity, plus seven drill-downs — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
+MVP. Twenty-three resource kinds across compute, data, messaging, networking and identity, plus nine drill-downs — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
 
 Navigation is three levels deep: projects → dashboard → a category's table, with `esc` walking back up. A new kind appears on the dashboard, in the tab bar and in *All Resources* automatically; there is nothing to register in the UI.
 

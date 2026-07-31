@@ -39,6 +39,8 @@ func Children() []ChildLister {
 		NodePoolLister{},
 		SQLDatabaseLister{},
 		SQLUserLister{},
+		BigQueryTableLister{},
+		CloudRunRevisionLister{},
 		SubnetLister{},
 		LoadBalancerHealthLister{},
 		DNSRecordLister{},
