@@ -118,6 +118,13 @@ func (c *Config) ComposerLocations(p Project) []string {
 	return firstNonEmpty(p.ComposerLocations, p.Regions, c.Defaults.ComposerLocations, c.Defaults.Regions)
 }
 
+// Regions returns the regions to sweep for a kind with no override of its own,
+// most specific setting first. Cloud Run uses this: its API refuses the "-"
+// wildcard, so the sweep is only ever as wide as this list.
+func (c *Config) Regions(p Project) []string {
+	return firstNonEmpty(p.Regions, c.Defaults.Regions)
+}
+
 // CredentialsFile returns the existing credentials file to read for a project,
 // or "" when g9s manages the credentials itself.
 func (c *Config) CredentialsFile(p Project) string {

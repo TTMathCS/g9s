@@ -25,6 +25,10 @@ the reason this list is long: most entries are a day's work, not a project.
 | Dataproc clusters | **regional** | needs a client per region at `<region>-dataproc.googleapis.com`; `global` always swept |
 | Dataproc jobs | **regional** | same per-region clients as the clusters; every state, newest first, capped at 200 per region because the API has no time filter |
 | Cloud Composer environments | location-scoped | one client, location in the request parent |
+| Pub/Sub topics | global | one paginated call; the state field only appears once an ingestion source breaks, so a healthy topic reports nothing and is shown as `ACTIVE` |
+| Pub/Sub subscriptions | global | the backlog column is the point, and it is not on the subscription — it comes from one Monitoring `timeSeries.list` covering every subscription at once, so an unavailable metric costs a warning rather than the table |
+| Cloud Run services | **regional** | one client per region: the v2 API documents that location cannot be the `-` wildcard, so there is no aggregated call to fall back on |
+| Cloud Run jobs | **regional** | same fan-out as the services; the row leads with the last execution's result, because a job whose executions all fail is still a perfectly healthy job resource |
 | VPC networks | global | one call |
 | Firewall rules | global | ordered by evaluation priority rather than name, because that is the only order a rule set can be reasoned about |
 | Load balancers | global + regional | forwarding rules; the one kind needing two calls, as global and regional rules live in separate collections and missing the global one hides every external HTTP(S) load balancer |
@@ -38,18 +42,19 @@ Plus, across all kinds: a per-project dashboard with status rollups, a merged
 *All Resources* table, filtering, describe-as-YAML, Console/Airflow deep links,
 clipboard yank over OSC 52, and SSH to a running VM.
 
-Seventeen kinds is past what the digits cover, so the hotkey sequence continues
-into letters — `1`-`9`, then `b e f h i m n t u v w x z`, skipping every letter
-already bound to an action. Each kind's key is printed beside it on the
-dashboard and in the tab strip, and `tab`/`shift+tab`, `0`/`a` and `:<kind>`
+Twenty-one kinds is well past what the digits cover, so the hotkey sequence
+continues into letters — `1`-`9`, then `b e f h i m n t u v w x z`, skipping
+every letter already bound to an action. Each kind's key is printed beside it on
+the dashboard and in the tab strip, and `tab`/`shift+tab`, `0`/`a` and `:<kind>`
 still reach everything. The strip scrolls around the active tab and marks hidden
 tabs with `‹`/`›`.
 
-That scheme holds twenty-two kinds, which is roughly where the dashboard stops
-being scannable anyway. Further kinds are cheap to add mechanically, but the next
-ones are probably better shaped as drill-downs than as more top-level tabs — GKE
-node pools under a cluster, DNS record sets under a zone — and a drill-down
-costs no hotkey at all.
+That scheme holds twenty-two kinds, so exactly one key is left — and twenty-two
+is roughly where the dashboard stops being scannable anyway. Further kinds are
+cheap to add mechanically, but from here on they want a different shape:
+drill-downs rather than more top-level tabs — GKE node pools under a cluster,
+DNS record sets under a zone, Pub/Sub subscriptions under their topic — and a
+drill-down costs no hotkey at all.
 
 ## Next up
 
@@ -57,8 +62,6 @@ The ones that would earn their place first, roughly in order.
 
 | Resource | Scope | Why it's near the top |
 |---|---|---|
-| Pub/Sub topics and subscriptions | global | subscription backlog is the number people want |
-| Cloud Run services and jobs | regional | replaces a lot of "is it deployed" Console trips |
 | Dataflow jobs | regional | |
 | Service accounts and their keys | global | key age is a standing audit question |
 | GKE node pools | per-cluster | one call per cluster once you know which clusters exist; a natural drill-down from the GKE row rather than another top-level tab |

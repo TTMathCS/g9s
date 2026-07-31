@@ -267,6 +267,10 @@ func TestResourceRowsMatchColumns(t *testing.T) {
 		"dataproc":     clusterResource(testProject(), "us-central1", testCluster()),
 		"dataprocjobs": dataprocJobResource(testProject(), "us-central1", testDataprocJob()),
 		"secrets":      secretResource(testProject(), testSecret()),
+		"topics":       topicResource(testProject(), testPubSubTopic()),
+		"subs":         subscriptionResource(testProject(), testPubSubSubscription(), map[string]int64{"orders-events-etl": 41}),
+		"run":          runServiceResource(testProject(), "us-central1", testCloudRunService()),
+		"runjobs":      runJobResource(testProject(), "us-central1", testCloudRunJob()),
 		"composer":     environmentResource(testProject(), "us-central1", testEnvironment()),
 
 		"vpc":          networkResource(testProject(), testNetwork()),
