@@ -41,6 +41,20 @@ var allKind = gcp.Kind{
 	},
 }
 
+// drillState is one open drill-down: the child listing, the row it was opened
+// from, and enough of the parent table to put the cursor back where it was on
+// the way out.
+type drillState struct {
+	lister gcp.Lister // the child bound to parent, so it loads like any kind
+	parent gcp.Resource
+	// parentKind is the tab the drill was opened from, named rather than
+	// indexed so the breadcrumb reads right even from the merged table.
+	parentKind gcp.Kind
+	// parentCursor is the row the drill was opened on. esc puts it back.
+	parentCursor int
+	parentFilter string
+}
+
 // Model is the root bubbletea model.
 type Model struct {
 	cfg     *config.Config
@@ -67,6 +81,12 @@ type Model struct {
 
 	// resource table
 	kindIdx int
+	// drill is the child listing open on top of the current tab, or nil.
+	// Drilling in does not leave the resources screen — it swaps which listing
+	// the screen is showing — so every route through the table (filter, cursor,
+	// describe, yank, refresh, the error and loading states) works on a
+	// drill-down without knowing one is open.
+	drill   *drillState
 	cache   map[string]gcp.Result
 	loading map[string]bool
 	loadErr map[string]error
@@ -112,7 +132,7 @@ func New(cfg *config.Config, mgr *auth.Manager) Model {
 
 	command := textinput.New()
 	command.Prompt = ":"
-	command.Placeholder = "a kind (vm gke sql gcs vpc fw lb dns vpn …) · all · projects · help · q"
+	command.Placeholder = "a kind (vm gke sql gcs dataflow topics run sa vpc fw dns …) · all · projects · help · q"
 	command.CharLimit = 40
 
 	return Model{
@@ -154,12 +174,16 @@ func (m Model) tabs() []gcp.Kind {
 // allTabIdx is the index of the merged view in tabs().
 func (m Model) allTabIdx() int { return len(m.listers) }
 
-// onAllTab reports whether the merged view is selected.
-func (m Model) onAllTab() bool { return m.kindIdx == m.allTabIdx() }
+// onAllTab reports whether the merged view is selected. A drill-down is its own
+// listing, never the merged one, even when it was opened from that table.
+func (m Model) onAllTab() bool { return m.drill == nil && m.kindIdx == m.allTabIdx() }
 
-// currentLister returns the lister backing the active tab. The merged tab has
-// none, which is why the second return value exists.
+// currentLister returns the lister backing what the table is showing. The
+// merged tab has none, which is why the second return value exists.
 func (m Model) currentLister() (gcp.Lister, bool) {
+	if m.drill != nil {
+		return m.drill.lister, true
+	}
 	if m.kindIdx < 0 || m.kindIdx >= len(m.listers) {
 		return nil, false
 	}
@@ -167,11 +191,36 @@ func (m Model) currentLister() (gcp.Lister, bool) {
 }
 
 func (m Model) currentKind() gcp.Kind {
+	if m.drill != nil {
+		return m.drill.lister.Kind()
+	}
 	tabs := m.tabs()
 	if m.kindIdx < 0 || m.kindIdx >= len(tabs) {
 		return tabs[0]
 	}
 	return tabs[m.kindIdx]
+}
+
+// childFor returns the drill-down available from a row, if any.
+//
+// The kind comes from the row rather than the tab so enter behaves the same on
+// the merged table as on the kind's own — a GKE cluster is a GKE cluster
+// wherever it is listed, and a key whose meaning depends on how you got to the
+// row is a key nobody trusts.
+func (m Model) childFor(r gcp.Resource) (gcp.ChildLister, bool) {
+	if m.drill != nil {
+		// One level. Nothing registered has grandchildren, and nesting without
+		// a reason to would only make esc ambiguous.
+		return nil, false
+	}
+	id := m.currentKind().ID
+	if id == allKind.ID {
+		id = r.KindID
+	}
+	if id == "" {
+		return nil, false
+	}
+	return gcp.ChildOf(id)
 }
 
 // mergedResources flattens every loaded kind into one list, in lister order,
@@ -465,6 +514,7 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 	case "help":
 		return m.openHelp()
 	case "proj", "projects":
+		m.drill = nil
 		m.screen = screenProjects
 		return m, nil
 	}
@@ -670,6 +720,10 @@ func (m Model) openTab(idx int) (tea.Model, tea.Cmd) {
 	if idx < 0 || idx >= len(m.tabs()) {
 		return m, nil
 	}
+	// Picking a kind is picking a kind, wherever you were. A drill-down left
+	// open underneath would make tab and the hotkeys land somewhere other than
+	// the table they name.
+	m.drill = nil
 	m.kindIdx = idx
 	m.ovCursor = idx
 	m.cursor = 0
@@ -685,13 +739,18 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "q", "esc":
-		// Back up one level rather than all the way out: the dashboard is
-		// where you came from and where you pick the next category.
+		// Back up one level rather than all the way out. Inside a drill-down
+		// that level is the table it was opened from, not the dashboard —
+		// otherwise enter and esc are not each other's opposite.
+		if m.drill != nil {
+			return m.closeDrill(), nil
+		}
 		m.screen = screenOverview
 		m.ovCursor = m.kindIdx
 		return m, nil
 
 	case "p":
+		m.drill = nil
 		m.screen = screenProjects
 		return m, nil
 
@@ -735,36 +794,40 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "L":
 		return m.startLogin(true)
 
-	// d is describe, the k9s reflex; enter does the same because it is the
-	// natural "show me this row" key.
-	case "enter", "d":
+	// enter means "go into this", the same as it does on the dashboard: where
+	// a row has a listing underneath it, that is what opens. Where it does not
+	// — every kind but two — going into a row can only mean describing it, so
+	// enter keeps doing that and d is unchanged either way.
+	case "enter":
 		r, ok := m.selectedResource()
 		if !ok {
 			return m, nil
 		}
-		m.detail.Width = m.width - 4
-		m.detail.Height = m.bodyHeight()
-		m.detail.SetContent(renderDetail(r))
-		m.detail.GotoTop()
-		m.detailRes, m.hasDetail = r, true
-		m.screen = screenDetail
-		return m, nil
+		if child, drillable := m.childFor(r); drillable {
+			return m.openDrill(child, r)
+		}
+		return m.describe(r)
+
+	// d is describe, the k9s reflex, and always describes — including on a row
+	// that has children, where it is the only way to see the parent itself.
+	case "d":
+		r, ok := m.selectedResource()
+		if !ok {
+			return m, nil
+		}
+		return m.describe(r)
 
 	case "o":
 		r, ok := m.selectedResource()
 		if !ok {
 			return m, nil
 		}
-		// For Composer the Airflow UI is what an operator actually wants.
+		// For Composer the Airflow UI is what an operator actually wants; for
+		// everything else there is only the Console page. This used to be two
+		// keys, `o` and `c`, which did the same thing on every kind but that
+		// one — and the alphabet had better uses for the second.
 		if uri, isComposer := gcp.AirflowURI(r); isComposer {
 			return m, openURL(uri)
-		}
-		return m, openURL(r.ConsoleURL)
-
-	case "c":
-		r, ok := m.selectedResource()
-		if !ok {
-			return m, nil
 		}
 		return m, openURL(r.ConsoleURL)
 
@@ -784,6 +847,72 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openTab(idx)
 	}
 	return m, nil
+}
+
+// selectedHasChild reports whether enter on the current row drills in.
+func (m Model) selectedHasChild() bool {
+	_, ok := m.selectedChild()
+	return ok
+}
+
+// selectedChildTitle names that listing, lowercased for the hint line.
+func (m Model) selectedChildTitle() string {
+	child, ok := m.selectedChild()
+	if !ok {
+		return "open"
+	}
+	return strings.ToLower(child.Kind().Title)
+}
+
+func (m Model) selectedChild() (gcp.ChildLister, bool) {
+	r, ok := m.selectedResource()
+	if !ok {
+		return nil, false
+	}
+	return m.childFor(r)
+}
+
+// describe opens the YAML pane on a row.
+func (m Model) describe(r gcp.Resource) (tea.Model, tea.Cmd) {
+	m.detail.Width = m.width - 4
+	m.detail.Height = m.bodyHeight()
+	m.detail.SetContent(renderDetail(r))
+	m.detail.GotoTop()
+	m.detailRes, m.hasDetail = r, true
+	m.screen = screenDetail
+	return m, nil
+}
+
+// openDrill opens a row's child listing in place of the current table.
+//
+// The parent's cursor and filter are kept rather than recomputed: coming back
+// out to a table that has scrolled somewhere else, or lost the query you were
+// working through, makes drilling in feel like losing your place.
+func (m Model) openDrill(child gcp.ChildLister, parent gcp.Resource) (tea.Model, tea.Cmd) {
+	m.drill = &drillState{
+		lister:       gcp.BindChild(child, parent),
+		parent:       parent,
+		parentKind:   m.currentKind(),
+		parentCursor: m.cursor,
+		parentFilter: m.filter.Value(),
+	}
+	m.cursor = 0
+	m.filter.SetValue("")
+	m.filtering = false
+	m.filter.Blur()
+	return m.loadCurrentIfEmpty()
+}
+
+// closeDrill goes back up to the table the drill was opened from.
+func (m Model) closeDrill() Model {
+	if m.drill == nil {
+		return m
+	}
+	m.cursor = m.drill.parentCursor
+	m.filter.SetValue(m.drill.parentFilter)
+	m.drill = nil
+	m.clampCursor()
+	return m
 }
 
 func (m Model) startSSH() (tea.Model, tea.Cmd) {

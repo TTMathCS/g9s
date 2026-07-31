@@ -6,22 +6,27 @@ package ui
 // only by tab-cycling or a typed command is a kind nobody uses, so the sequence
 // carries on into letters — but not alphabetically, because most of the
 // alphabet is already an action on the table screen. `d` describes, `o` opens,
-// `c` opens the Console, `y` yanks, `s` ssh-es, `r` refreshes, `l`/`L` log in,
-// `p` goes back to projects, `g`/`G` and `j`/`k` move, `q` backs out, `a` is
-// the merged view. Handing any of those to a kind would break the action that
-// owns it, so the letter run is exactly what nothing else claims, alphabetical
-// within that.
+// `y` yanks, `s` ssh-es, `r` refreshes, `l`/`L` log in, `p` goes back to
+// projects, `g`/`G` and `j`/`k` move, `q` backs out, `a` is the merged view.
+// Handing any of those to a kind would break the action that owns it, so the
+// letter run is exactly what nothing else claims, alphabetical within that.
 //
 // The mapping is not something to memorise: every kind's key is printed beside
 // it in the dashboard and in the tab strip, so the legend is always on screen.
+//
+// Twenty-three kinds is where the run ends, and that is the whole alphabet —
+// there is no twenty-fourth key to find without taking one back off an action.
+// Which is the point at which more top-level kinds is the wrong answer: what
+// comes next drills down from a row instead (see gcp.ChildLister), and a
+// drill-down costs no key at all.
 
-// kindKeys selects a resource kind by index into Listers(). Twenty-two kinds
+// kindKeys selects a resource kind by index into Listers(). Twenty-three kinds
 // fit; past that a kind gets noHotkey and is reached with tab, the dashboard
 // cursor or `:<kind>`. TestKindKeysCoverEveryLister fails first, which is the
-// reminder to widen the scheme rather than let a kind go quiet.
+// reminder to reach for a drill-down rather than let a kind go quiet.
 var kindKeys = []string{
 	"1", "2", "3", "4", "5", "6", "7", "8", "9",
-	"b", "e", "f", "h", "i", "m", "n", "t", "u", "v", "w", "x", "z",
+	"b", "c", "e", "f", "h", "i", "m", "n", "t", "u", "v", "w", "x", "z",
 }
 
 // allKeys select the merged view. `0` is the k9s reflex for "everything at
@@ -33,7 +38,7 @@ var allKeys = []string{"0", "a"}
 // one thing that must stay true is that no kind ever shadows an action —
 // TestKindKeysAvoidActionKeys is what keeps it true as either list grows.
 var actionKeys = []string{
-	"a", "c", "d", "g", "G", "j", "k", "l", "L", "o", "p", "q", "r", "s", "y",
+	"a", "d", "g", "G", "j", "k", "l", "L", "o", "p", "q", "r", "s", "y",
 	"0", "/", ":", "?", "[", "]", "enter", "esc", "tab", "shift+tab",
 	"up", "down", "ctrl+c",
 }

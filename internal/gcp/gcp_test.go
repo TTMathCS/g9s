@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/compute/apiv1/computepb"
+	iam "google.golang.org/api/iam/v1"
 	sqladmin "google.golang.org/api/sqladmin/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -280,10 +281,26 @@ func TestResourceRowsMatchColumns(t *testing.T) {
 		"vpn":          vpnTunnelResource(testProject(), "us-central1", testVPNTunnel()),
 		"interconnect": interconnectAttachmentResource(testProject(), "us-central1", testInterconnectAttachment()),
 		"psc":          serviceAttachmentResource(testProject(), "us-central1", testServiceAttachment()),
+		"dataflow":     dataflowJobResource(testProject(), testDataflowJob()),
+		"sa":           serviceAccountResource(testProject(), testServiceAccount(), []*iam.ServiceAccountKey{testServiceAccountKey()}),
+
+		// Drill-downs are the same contract: a row is rendered by the same
+		// table code, so a mismatched cell count breaks identically.
+		"nodepools": nodePoolResource(testProject(), testGKEClusterWithNodePools(),
+			testGKEClusterWithNodePools().GetNodePools()[0]),
+		"sakeys": serviceAccountKeyResource(testProject(),
+			serviceAccountResource(testProject(), testServiceAccount(), nil), testServiceAccountKey()),
 	}
 
+	kinds := make([]Kind, 0, len(Listers())+len(Children()))
 	for _, l := range Listers() {
-		kind := l.Kind()
+		kinds = append(kinds, l.Kind())
+	}
+	for _, c := range Children() {
+		kinds = append(kinds, c.Kind())
+	}
+
+	for _, kind := range kinds {
 		r, ok := fixtures[kind.ID]
 		if !ok {
 			t.Fatalf("no fixture for kind %q — add one when adding a lister", kind.ID)

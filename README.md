@@ -42,7 +42,7 @@ curl -L https://github.com/TTMathCS/g9s/releases/latest/download/g9s_darwin_arm6
 
 Then verify it and check what else you need: [checksum and provenance verification](#option-1-download-a-release-binary-no-go-toolchain), the [macOS Gatekeeper step](#option-1-download-a-release-binary-no-go-toolchain), or [building from source](#option-2-build-from-source) instead. **`gcloud` is required separately** — see [Requirements](#requirements).
 
-Three screens, in the order you move through them.
+Four screens, in the order you move through them.
 
 **Projects.** You open here, and the thing you actually need to know is already on screen: which of your ten projects you can use right now. Green is good for another 38 minutes, amber expired overnight, hollow means this machine has never logged in. Press `l` on any row and gcloud takes the terminal to fix it.
 
@@ -56,7 +56,11 @@ Three screens, in the order you move through them.
 
 ![The g9s resource table: nine VM instances in the prod-data project, with a warning in the status bar that one region was unavailable](docs/resources.png)
 
-<sub>All three screenshots are generated from the real rendering code — see <a href="docs/">docs/</a>. The projects, IDs and accounts in them are invented.</sub>
+**Drill-down.** Some rows have a listing underneath them — a GKE cluster's node pools, a service account's keys. `enter` opens it in place, with the child's own columns and a trail naming the row you came in on; `esc` puts you back where you were. `d` still describes, so a row with children is not a row you can no longer inspect. These cost no hotkey, which is the point: the alphabet is full at twenty-three kinds, and this is how the tool grows past it.
+
+![The g9s drill-down: four node pools inside a GKE cluster, with their machine types, node counts, autoscaling bounds and upgrade policy](docs/drilldown.png)
+
+<sub>All four screenshots are generated from the real rendering code — see <a href="docs/">docs/</a>. The projects, IDs and accounts in them are invented.</sub>
 
 ## Roadmap
 
@@ -75,6 +79,7 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | Dataproc clusters | ✅ | **regional** | a client per region; `global` always swept |
 | Dataproc jobs | ✅ | **regional** | every state, newest first; capped at 200 per region — the API has no time filter |
 | Cloud Composer environments | ✅ | location-scoped | one client, location in the request parent |
+| Dataflow jobs | ✅ | regional, aggregated | `jobs.aggregated` sweeps every regional endpoint server-side — no fan-out, and jobs outside your configured regions still show up |
 | Pub/Sub topics | ✅ | global | one call; a topic reports a state only once an ingestion source breaks |
 | Pub/Sub subscriptions | ✅ | global | backlog per subscription, from one Monitoring call covering all of them |
 | Cloud Run services | ✅ | **regional** | a client per region — the v2 API takes no `-` wildcard for location |
@@ -87,9 +92,10 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | Interconnect attachments | ✅ | regional, aggregated | VLAN attachments, not circuits; admin-disabled beats a healthy-looking state |
 | PSC service attachments | ✅ | regional, aggregated | the producer side; consumer endpoints are forwarding rules, already under load balancers |
 | Secret Manager secrets | ✅ | global | **metadata only — never values**; replication, rotation and expiry |
-| Dataflow jobs | 🔜 | regional | |
-| Service accounts & keys | 🔜 | global | key age is a standing audit question |
-| GKE node pools | 🔜 | per-cluster | drill-down from a GKE row, not a new top-level tab |
+| Service accounts | ✅ | global | one call for the accounts, then a bounded concurrent `keys.list` each, so the oldest key's age is on the row rather than three clicks away |
+| GKE node pools | ✅ | drill-down | `enter` on a cluster; free — `clusters.list` already returned them |
+| Service account keys | ✅ | drill-down | `enter` on an account; free — the accounts listing already fetched them |
+| DNS record sets, backend service health, Cloud SQL databases | 🔜 | drill-down | the shape everything new takes from here — no hotkey to spend |
 | Compute/serverless (Functions, Batch, instance groups, disks, GPU/TPU) | 💡 | mixed | |
 | Data (Bigtable, Spanner, Memorystore, Firestore, Datastream, Artifact Registry) | 💡 | mixed | |
 | Security/identity (IAM bindings, KMS, Certificate Manager, VPC-SC, Org Policy) | 💡 | mixed | |
@@ -122,11 +128,13 @@ Cloud Asset Inventory makes "list everything in a project" a single API call. Wi
 
 ## Status
 
-MVP. Twenty-one resource kinds across compute, data, messaging and networking — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
+MVP. Twenty-three resource kinds across compute, data, messaging, networking and identity, plus two drill-downs — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
 
 Navigation is three levels deep: projects → dashboard → a category's table, with `esc` walking back up. A new kind appears on the dashboard, in the tab bar and in *All Resources* automatically; there is nothing to register in the UI.
 
-Every kind has a one-press key, past the ninth included. The digits run out at nine, so the sequence carries on into letters — `1`–`9`, then `b e f h i m n t u v w x z` — skipping every letter that is already an action, which is why the run starts at `b` and not at `a` (`a` is *All Resources*). Nothing to memorise: each kind's key is printed beside it on the dashboard and in the tab strip. `tab`/`shift+tab` and `:<kind>` still reach everything, and the tab strip scrolls to keep the active tab visible, marking hidden tabs with `‹`/`›`. Twenty-one kinds against twenty-two keys leaves one spare, which is about where a flat list of tabs stops being worth scanning — see [ROADMAP.md](ROADMAP.md) for what happens after that.
+Every kind has a one-press key, past the ninth included. The digits run out at nine, so the sequence carries on into letters — `1`–`9`, then `b c e f h i m n t u v w x z` — skipping every letter that is already an action, which is why the run starts at `b` and not at `a` (`a` is *All Resources*). Nothing to memorise: each kind's key is printed beside it on the dashboard and in the tab strip. `tab`/`shift+tab` and `:<kind>` still reach everything, and the tab strip scrolls to keep the active tab visible, marking hidden tabs with `‹`/`›`.
+
+Twenty-three kinds against twenty-three keys means the scheme is now exactly full — that is the whole alphabet, and there is no twenty-fourth key to find without taking one back off an action. Which is the answer, not a problem: what comes next hangs off a row instead of the tab strip. `enter` on a GKE cluster opens its node pools, `enter` on a service account opens its keys, and a drill-down costs no key at all. A test fails the build if a kind is ever added without a key, so this cannot go quiet.
 
 ## Requirements
 
@@ -469,18 +477,17 @@ The bindings follow k9s muscle memory where the two tools overlap: `:` jumps by 
 |---|---|
 | `↑`/`k`, `↓`/`j` | move cursor |
 | `g` / `G` | top / bottom |
-| `enter` | dashboard: open the category · table: describe (YAML, as `gcloud describe` shows it) |
-| `d` | describe the selected resource |
-| `:` | command — `:vm` `:gke` `:gcs` `:dataproc` `:topics` `:subs` `:run` `:all` `:projects` `:q` (prefixes work: `:data`) |
-| `1`–`9`, then `b e f h i m n t u v w x z` | jump straight to a resource kind — one key each, printed beside the kind on the dashboard and in the tab strip |
+| `enter` | go in — dashboard: open the category · table: the row's node pools or keys where it has them, otherwise describe |
+| `d` | describe the selected resource (YAML, as `gcloud describe` shows it) — always, including on a row `enter` drills into |
+| `:` | command — `:vm` `:gke` `:sa` `:dataflow` `:topics` `:run` `:all` `:projects` `:q` (prefixes work: `:data`) |
+| `1`–`9`, then `b c e f h i m n t u v w x z` | jump straight to a resource kind — one key each, printed beside the kind on the dashboard and in the tab strip |
 | `0` / `a` | all resources — every kind in one table |
 | `tab` / `shift+tab` | cycle resource kinds |
-| `q` / `esc` | back up one level — table to dashboard, dashboard to projects |
+| `q` / `esc` | back up one level — drill-down to its table, table to dashboard, dashboard to projects |
 | `p` | back to the project list |
 | `/` | filter rows; `esc` clears |
 | `r` | refresh current kind — every kind when on the dashboard |
 | `o` | open — Airflow UI for Composer, Cloud Console otherwise |
-| `c` | open in Cloud Console |
 | `y` | copy name to clipboard (OSC 52, works over SSH) |
 | `s` | SSH to the selected running VM |
 | `l` / `L` | log in / log in without a local browser |
@@ -518,9 +525,25 @@ type Lister interface {
 
 Use `fanOut` for anything region-scoped; it handles the concurrency, the partial-failure collection and the stable ordering. `internal/gcp/dataproc.go` is the shortest example.
 
-Two things the UI relies on, both covered by tests: your `Resource.Row` must have exactly as many cells as `Kind.Columns`, and there has to be a hotkey left for your kind. The alphabet in `internal/ui/hotkeys.go` holds twenty-two; `TestKindKeysCoverEveryLister` is what fails when it runs out, rather than the kind quietly becoming reachable only by typing a command.
+Two things the UI relies on, both covered by tests: your `Resource.Row` must have exactly as many cells as `Kind.Columns`, and there has to be a hotkey left for your kind. The alphabet in `internal/ui/hotkeys.go` holds twenty-three, which is exactly how many kinds there are — so `TestEveryKindStillHasAKey` fails the moment you add a twenty-fourth, rather than letting it become reachable only by typing a command.
 
 If the raw object your lister puts in `Resource.Raw` carries a secret — an API that returns a key, a password, a token — add its field name to `secretFields` in `internal/ui/commands.go`. The detail pane renders `Raw` in full, and `y` copies it.
+
+### Or a drill-down, which needs no key
+
+If what you are adding belongs to one parent row rather than to the project — a cluster's node pools, an account's keys, a zone's record sets — implement `gcp.ChildLister` instead and add it to `Children()`:
+
+```go
+type ChildLister interface {
+	Kind() Kind
+	ParentKind() string // the Kind.ID it hangs off
+	List(ctx context.Context, cfg *config.Config, p config.Project, parent Resource, opts []option.ClientOption) (Result, error)
+}
+```
+
+`enter` on a matching row opens it. There is nothing to register in the UI and no hotkey to find — which is why this, and not a twenty-fourth tab, is the shape everything new should take from here.
+
+Often it is free: check `parent.Raw` before writing a call, because the parent listing frequently fetched the children already. Both shipped drill-downs do exactly that — `clusters.list` returns node pools inline, and the service accounts table has to read keys anyway to put the oldest one's age on the row.
 
 ## Design notes
 

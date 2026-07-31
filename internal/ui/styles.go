@@ -66,9 +66,12 @@ func statusStyle(status string) lipgloss.Style {
 	// is a VPN tunnel that finished its handshake, ENABLED is a live firewall rule.
 	// DONE is BigQuery's word for a job that finished; a job that finished
 	// badly reports FAILED instead, which is why DONE is unambiguously green.
-	// SUCCEEDED is the Cloud Run execution that came back clean.
+	// SUCCEEDED is the Cloud Run execution that came back clean. DRAINED is a
+	// Dataflow job that was asked to stop and finished what it had in flight
+	// first, and UPDATED is one replaced by a newer version of itself — both
+	// are clean endings rather than interruptions.
 	case "RUNNING", "RUNNABLE", "ACTIVE", "READY", "ESTABLISHED", "ENABLED", "DONE",
-		"SUCCEEDED":
+		"SUCCEEDED", "DRAINED", "UPDATED":
 		return goodStyle
 	case "PROVISIONING", "STAGING", "CREATING", "UPDATING", "STOPPING", "DELETING",
 		"REPAIRING", "SUSPENDING", "RECONCILING",
@@ -90,7 +93,14 @@ func statusStyle(status string) lipgloss.Style {
 		// A detached Pub/Sub subscription still exists and still costs nothing,
 		// but it retains nothing and delivers nothing — publishers carry on
 		// unaware, which is exactly the failure worth flagging.
-		"DETACHED":
+		"DETACHED",
+		// A service account carrying a user-managed key past its rotation
+		// window. Nothing is broken, which is the problem: IAM reports the same
+		// state whether the key is a week old or three years old.
+		"STALE_KEY",
+		// Dataflow jobs on their way somewhere. DRAINING is a deliberate
+		// shutdown that is still processing what it has in flight.
+		"DRAINING", "CANCELLING", "QUEUED", "RESOURCE_CLEANING_UP":
 		return warnStyle
 	case "ERROR", "FAILED", "TERMINATED", "STOPPED", "SUSPENDED", "UNHEALTHY", "DEGRADED",
 		// VPN tunnels that will never carry traffic without intervention.

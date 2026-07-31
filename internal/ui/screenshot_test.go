@@ -55,6 +55,7 @@ func TestGenerateScreenshots(t *testing.T) {
 		{"projects", projectsShot()},
 		{"dashboard", dashboardShot()},
 		{"resources", resourcesShot()},
+		{"drilldown", drilldownShot()},
 	} {
 		path := filepath.Join(outDir, shot.name+".ansi")
 		if err := os.WriteFile(path, []byte(padToWidth(shot.model.View())), 0o644); err != nil {
@@ -211,6 +212,14 @@ func resourcesShot() Model {
 	for id, res := range messagingAndServerless() {
 		m.cache[id] = res
 	}
+	m.cache["dataflow"] = gcp.Result{
+		Resources: statusOnly(kindByID("dataflow"), map[string]int{"RUNNING": 3, "DONE": 6, "FAILED": 1}),
+	}
+	// One account past its rotation window, because that is the finding the
+	// kind exists to surface and a column of ACTIVE demonstrates nothing.
+	m.cache["sa"] = gcp.Result{
+		Resources: statusOnly(kindByID("sa"), map[string]int{"ACTIVE": 11, "STALE_KEY": 2, "DISABLED": 1}),
+	}
 	return m
 }
 
@@ -304,6 +313,55 @@ func dashboardShot() Model {
 	for id, res := range messagingAndServerless() {
 		m.cache[id] = res
 	}
+	m.cache["dataflow"] = gcp.Result{
+		Resources: statusOnly(kindByID("dataflow"), map[string]int{"RUNNING": 3, "DONE": 6, "FAILED": 1}),
+	}
+	// One account past its rotation window, because that is the finding the
+	// kind exists to surface and a column of ACTIVE demonstrates nothing.
+	m.cache["sa"] = gcp.Result{
+		Resources: statusOnly(kindByID("sa"), map[string]int{"ACTIVE": 11, "STALE_KEY": 2, "DISABLED": 1}),
+	}
+	return m
+}
+
+// drilldownShot is a GKE cluster's node pools: the trail naming the parent in
+// place of the tab strip, and a table whose columns belong to the child rather
+// than to any tab. It is the one screen prose does not convey — "enter goes
+// into a row" reads as a describe pane until you see the columns change.
+func drilldownShot() Model {
+	m := baseShot(4 + 3 + chromeHeight)
+	m.screen = screenResources
+	m.active = m.cfg.Projects[0]
+	m.hasActive = true
+	m.authStatus[m.active.Name] = auth.Status{State: auth.StateValid, Expiry: time.Now().Add(38 * time.Minute)}
+
+	parent := gcp.Resource{
+		Name:     "batch-cluster",
+		Location: "us-central1",
+		Status:   "RUNNING",
+		KindID:   "gke",
+		Row:      []string{"batch-cluster", "us-central1", "Standard", "31", "1.31.1-gke.1146000", "RUNNING", "204d"},
+	}
+	m.kindIdx = 1 // GKE Clusters
+	m.cache["gke"] = gcp.Result{Resources: []gcp.Resource{parent}}
+	m.drill = &drillState{
+		lister:     gcp.BindChild(gcp.NodePoolLister{}, parent),
+		parent:     parent,
+		parentKind: kindByID("gke"),
+	}
+	m.cursor = 1
+
+	rows := [][]string{
+		{"default-pool", "e2-standard-4", "9", "3-30", "1.31.1-gke.1146000", "upgrade+repair", "RUNNING"},
+		{"spark-workers", "n2-highmem-8", "18", "0-60", "1.31.1-gke.1146000", "repair", "RUNNING"},
+		{"gpu-inference", "g2-standard-8", "4", "off", "1.30.5-gke.1443001", "manual", "RECONCILING"},
+		{"system-pool", "e2-medium", "3", "3-6", "1.31.1-gke.1146000", "upgrade+repair", "RUNNING"},
+	}
+	resources := make([]gcp.Resource, 0, len(rows))
+	for _, r := range rows {
+		resources = append(resources, gcp.Resource{Name: r[0], Location: "us-central1", Status: r[6], Row: r})
+	}
+	m.cache[m.currentKind().ID] = gcp.Result{Resources: resources}
 	return m
 }
 

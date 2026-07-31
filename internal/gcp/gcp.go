@@ -51,6 +51,19 @@ type Resource struct {
 	Raw any
 	// ConsoleURL deep-links to this resource in the Cloud Console.
 	ConsoleURL string
+	// KindID names the lister this row came from. Listers do not set it —
+	// StampKind does, once, on the way out of a fetch — so it stays correct
+	// without every lister having to remember. It is what lets the merged
+	// table, which has flattened away the per-kind columns, still answer "what
+	// is this row" for a drill-down.
+	KindID string
+}
+
+// StampKind records which kind a listing's rows came from.
+func StampKind(result *Result, kindID string) {
+	for i := range result.Resources {
+		result.Resources[i].KindID = kindID
+	}
 }
 
 // Result is a possibly-partial listing.
@@ -81,6 +94,7 @@ func Listers() []Lister {
 		DataprocLister{},
 		DataprocJobLister{},
 		ComposerLister{},
+		DataflowLister{},
 		PubSubTopicLister{},
 		PubSubSubscriptionLister{},
 		CloudRunServiceLister{},
@@ -92,9 +106,10 @@ func Listers() []Lister {
 		VPNLister{},
 		InterconnectLister{},
 		PSCLister{},
-		// Last, and on its own: not compute, not data, not networking. Metadata
-		// only — see SecretLister.
+		// Last, and together: not compute, not data, not networking. The two
+		// kinds you open with an audit question rather than an outage.
 		SecretLister{},
+		ServiceAccountLister{},
 	}
 }
 

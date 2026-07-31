@@ -8,6 +8,7 @@ import (
 
 	"github.com/TTMathCS/g9s/internal/auth"
 	"github.com/TTMathCS/g9s/internal/config"
+	"github.com/TTMathCS/g9s/internal/gcp"
 )
 
 func hotkeyModel(t *testing.T) Model {
@@ -176,5 +177,57 @@ func TestHotkeyLegendMatchesTheKeys(t *testing.T) {
 	}
 	if !strings.HasPrefix(legend, "1-") {
 		t.Errorf("legend %q should start with the digit range", legend)
+	}
+}
+
+func TestEveryKindStillHasAKey(t *testing.T) {
+	// Twenty-three kinds against twenty-three keys: the scheme is exactly full,
+	// so a twenty-fourth lister silently loses its hotkey. This is the failure
+	// that says the next kind wants to be a drill-down (gcp.ChildLister), which
+	// needs no key, rather than another tab.
+	m := hotkeyModel(t)
+	for i, l := range m.listers {
+		if kindKey(i) == noHotkey {
+			t.Errorf("kind %q has no hotkey — %d kinds, %d keys",
+				l.Kind().ID, len(m.listers), len(kindKeys))
+		}
+	}
+}
+
+func TestTheKeyReclaimedFromTheConsoleShortcutIsAKindKey(t *testing.T) {
+	// `c` used to open the Cloud Console, which is what `o` already did on
+	// every kind but Composer. Folding the two together is what made room for
+	// the twenty-third kind, so `c` must be a kind key and must not be an
+	// action any more — otherwise pressing it on a table fires both.
+	kind := false
+	for _, k := range kindKeys {
+		if k == "c" {
+			kind = true
+		}
+	}
+	if !kind {
+		t.Error("c is not a kind key")
+	}
+	for _, k := range actionKeys {
+		if k == "c" {
+			t.Error("c is still bound as an action, so the kind it names is unreachable")
+		}
+	}
+}
+
+func TestOpenStillReachesTheConsoleForOrdinaryKinds(t *testing.T) {
+	// The other half of that trade: with `c` gone, `o` is the only way to the
+	// Console, so it has to work on a kind that has no Airflow URI.
+	m := hotkeyModel(t)
+	m.screen = screenResources
+	m.kindIdx = 0
+	m.cache["vm"] = gcp.Result{Resources: []gcp.Resource{{
+		Name:       "web-01",
+		Row:        []string{"web-01", "us-central1-a", "n2", "10.0.0.1", "-", "RUNNING", "1d"},
+		ConsoleURL: "https://console.cloud.google.com/compute/instancesDetail/zones/us-central1-a/instances/web-01?project=prod-1",
+	}}}
+
+	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")}); cmd == nil {
+		t.Error("o on a VM row did nothing")
 	}
 }

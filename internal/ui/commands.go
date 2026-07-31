@@ -77,6 +77,8 @@ func listResources(cfg *config.Config, mgr *auth.Manager, p config.Project, list
 		defer cancel()
 
 		result, err := lister.List(ctx, cfg, p, mgr.ClientOptions(p))
+		// One place, so no lister has to remember and none can get it wrong.
+		gcp.StampKind(&result, lister.Kind().ID)
 		return resourcesMsg{
 			project: p.Name,
 			kind:    lister.Kind().ID,
