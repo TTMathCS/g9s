@@ -26,6 +26,7 @@ func strPtr(s string) *string       { return &s }
 func boolPtr(b bool) *bool          { return &b }
 func int32Ptr(i int32) *int32       { return &i }
 func float32Ptr(f float32) *float32 { return &f }
+func int64Ptr(i int64) *int64       { return &i }
 
 func testProject() config.Project {
 	return config.Project{
@@ -46,6 +47,30 @@ func testInstance() *computepb.Instance {
 			NetworkIP:     strPtr("10.0.0.5"),
 			AccessConfigs: []*computepb.AccessConfig{{NatIP: strPtr("34.1.2.3")}},
 		}},
+		// A boot disk that goes with the VM and a data disk that does not,
+		// which is the distinction the disks drill-down exists to show.
+		Disks: []*computepb.AttachedDisk{
+			{
+				DeviceName: strPtr("persistent-disk-0"),
+				Source:     strPtr("https://www.googleapis.com/compute/v1/projects/sandbox-123/zones/us-central1-a/disks/web-01-boot"),
+				DiskSizeGb: int64Ptr(50),
+				Boot:       boolPtr(true),
+				AutoDelete: boolPtr(true),
+				Mode:       strPtr("READ_WRITE"),
+				Type:       strPtr("PERSISTENT"),
+				Index:      int32Ptr(0),
+			},
+			{
+				DeviceName: strPtr("data"),
+				Source:     strPtr("https://www.googleapis.com/compute/v1/projects/sandbox-123/zones/us-central1-a/disks/web-01-data"),
+				DiskSizeGb: int64Ptr(500),
+				Boot:       boolPtr(false),
+				AutoDelete: boolPtr(false),
+				Mode:       strPtr("READ_WRITE"),
+				Type:       strPtr("PERSISTENT"),
+				Index:      int32Ptr(1),
+			},
+		},
 	}
 }
 
