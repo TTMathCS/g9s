@@ -293,6 +293,7 @@ func TestResourceRowsMatchColumns(t *testing.T) {
 		"sqldbs":   sqlDatabaseResource(testProject(), testSQLInstance(), testSQLDatabase()),
 		"sqlusers": sqlUserResource(testProject(), testSQLInstance(), testSQLUser()),
 		"records":  recordSetResource(testProject(), testDNSZone(), testRecordSet()),
+		"subnets":  subnetResource(testProject(), "us-central1", testSubnet()),
 		"lbhealth": backendHealthResource(testProject(), testBackendService(),
 			testBackendService().Backends[0].Group, testHealthStatus()),
 	}
