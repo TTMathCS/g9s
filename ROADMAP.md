@@ -45,12 +45,13 @@ shape rather than another tab — see [The alphabet is full](#the-alphabet-is-fu
 | Secret Manager secrets | global | **metadata only — never values.** One paginated call to `secrets.list`; `AccessSecretVersion` is never called, so no payload enters the process |
 | Service accounts | global | one paginated call for the accounts, then `keys.list` per account — bounded to 200 accounts, twelve at a time. N+1 is the only shape on offer, and it is worth paying: key age is the standing audit question, and putting it on the row is the difference between a table you scan and one you have to interrogate account by account. User-managed keys only; Google-managed ones rotate themselves and would put "2 keys" on every row |
 
-Nine listings hang underneath these, reached with `enter` on the row rather
+Eleven listings hang underneath these, reached with `enter` on the row rather
 than a hotkey of their own. A row may hold more than one — `tab` moves between
 them the way it moves between kinds one level up:
 
 | Drill-down | Parent | Notes |
 |---|---|---|
+| A VM's attached disks | an instance | free: `aggregatedList` already returns the attachments inline. These are the attachments rather than the disks — the size and source are here, the disk's own state and snapshot schedule live on the Disk resource, which has nowhere to bind while the alphabet is full. Auto-delete gets both a column and the row's status, because it is the one setting on an attachment that loses data when the VM goes |
 | GKE node pools | a cluster | free: `clusters.list` already returns node pools inline. Node counts are multiplied out across the pool's zones, because a pool of 2 across three zones runs six VMs and reading the 2 as the total is how a cluster ends up mis-sized on paper |
 | Cloud SQL databases | an instance | one call. The first half of the pair that made a row allowed more than one listing |
 | Cloud SQL users | an instance | one call. `tab` moves between this and the databases; a disabled account still appears in the list, which is exactly the row worth colouring — it looks like access that exists and is not |
@@ -58,6 +59,7 @@ them the way it moves between kinds one level up:
 | Subnets | a VPC network | one `aggregatedList` covers every region server-side, then filtered to this network. Filtered on the last URL segment rather than the whole self-link: the two references come back from different calls and the API is not consistent about the host or api-version prefix it writes, so comparing full strings silently matches nothing and renders as a network with no subnets. Secondary ranges are shown named, because "which one is pods" is the question a GKE range is opened for |
 | BigQuery tables | a dataset | one paginated call, capped at 1000. No row counts or byte sizes — `tables.list` does not return them and a `Get` per table would be thousands of calls for a listing that is mostly scrolled past. The cost question it *can* answer without them is the one that bites: whether a partitioned table requires a filter, which is the difference between a query reading one day and one reading four years |
 | Cloud Run revisions | a service | one call, joined with the parent. The revisions come from the list; the traffic split is a field on the *service*, so answering "which revision is actually serving" takes both halves. A service row can say READY while the revision serving all its traffic is three deploys old, which is most of "I deployed but nothing changed" |
+| Subscriptions on a topic | a topic | one call, filtered — deliberately not `topics.subscriptions.list`, which returns names only and would need a `Get` each to fill a row. A topic with no subscriptions says so as a warning rather than rendering an empty table that reads as a failed call: anything published to it is discarded, and the topics table cannot show that |
 | DNS record sets | a zone | one paginated call, capped at 1000. Grouped by name rather than sorted flat, so a name's A and AAAA sit on adjacent rows — they are read as a group |
 | Service account keys | an account | free: the accounts listing fetched them to compute the oldest-key age. Oldest first — that is the row the table was opened to find |
 
@@ -112,8 +114,11 @@ Everything here is a drill-down, and that is not a coincidence — see above.
 
 | Resource | Parent | Why it's near the top |
 |---|---|---|
-| Attached disks | a VM instance | |
-| Subscriptions on a topic | a topic | the subscriptions kind lists them project-wide; per topic is the other axis, and the one "who is reading this" is asked on |
+| Secret versions | a secret | **metadata only, same as the parent.** Which version is enabled, when each was added, which are disabled but not destroyed — the secrets row shows rotation policy, this shows whether rotation actually happened. `AccessSecretVersion` stays uncalled |
+| Cloud Run job executions | a job | the jobs row leads with the *last* execution's result; this is the history behind it, which is the difference between "failed once" and "has been failing nightly for a week" |
+| Bucket lifecycle rules | a bucket | free — the bucket listing already carries them. The answer to "why did my data disappear" and to "why is nothing being archived", neither of which is visible from a bucket row |
+| Dataproc jobs on a cluster | a cluster | the jobs kind lists them per region; per cluster is the axis you are on when a cluster is the thing behaving oddly |
+| Roles held by a service account | an account | one `getIamPolicy`, filtered to the member. "What can this thing actually do" is the other half of the key-age question, and nothing in the tool answers it yet |
 
 ### Blocked on the keyspace
 

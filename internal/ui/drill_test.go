@@ -96,21 +96,41 @@ func TestEnterDrillsIntoARowWithChildren(t *testing.T) {
 }
 
 func TestEnterStillDescribesARowWithoutChildren(t *testing.T) {
+	// Most kinds have nothing underneath them, and on those enter has to keep
+	// meaning what it always did rather than doing nothing.
+	//
+	// The childless kind is looked up rather than named: this test used to pin
+	// VM instances, and adding a disks drill-down turned a correct assertion
+	// into a failing one. Deriving it keeps the test about enter's fallback
+	// instead of about which kinds happen to have children today.
 	m := drillModel(t)
-	// Compute instances have no drill-down, so enter has to keep meaning what
-	// it always did rather than doing nothing.
-	m.kindIdx = 0
-	m.cache["vm"] = gcp.Result{Resources: []gcp.Resource{{
-		Name: "web-01", KindID: "vm", Row: []string{"web-01", "us-central1-a", "n2", "10.0.0.1", "-", "RUNNING", "1d"},
+	idx, kind := childlessTab(t, m)
+	m.kindIdx = idx
+	m.cache[kind.ID] = gcp.Result{Resources: []gcp.Resource{{
+		Name:   "row-1",
+		KindID: kind.ID,
+		Row:    make([]string, len(kind.Columns)),
 	}}}
 
 	m = press(m, "enter")
 	if m.drill != nil {
-		t.Error("a VM row opened a drill-down")
+		t.Errorf("a %s row opened a drill-down", kind.ID)
 	}
 	if m.screen != screenDetail {
 		t.Errorf("screen = %v, want the describe pane", m.screen)
 	}
+}
+
+// childlessTab finds a kind with no drill-down registered against it.
+func childlessTab(t *testing.T, m Model) (int, gcp.Kind) {
+	t.Helper()
+	for i, l := range m.listers {
+		if len(gcp.ChildrenOf(l.Kind().ID)) == 0 {
+			return i, l.Kind()
+		}
+	}
+	t.Fatal("every kind has a drill-down, so enter's describe fallback is unreachable")
+	return 0, gcp.Kind{}
 }
 
 func TestDescribeStillReachesTheParentItself(t *testing.T) {

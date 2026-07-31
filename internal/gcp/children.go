@@ -36,7 +36,9 @@ type ChildLister interface {
 // Children returns the registered drill-downs, in display order.
 func Children() []ChildLister {
 	return []ChildLister{
+		AttachedDiskLister{},
 		NodePoolLister{},
+		TopicSubscriptionLister{},
 		SQLDatabaseLister{},
 		SQLUserLister{},
 		BigQueryTableLister{},
