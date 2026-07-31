@@ -1,10 +1,26 @@
 name: CI
 
 on:
+  # main and tags only, deliberately. `branches: ["**"]` used to be here, and
+  # combined with `pull_request:` it ran everything twice: once for the branch
+  # push and once for the pull request, on the same commit, with the same
+  # result. Every change cost three runs — branch, PR, merge — where two are
+  # the whole story. A branch with no PR open now runs nothing, which is the
+  # right trade: nothing merges here without a PR, and opening one is what
+  # asks for the checks.
   push:
-    branches: ["**"]
+    branches: [main]
     tags: ["v*"]
   pull_request:
+
+# One live run per ref. Pushing a fix ten seconds after spotting a typo used to
+# leave the superseded run burning a runner for four more minutes.
+#
+# Never on main or a tag: those runs publish, and cancelling one halfway leaves
+# a release tag with no binaries attached to it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_name != 'main' && github.ref_type != 'tag' }}
 
 # Least privilege by default. Only the release job asks for more, so a
 # compromised step in checks or build cannot write to the repository.
