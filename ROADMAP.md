@@ -12,6 +12,11 @@ implementing a one-method interface — see
 [Adding a resource kind](README.md#adding-a-resource-kind). The interface is
 the reason this list is long: most entries are a day's work, not a project.
 
+Since the hotkey alphabet filled up, there is a second shape too: a
+**drill-down**, which hangs off one parent row rather than the project, is
+reached with `enter`, and costs no key. Most of what is left below wants that
+shape rather than another tab — see [The alphabet is full](#the-alphabet-is-full).
+
 ## Shipped
 
 | Resource | Scope | Notes |
@@ -25,6 +30,7 @@ the reason this list is long: most entries are a day's work, not a project.
 | Dataproc clusters | **regional** | needs a client per region at `<region>-dataproc.googleapis.com`; `global` always swept |
 | Dataproc jobs | **regional** | same per-region clients as the clusters; every state, newest first, capped at 200 per region because the API has no time filter |
 | Cloud Composer environments | location-scoped | one client, location in the request parent |
+| Dataflow jobs | **regional, aggregated** | the one regional service with a server-side sweep: `projects.jobs.aggregated` covers every regional endpoint in one paginated call, so there is no fan-out and no dependence on the `regions` list — a pipeline someone launched by hand in a region nobody configured still appears. Endpoints that did not answer come back in `FailedLocation`, the same partial-listing story as GKE's missing zones. Every state, newest first, capped at 500 |
 | Pub/Sub topics | global | one paginated call; the state field only appears once an ingestion source breaks, so a healthy topic reports nothing and is shown as `ACTIVE` |
 | Pub/Sub subscriptions | global | the backlog column is the point, and it is not on the subscription — it comes from one Monitoring `timeSeries.list` covering every subscription at once, so an unavailable metric costs a warning rather than the table |
 | Cloud Run services | **regional** | one client per region: the v2 API documents that location cannot be the `-` wildcard, so there is no aggregated call to fall back on |
@@ -37,24 +43,51 @@ the reason this list is long: most entries are a day's work, not a project.
 | Interconnect attachments | regional, aggregated | attachments rather than circuits: a circuit being up says nothing about whether a given VPC can reach it |
 | PSC service attachments | regional, aggregated | producer side only; a consumer endpoint *is* a forwarding rule, so listing those here would double-count |
 | Secret Manager secrets | global | **metadata only — never values.** One paginated call to `secrets.list`; `AccessSecretVersion` is never called, so no payload enters the process |
+| Service accounts | global | one paginated call for the accounts, then `keys.list` per account — bounded to 200 accounts, twelve at a time. N+1 is the only shape on offer, and it is worth paying: key age is the standing audit question, and putting it on the row is the difference between a table you scan and one you have to interrogate account by account. User-managed keys only; Google-managed ones rotate themselves and would put "2 keys" on every row |
+
+Two of these have a listing underneath them, reached with `enter` on the row
+rather than a hotkey of their own:
+
+| Drill-down | Parent | Notes |
+|---|---|---|
+| GKE node pools | a cluster | free: `clusters.list` already returns node pools inline. Node counts are multiplied out across the pool's zones, because a pool of 2 across three zones runs six VMs and reading the 2 as the total is how a cluster ends up mis-sized on paper |
+| Service account keys | an account | free: the accounts listing fetched them to compute the oldest-key age. Oldest first — that is the row the table was opened to find |
 
 Plus, across all kinds: a per-project dashboard with status rollups, a merged
 *All Resources* table, filtering, describe-as-YAML, Console/Airflow deep links,
 clipboard yank over OSC 52, and SSH to a running VM.
 
-Twenty-one kinds is well past what the digits cover, so the hotkey sequence
-continues into letters — `1`-`9`, then `b e f h i m n t u v w x z`, skipping
+Twenty-three kinds is well past what the digits cover, so the hotkey sequence
+continues into letters — `1`-`9`, then `b c e f h i m n t u v w x z`, skipping
 every letter already bound to an action. Each kind's key is printed beside it on
 the dashboard and in the tab strip, and `tab`/`shift+tab`, `0`/`a` and `:<kind>`
 still reach everything. The strip scrolls around the active tab and marks hidden
 tabs with `‹`/`›`.
 
-That scheme holds twenty-two kinds, so exactly one key is left — and twenty-two
-is roughly where the dashboard stops being scannable anyway. Further kinds are
-cheap to add mechanically, but from here on they want a different shape:
-drill-downs rather than more top-level tabs — GKE node pools under a cluster,
-DNS record sets under a zone, Pub/Sub subscriptions under their topic — and a
-drill-down costs no hotkey at all.
+## The alphabet is full
+
+Twenty-three kinds, twenty-three keys, nothing spare. That is the whole
+lowercase alphabet: twelve letters are actions, fourteen are kinds, and the
+digits carry the first nine. The twenty-third key came from folding `c` (open in
+Cloud Console) into `o` (open), which did the same thing on every kind but
+Composer — the last redundancy there was to spend.
+
+So this is where adding tabs stops, and it is not a limit that needs raising.
+Twenty-three rows is already about as much as a dashboard is worth scanning, and
+the kinds still worth having are mostly not project-wide lists at all. Node
+pools belong to a cluster; keys belong to an account; record sets belong to a
+zone. "Every node pool in the project", stripped of which cluster each is in, is
+not a question anyone asks.
+
+Those are **drill-downs**: `enter` on a row opens its listing in place, with the
+child's own columns and a trail naming the parent, and `esc` puts you back. They
+cost no hotkey, nothing has to be registered in the UI, and they are often free
+of API calls too — the parent listing has usually fetched the children already.
+`gcp.ChildLister` is the whole interface; see
+[Adding a resource kind](README.md#or-a-drill-down-which-needs-no-key).
+
+A twenty-fourth top-level kind would silently lose its hotkey, so a test fails
+the build instead — the reminder to reach for a drill-down.
 
 ## Next up
 
@@ -62,28 +95,31 @@ The ones that would earn their place first, roughly in order.
 
 | Resource | Scope | Why it's near the top |
 |---|---|---|
-| Dataflow jobs | regional | |
-| Service accounts and their keys | global | key age is a standing audit question |
-| GKE node pools | per-cluster | one call per cluster once you know which clusters exist; a natural drill-down from the GKE row rather than another top-level tab |
+| DNS record sets | drill-down from a zone | the obvious next one: a zone row that cannot show you what is in it is half a table |
+| Backend service health | drill-down from a load balancer | which backends are actually passing health checks, which is the question behind most "the LB is down" reports |
+| Cloud SQL databases and users | drill-down from an instance | |
+| Cloud Functions | regional | the last serverless kind missing now that Run is in |
+| Compute disks and snapshots | zonal, aggregated | unattached disks are the quiet line on every bill |
 
 ## Candidates
 
 Plausible, lower priority, grouped by area.
 
-**Compute and serverless** — Cloud Functions, Batch jobs, instance groups and
-templates, Compute disks and snapshots, GPU/TPU reservations.
+**Compute and serverless** — Batch jobs, instance groups and templates, GPU/TPU
+reservations. (Cloud Functions and Compute disks have moved up.)
 
 **Data** — Bigtable instances, Spanner instances and databases, Memorystore
 (Redis / Memcached), Firestore databases, Datastream streams, Data Fusion
 instances, Artifact Registry repositories, BigQuery reservations.
 
 **Networking** — the core is shipped (see above). Still open: subnets, routes,
-Cloud NAT and routers, backend services with their health, DNS record sets,
-reserved static IPs.
+Cloud NAT and routers, reserved static IPs. (Record sets and backend health have
+moved up, both as drill-downs.)
 
-**Security and identity** — project IAM policy bindings, KMS keyrings and keys
-(with rotation age), Certificate Manager certificates, Binary Authorization
-policies, VPC Service Controls perimeters, Org Policy constraints in effect.
+**Security and identity** — service accounts are shipped. Still open: project
+IAM policy bindings, KMS keyrings and keys (with rotation age), Certificate
+Manager certificates, Binary Authorization policies, VPC Service Controls
+perimeters, Org Policy constraints in effect.
 
 **Operations** — recent Cloud Logging entries scoped to a resource, Monitoring
 alert policies and which are firing, Error Reporting groups, Cloud Scheduler
@@ -128,3 +164,8 @@ These change how the whole tool behaves rather than adding a kind.
   identity rather than sitting in a TUI's scroll buffer or your clipboard.
   g9s does not call `AccessSecretVersion` at all, and a test fails the build if
   that changes.
+- **Minting or downloading service account keys.** The keys drill-down shows a
+  key's id, origin, algorithm, age and expiry — every field except the one that
+  matters. `keys.list` never returns private key material and `keys.create`, the
+  call that does, is not made. Creating a key is a decision with an audit trail
+  attached; it does not belong behind a keypress in a read-only viewer.

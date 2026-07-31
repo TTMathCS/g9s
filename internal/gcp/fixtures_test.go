@@ -9,7 +9,9 @@ import (
 	"cloud.google.com/go/orchestration/airflow/service/apiv1/servicepb"
 	"cloud.google.com/go/storage"
 	bigquery "google.golang.org/api/bigquery/v2"
+	dataflow "google.golang.org/api/dataflow/v1b3"
 	dns "google.golang.org/api/dns/v1"
+	iam "google.golang.org/api/iam/v1"
 	pubsub "google.golang.org/api/pubsub/v1"
 	run "google.golang.org/api/run/v2"
 	secretmanager "google.golang.org/api/secretmanager/v1"
@@ -293,5 +295,74 @@ func testCloudRunJob() *run.GoogleCloudRunV2Job {
 			CompletionTime:   time.Now().Add(-3 * time.Hour).Format(time.RFC3339),
 		},
 		CreateTime: time.Now().Add(-200 * 24 * time.Hour).Format(time.RFC3339),
+	}
+}
+
+func testDataflowJob() *dataflow.Job {
+	return &dataflow.Job{
+		Id:               "2026-07-30_18_04_11-1234567890123456789",
+		Name:             "orders-enrichment",
+		Location:         "us-central1",
+		Type:             "JOB_TYPE_STREAMING",
+		CurrentState:     "JOB_STATE_RUNNING",
+		CreateTime:       time.Now().Add(-11 * 24 * time.Hour).Format(time.RFC3339),
+		CurrentStateTime: time.Now().Add(-11 * 24 * time.Hour).Format(time.RFC3339),
+	}
+}
+
+func testServiceAccount() *iam.ServiceAccount {
+	return &iam.ServiceAccount{
+		Name:        "projects/sandbox-123/serviceAccounts/etl-runner@sandbox-123.iam.gserviceaccount.com",
+		Email:       "etl-runner@sandbox-123.iam.gserviceaccount.com",
+		DisplayName: "ETL runner",
+		UniqueId:    "104729384756102938475",
+		ProjectId:   "sandbox-123",
+	}
+}
+
+// testServiceAccountKey is a key minted well inside the rotation window, so a
+// test that wants a finding has to age it on purpose.
+func testServiceAccountKey() *iam.ServiceAccountKey {
+	return &iam.ServiceAccountKey{
+		Name:            "projects/sandbox-123/serviceAccounts/etl-runner@sandbox-123.iam.gserviceaccount.com/keys/9f8e7d6c5b4a",
+		KeyType:         "USER_MANAGED",
+		KeyOrigin:       "KEY_ORIGIN_GOOGLE_PROVIDED",
+		KeyAlgorithm:    "KEY_ALG_RSA_2048",
+		ValidAfterTime:  time.Now().Add(-30 * 24 * time.Hour).Format(time.RFC3339),
+		ValidBeforeTime: time.Now().Add(300 * 24 * time.Hour).Format(time.RFC3339),
+	}
+}
+
+// testGKEClusterWithNodePools is a Standard cluster, since node pools are the
+// thing Autopilot takes away. Two pools, one fixed and one autoscaled, because
+// the difference between them is what the drill-down exists to show.
+func testGKEClusterWithNodePools() *containerpb.Cluster {
+	return &containerpb.Cluster{
+		Name:     "batch-cluster",
+		Location: "us-central1",
+		Status:   containerpb.Cluster_RUNNING,
+		NodePools: []*containerpb.NodePool{
+			{
+				Name:             "default-pool",
+				Version:          "1.31.1-gke.1146000",
+				InitialNodeCount: 2,
+				Locations:        []string{"us-central1-a", "us-central1-b", "us-central1-c"},
+				Status:           containerpb.NodePool_RUNNING,
+				Config:           &containerpb.NodeConfig{MachineType: "e2-standard-4"},
+				Management:       &containerpb.NodeManagement{AutoUpgrade: true, AutoRepair: true},
+			},
+			{
+				Name:             "spot-workers",
+				Version:          "1.31.1-gke.1146000",
+				InitialNodeCount: 1,
+				Locations:        []string{"us-central1-a"},
+				Status:           containerpb.NodePool_RUNNING,
+				Config:           &containerpb.NodeConfig{MachineType: "n2-highmem-8", Spot: true},
+				Autoscaling: &containerpb.NodePoolAutoscaling{
+					Enabled: true, MinNodeCount: 0, MaxNodeCount: 20,
+				},
+				Management: &containerpb.NodeManagement{AutoRepair: true},
+			},
+		},
 	}
 }

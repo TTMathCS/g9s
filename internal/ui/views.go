@@ -77,7 +77,32 @@ func (m Model) headerView() string {
 	if m.screen == screenProjects || m.screen == screenHelp || m.screen == screenOverview {
 		return line + "\n"
 	}
+	// Inside a drill-down the tab strip would be a lie: none of those tabs is
+	// what the table below is showing. A trail naming the row you came in on
+	// takes its place, and is the only thing on screen that says which parent
+	// these rows belong to.
+	if m.drill != nil {
+		return line + "\n" + m.drillCrumbView()
+	}
 	return line + "\n" + m.tabsView()
+}
+
+// drillCrumbView renders "‹ GKE Clusters · batch-cluster › Node Pools (2)".
+func (m Model) drillCrumbView() string {
+	d := m.drill
+	trail := tabStyle.Render("‹ " + d.parentKind.Title + " · " + d.parent.Name)
+
+	kind := d.lister.Kind()
+	label := kind.Title
+	if n, known := m.tabCount(kind); known {
+		label += fmt.Sprintf(" (%d)", n)
+	}
+	if m.tabLoading(kind) {
+		label += " …"
+	}
+
+	return lipgloss.JoinHorizontal(lipgloss.Bottom,
+		trail, tabActiveStyle.Render(label), mutedStyle.Render("  esc back"))
 }
 
 func (m Model) tabsView() string {
@@ -457,7 +482,13 @@ func (m Model) resourcesView() string {
 		return m.centeredNotice(badStyle.Render("failed to list "+kind.Title) + "\n\n" + mutedStyle.Render(wrap(err.Error(), m.width-6)))
 	}
 	if m.loading[kind.ID] && !m.hasData(kind.ID) {
-		return m.centeredNotice(mutedStyle.Render("listing " + kind.Title + " across " + m.scopeDescription() + "…"))
+		// A drill-down has one scope — its parent — so naming zones or regions
+		// there would describe a sweep that is not happening.
+		notice := "listing " + kind.Title + " across " + m.scopeDescription() + "…"
+		if m.drill != nil {
+			notice = "reading " + kind.Title + " for " + m.drill.parent.Name + "…"
+		}
+		return m.centeredNotice(mutedStyle.Render(notice))
 	}
 
 	visible := m.visibleResources()
@@ -497,10 +528,14 @@ func (m Model) resourcesView() string {
 
 func (m Model) scopeDescription() string {
 	switch m.currentKind().ID {
-	case "dataproc":
+	case "dataproc", "dataprocjobs":
 		return fmt.Sprintf("%d regions", len(m.cfg.DataprocRegions(m.active)))
 	case "composer":
 		return fmt.Sprintf("%d locations", len(m.cfg.ComposerLocations(m.active)))
+	case "run", "runjobs":
+		// Cloud Run's v2 API takes no location wildcard, so the sweep is only
+		// ever as wide as the configured regions.
+		return fmt.Sprintf("%d regions", len(m.cfg.Regions(m.active)))
 	default:
 		return "all zones"
 	}
@@ -639,7 +674,7 @@ func (m Model) helpContent() string {
 		{"Navigation", []helpEntry{
 			{"↑/k ↓/j", "move cursor"},
 			{"g / G", "jump to top / bottom"},
-			{"enter", "open category (dashboard) / describe (table)"},
+			{"enter", "go in — category (dashboard), node pools / keys where a row has them, else describe"},
 			{m.hotkeyLegend(), "jump straight to a resource kind — the key is printed beside it"},
 			{"0 / a", "all resources, every kind in one table"},
 			{"tab / shift+tab", "cycle resource kinds"},
@@ -649,10 +684,9 @@ func (m Model) helpContent() string {
 			{":", "command — :<kind> by id or title prefix, :all :projects :help :q"},
 		}},
 		{"Actions", []helpEntry{
-			{"d / enter", "describe as YAML"},
+			{"d", "describe as YAML (enter does too, on a row with nothing under it)"},
 			{"r", "refresh current kind (all of them on the dashboard)"},
-			{"o", "open (Airflow UI for Composer, Console otherwise)"},
-			{"c", "open in Cloud Console"},
+			{"o", "open (Airflow UI for Composer, Cloud Console otherwise)"},
 			{"y", "copy name to clipboard (OSC 52)"},
 			{"s", "SSH to the selected running VM"},
 		}},
@@ -774,6 +808,11 @@ func (m Model) keyHint() string {
 	case screenOverview:
 		return "kind keys: " + m.hotkeyLegend() + " · enter open · 0/a all resources · r refresh all · : cmd · ? help"
 	case screenResources:
+		// The hint names enter only where enter does something d does not, so
+		// the drill-down is discoverable on exactly the tables that have one.
+		if m.drill == nil && m.selectedHasChild() {
+			return "enter " + m.selectedChildTitle() + " · d describe · o open · y yank · / filter · : cmd · esc back · ? help"
+		}
 		return "d describe · o open · s ssh · y yank · / filter · : cmd · r refresh · esc back · ? help"
 	case screenDetail:
 		return "↑/↓ scroll · y copy yaml · esc back"

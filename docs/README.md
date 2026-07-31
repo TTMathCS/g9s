@@ -1,16 +1,17 @@
 # Screenshots
 
-`projects.png`, `dashboard.png` and `resources.png` in the README are generated,
+`projects.png`, `dashboard.png`, `resources.png` and `drilldown.png` in the
+README are generated,
 not captured by hand. The generator lives in
 [`internal/ui/screenshot_test.go`](../internal/ui/screenshot_test.go) behind a
 `screenshot` build tag, so it never affects a normal build or test run.
 
-It drives the same unexported `Model` the binary does and calls the real
+They drive the same unexported `Model` the binary does and call the real
 `View()`. That is the point: a layout change shows up in the next regenerated
 image instead of quietly turning the README into a lie.
 
 Everything shown is invented — the projects, project IDs, service accounts, IPs
-and instance names. No real infrastructure appears in either image.
+and instance names. No real infrastructure appears in any of them.
 
 ## Regenerating
 
@@ -20,7 +21,7 @@ Three steps: render the views to ANSI, turn that into SVG, rasterize the SVG.
 go test -tags screenshot -run TestGenerateScreenshots ./internal/ui
 
 go install github.com/charmbracelet/freeze@latest
-for n in projects dashboard resources; do
+for n in projects dashboard resources drilldown; do
   freeze --language ansi --output docs/$n.svg \
     --background "#1a1b26" --padding 32 --margin 0 --border.radius 10 \
     --border.width 1 --border.color "#2f3145" --font.size 7 --line-height 1.35 \
@@ -36,6 +37,11 @@ The intermediate `.ansi` and `.svg` files are build products and are not
 committed.
 
 ## Things that will bite you
+
+**freeze can hang on first use.** It fetches its embedded webfont, and behind a
+proxy that request may never return — the run sits there producing no `.svg` and
+no error. Give each invocation a `timeout` rather than letting a loop stall, and
+re-run: once the font is cached the whole set renders in seconds.
 
 **freeze drops the last line of its input.** It lays the final line out inside
 the bottom padding, where the window border clips it. Reproduce it with a
@@ -57,12 +63,12 @@ Chromium, which avoids most of the traps listed after it:
 const { chromium } = require('playwright');
 const fs = require('fs'), path = require('path'), os = require('os');
 
-const TARGET_WIDTH = 2345;   // width of the images already in the README
+const TARGET_WIDTH = 2344;   // width of the images already in the README
 const LINE_HEIGHT = 7 * 1.35; // --font.size x --line-height
 
 (async () => {
   const browser = await chromium.launch();
-  for (const name of ['projects', 'dashboard', 'resources']) {
+  for (const name of ['projects', 'dashboard', 'resources', 'drilldown']) {
     const svg = fs.readFileSync(`docs/${name}.svg`, 'utf8');
     const [, w, h] = svg.match(/<svg width="([\d.]+)" height="([\d.]+)"/);
 
@@ -112,8 +118,9 @@ Three more things matter if you rasterize some other way:
 
 ## Geometry
 
-`shotWidth` is shared so both images come out the same width and sit flush when
-stacked. Heights are per-shot and sized to leave one blank row above the footer.
+`shotWidth` is shared so every image comes out the same width and they sit flush
+when stacked. Heights are per-shot and sized to leave one blank row above the
+footer.
 
 Zone names in the resource table are kept to `us-*` on purpose: a real
 `northamerica-northeast1-a` is 25 characters, and the proportionally-sized ZONE
