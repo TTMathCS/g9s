@@ -32,6 +32,9 @@ type Defaults struct {
 	CredentialDir string `yaml:"credential_dir"`
 	// GcloudPath is the gcloud binary to shell out to for login.
 	GcloudPath string `yaml:"gcloud_path"`
+	// CredentialsFile points every project at an existing credentials file
+	// instead of a per-project directory g9s logs into. See Project.
+	CredentialsFile string `yaml:"credentials_file"`
 	// LoginNoBrowser makes `l` always use gcloud's --no-browser flow, the same
 	// as pressing `L` every time.
 	//
@@ -63,6 +66,21 @@ type Project struct {
 	Account string `yaml:"account"`
 	// Description is free text shown alongside the project in the picker.
 	Description string `yaml:"description"`
+
+	// CredentialsFile is an existing credentials file to read for this
+	// project, instead of the per-project directory g9s logs into.
+	//
+	// This is the way in when the login handshake cannot complete at all —
+	// behind a proxy that swallows the loopback redirect, gcloud's browser
+	// flow and its --no-browser flow both end at a localhost the browser
+	// cannot reach. Point this at credentials obtained any way that does
+	// work, most often the ordinary ~/.config/gcloud ADC, and g9s reads them
+	// rather than demanding a login it cannot finish.
+	//
+	// g9s only ever reads this file. Keeping it fresh is then yours, which is
+	// the trade: no isolation between projects that share one file, and no
+	// login for g9s to run.
+	CredentialsFile string `yaml:"credentials_file"`
 
 	Regions           []string `yaml:"regions"`
 	DataprocRegions   []string `yaml:"dataproc_regions"`
@@ -98,6 +116,18 @@ func (c *Config) DataprocRegions(p Project) []string {
 // ComposerLocations returns the locations to sweep for Composer environments.
 func (c *Config) ComposerLocations(p Project) []string {
 	return firstNonEmpty(p.ComposerLocations, p.Regions, c.Defaults.ComposerLocations, c.Defaults.Regions)
+}
+
+// CredentialsFile returns the existing credentials file to read for a project,
+// or "" when g9s manages the credentials itself.
+func (c *Config) CredentialsFile(p Project) string {
+	if p.CredentialsFile != "" {
+		return expandHome(p.CredentialsFile)
+	}
+	if c.Defaults.CredentialsFile != "" {
+		return expandHome(c.Defaults.CredentialsFile)
+	}
+	return ""
 }
 
 // BigQueryJobWindow is how far back to list BigQuery jobs.

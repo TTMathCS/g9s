@@ -373,3 +373,119 @@ func TestProxyMayBlockLoopback(t *testing.T) {
 		})
 	}
 }
+
+func TestCredentialsFileReplacesTheManagedPath(t *testing.T) {
+	// The way in when the login handshake cannot complete at all: point g9s at
+	// credentials obtained some other way and it reads those instead.
+	cfg := &config.Config{
+		Projects: []config.Project{
+			{Name: "ny-dev", ProjectID: "ny-dev-1", CredentialsFile: "/creds/shared/adc.json"},
+			{Name: "ny-prod", ProjectID: "ny-prod-1"},
+		},
+	}
+	cfg.Defaults.CredentialDir = t.TempDir()
+
+	mgr, err := NewManager(cfg)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	if got := mgr.ADCPath(cfg.Projects[0]); got != "/creds/shared/adc.json" {
+		t.Errorf("ADCPath = %q, want the configured file", got)
+	}
+	if mgr.ManagesCredentials(cfg.Projects[0]) {
+		t.Error("g9s should not claim to manage a project that reads a file")
+	}
+
+	// The project without one is untouched.
+	want := filepath.Join(mgr.ConfigDir(cfg.Projects[1]), adcFile)
+	if got := mgr.ADCPath(cfg.Projects[1]); got != want {
+		t.Errorf("ADCPath = %q, want %q", got, want)
+	}
+	if !mgr.ManagesCredentials(cfg.Projects[1]) {
+		t.Error("a project with no credentials_file is managed by g9s")
+	}
+}
+
+func TestCredentialsFileFlowsIntoClientOptionsAndCheck(t *testing.T) {
+	// The point of resolving it in ADCPath: every lister's client options and
+	// the validity check both go through there, so nothing else needs to know.
+	dir := t.TempDir()
+	file := filepath.Join(dir, "shared-adc.json")
+	if err := os.WriteFile(file, []byte(`{"account":"me@example.com","type":"mystery"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{Projects: []config.Project{{Name: "ny-dev", ProjectID: "ny-dev-1", CredentialsFile: file}}}
+	cfg.Defaults.CredentialDir = t.TempDir()
+
+	mgr, err := NewManager(cfg)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	// Check reads the configured file, not the per-project directory, so the
+	// project is not reported as "never logged in".
+	status := mgr.Check(context.Background(), cfg.Projects[0])
+	if status.State == StateMissing {
+		t.Error("Check looked past the configured credentials file")
+	}
+	if status.Account != "me@example.com" {
+		t.Errorf("Account = %q, want it read from the configured file", status.Account)
+	}
+	if len(mgr.ClientOptions(cfg.Projects[0])) == 0 {
+		t.Error("no client options built")
+	}
+}
+
+func TestDefaultsCredentialsFileAppliesToEveryProject(t *testing.T) {
+	cfg := &config.Config{Projects: []config.Project{
+		{Name: "a", ProjectID: "a-1"},
+		{Name: "b", ProjectID: "b-1", CredentialsFile: "/creds/b.json"},
+	}}
+	cfg.Defaults.CredentialDir = t.TempDir()
+	cfg.Defaults.CredentialsFile = "/creds/shared.json"
+
+	mgr, err := NewManager(cfg)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	if got := mgr.ADCPath(cfg.Projects[0]); got != "/creds/shared.json" {
+		t.Errorf("ADCPath = %q, want the default", got)
+	}
+	// A project's own setting still wins over the default.
+	if got := mgr.ADCPath(cfg.Projects[1]); got != "/creds/b.json" {
+		t.Errorf("ADCPath = %q, want the per-project override", got)
+	}
+}
+
+func TestGcloudIsOnlyRequiredWhenG9sManagesALogin(t *testing.T) {
+	// A machine where the handshake cannot complete may have no gcloud at all.
+	// Refusing to start there would block the one setup that does work.
+	managed := &config.Config{Projects: []config.Project{
+		{Name: "a", ProjectID: "a-1", CredentialsFile: "/creds/a.json"},
+		{Name: "b", ProjectID: "b-1"},
+	}}
+	managed.Defaults.CredentialDir = t.TempDir()
+	mgr, err := NewManager(managed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mgr.ManagesAnyCredentials(managed) {
+		t.Error("a project with no credentials_file still needs gcloud")
+	}
+
+	allFiles := &config.Config{Projects: []config.Project{
+		{Name: "a", ProjectID: "a-1", CredentialsFile: "/creds/a.json"},
+		{Name: "b", ProjectID: "b-1", CredentialsFile: "/creds/b.json"},
+	}}
+	allFiles.Defaults.CredentialDir = t.TempDir()
+	mgr, err = NewManager(allFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mgr.ManagesAnyCredentials(allFiles) {
+		t.Error("no project needs a login, so gcloud is not required to start")
+	}
+}

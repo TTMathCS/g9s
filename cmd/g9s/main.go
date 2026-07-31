@@ -59,10 +59,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if err := mgr.Available(); err != nil {
-		// Login and SSH both shell out to gcloud, so a missing binary is worth
-		// catching before the user hits it mid-session.
-		return err
+	// Login and SSH both shell out to gcloud, so a missing binary is worth
+	// catching before the user hits it mid-session — unless every project reads
+	// a credentials_file, in which case there is no login to run and refusing
+	// to start would block the one setup that works without gcloud.
+	if mgr.ManagesAnyCredentials(cfg) {
+		if err := mgr.Available(); err != nil {
+			return err
+		}
 	}
 
 	program := tea.NewProgram(ui.New(cfg, mgr), tea.WithAltScreen())
@@ -106,6 +110,13 @@ defaults:
 
   # gcloud binary used for login and SSH.
   gcloud_path: gcloud
+
+  # Read credentials from an existing file instead of logging in per project.
+  # Set this when the login handshake cannot complete at all — behind a proxy
+  # that swallows the loopback redirect, both gcloud flows end at a localhost
+  # your browser cannot reach. g9s only ever reads this file; keeping it fresh
+  # is then yours. Can also be set per project.
+  #credentials_file: ~/.config/gcloud/application_default_credentials.json
 
   # Always use gcloud's --no-browser flow for l, the same as pressing L
   # every time. Worth setting behind a proxy: the ordinary login ends with your

@@ -38,6 +38,10 @@ const scope = "https://www.googleapis.com/auth/cloud-platform"
 type Manager struct {
 	credentialRoot string
 	gcloudPath     string
+	// credentialFiles holds, per project name, an existing credentials file to
+	// read instead of the directory g9s would log into. Empty for the projects
+	// g9s manages itself, which is the default.
+	credentialFiles map[string]string
 }
 
 func NewManager(cfg *config.Config) (*Manager, error) {
@@ -63,9 +67,17 @@ func NewManager(cfg *config.Config) (*Manager, error) {
 		seen[key] = p.Name
 	}
 
+	files := map[string]string{}
+	for _, p := range cfg.Projects {
+		if path := cfg.CredentialsFile(p); path != "" {
+			files[p.Name] = path
+		}
+	}
+
 	return &Manager{
-		credentialRoot: cfg.Defaults.CredentialDir,
-		gcloudPath:     cfg.Defaults.GcloudPath,
+		credentialRoot:  cfg.Defaults.CredentialDir,
+		gcloudPath:      cfg.Defaults.GcloudPath,
+		credentialFiles: files,
 	}, nil
 }
 
@@ -146,9 +158,26 @@ func (m *Manager) ConfigDir(p config.Project) string {
 	return filepath.Join(m.credentialRoot, sanitize(p.Name))
 }
 
-// ADCPath is the application default credentials file for a project.
+// ADCPath is the credentials file g9s reads for a project.
+//
+// A configured credentials_file wins: everything downstream — the validity
+// check and the client options every lister uses — goes through here, so
+// pointing at an existing file is all it takes for g9s to use credentials it
+// did not create.
 func (m *Manager) ADCPath(p config.Project) string {
+	if path := m.credentialFiles[p.Name]; path != "" {
+		return path
+	}
 	return filepath.Join(m.ConfigDir(p), adcFile)
+}
+
+// ManagesCredentials reports whether g9s is the one that logs this project in.
+//
+// False when a credentials_file is configured. g9s then only reads that file,
+// and refreshing it is the user's business — running gcloud against an
+// isolated config directory would write somewhere the file is not.
+func (m *Manager) ManagesCredentials(p config.Project) bool {
+	return m.credentialFiles[p.Name] == ""
 }
 
 // ClientOptions are the options every GCP client for this project must use.
@@ -322,6 +351,20 @@ func (m *Manager) GcloudCmd(p config.Project, args ...string) *exec.Cmd {
 	cmd := exec.Command(m.gcloudPath, full...)
 	cmd.Env = append(os.Environ(), "CLOUDSDK_CONFIG="+m.ConfigDir(p))
 	return cmd
+}
+
+// ManagesAnyCredentials reports whether any project needs g9s to log it in.
+//
+// False when every project reads a credentials_file, which is the setup for a
+// machine where the login handshake cannot complete. gcloud is then not needed
+// to start — only for SSH, which says so when it is used.
+func (m *Manager) ManagesAnyCredentials(cfg *config.Config) bool {
+	for _, p := range cfg.Projects {
+		if m.ManagesCredentials(p) {
+			return true
+		}
+	}
+	return false
 }
 
 // Available reports whether the configured gcloud binary can be found. Checked
