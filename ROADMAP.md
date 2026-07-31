@@ -45,7 +45,7 @@ shape rather than another tab — see [The alphabet is full](#the-alphabet-is-fu
 | Secret Manager secrets | global | **metadata only — never values.** One paginated call to `secrets.list`; `AccessSecretVersion` is never called, so no payload enters the process |
 | Service accounts | global | one paginated call for the accounts, then `keys.list` per account — bounded to 200 accounts, twelve at a time. N+1 is the only shape on offer, and it is worth paying: key age is the standing audit question, and putting it on the row is the difference between a table you scan and one you have to interrogate account by account. User-managed keys only; Google-managed ones rotate themselves and would put "2 keys" on every row |
 
-Six listings hang underneath these, reached with `enter` on the row rather
+Seven listings hang underneath these, reached with `enter` on the row rather
 than a hotkey of their own. A row may hold more than one — `tab` moves between
 them the way it moves between kinds one level up:
 
@@ -55,6 +55,7 @@ them the way it moves between kinds one level up:
 | Cloud SQL databases | an instance | one call. The first half of the pair that made a row allowed more than one listing |
 | Cloud SQL users | an instance | one call. `tab` moves between this and the databases; a disabled account still appears in the list, which is exactly the row worth colouring — it looks like access that exists and is not |
 | Load balancer backend health | a forwarding rule | the expensive one, and the argument for the whole mechanism: rule → target proxy → URL map → every backend service it routes to → `getHealth` per backend group. Four-plus round trips to answer for one row, which nobody would pay on every refresh of the load balancers table and everybody would pay once, on the rule they are actually looking at |
+| Subnets | a VPC network | one `aggregatedList` covers every region server-side, then filtered to this network. Filtered on the last URL segment rather than the whole self-link: the two references come back from different calls and the API is not consistent about the host or api-version prefix it writes, so comparing full strings silently matches nothing and renders as a network with no subnets. Secondary ranges are shown named, because "which one is pods" is the question a GKE range is opened for |
 | DNS record sets | a zone | one paginated call, capped at 1000. Grouped by name rather than sorted flat, so a name's A and AAAA sit on adjacent rows — they are read as a group |
 | Service account keys | an account | free: the accounts listing fetched them to compute the oldest-key age. Oldest first — that is the row the table was opened to find |
 
@@ -109,7 +110,6 @@ Everything here is a drill-down, and that is not a coincidence — see above.
 
 | Resource | Parent | Why it's near the top |
 |---|---|---|
-| Subnets | a VPC network | the VPC row already counts them and offers no way to see them, which is the same gap the DNS zones row had |
 | BigQuery tables | a dataset | a dataset with no way into it is a row that only tells you the dataset exists |
 | Cloud Run revisions | a service | which revision is actually serving, and what the traffic split is — the question behind most "I deployed but nothing changed" |
 | Attached disks | a VM instance | |
@@ -140,9 +140,8 @@ Bigtable instances, Spanner instances and databases, Memorystore
 (Redis / Memcached), Firestore databases, Datastream streams, Data Fusion
 instances, Artifact Registry repositories, BigQuery reservations.
 
-**Networking** — the core is shipped, record sets and backend health included.
-Still open: routes, Cloud NAT and routers, reserved static IPs. (Subnets have
-moved up, as a drill-down from the VPC row.)
+**Networking** — the core is shipped: record sets, backend health and subnets
+included. Still open: routes, Cloud NAT and routers, reserved static IPs.
 
 **Security and identity** — service accounts are shipped. Still open: project
 IAM policy bindings, KMS keyrings and keys (with rotation age), Certificate

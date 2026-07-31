@@ -22,9 +22,10 @@ import (
 	"github.com/TTMathCS/g9s/internal/config"
 )
 
-func strPtr(s string) *string { return &s }
-func boolPtr(b bool) *bool    { return &b }
-func int32Ptr(i int32) *int32 { return &i }
+func strPtr(s string) *string       { return &s }
+func boolPtr(b bool) *bool          { return &b }
+func int32Ptr(i int32) *int32       { return &i }
+func float32Ptr(f float32) *float32 { return &f }
 
 func testProject() config.Project {
 	return config.Project{
@@ -413,5 +414,26 @@ func testHealthStatus() *compute.HealthStatus {
 		Instance:    "https://www.googleapis.com/compute/v1/projects/sandbox-123/zones/us-central1-a/instances/web-01",
 		IpAddress:   "10.0.0.12",
 		Port:        8080,
+	}
+}
+
+// testSubnet carries the two things a subnet row exists to show and a network
+// row cannot: the range it serves, and the secondary ranges GKE puts pods and
+// services in.
+func testSubnet() *computepb.Subnetwork {
+	return &computepb.Subnetwork{
+		Name:                  strPtr("prod-us-central1"),
+		Network:               strPtr("https://www.googleapis.com/compute/v1/projects/sandbox-123/global/networks/prod-vpc"),
+		IpCidrRange:           strPtr("10.128.0.0/20"),
+		GatewayAddress:        strPtr("10.128.0.1"),
+		PrivateIpGoogleAccess: boolPtr(true),
+		SecondaryIpRanges: []*computepb.SubnetworkSecondaryRange{
+			{RangeName: strPtr("pods"), IpCidrRange: strPtr("10.4.0.0/14")},
+			{RangeName: strPtr("services"), IpCidrRange: strPtr("10.8.0.0/20")},
+		},
+		LogConfig: &computepb.SubnetworkLogConfig{
+			Enable:       boolPtr(true),
+			FlowSampling: float32Ptr(0.5),
+		},
 	}
 }

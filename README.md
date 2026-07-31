@@ -56,7 +56,7 @@ Four screens, in the order you move through them.
 
 ![The g9s resource table: nine VM instances in the prod-data project, with a warning in the status bar that one region was unavailable](docs/resources.png)
 
-**Drill-down.** Some rows have a listing underneath them — a GKE cluster's node pools, a DNS zone's records, the backends behind a load balancer. `enter` opens it in place, with the child's own columns and a trail naming the row you came in on; `esc` puts you back where you were, cursor and filter included. `d` still describes, so a row with children is not a row you can no longer inspect. These cost no hotkey, which is the point: the alphabet is full at twenty-three kinds, and this is how the tool grows past it.
+**Drill-down.** Some rows have a listing underneath them — a GKE cluster's node pools, a VPC's subnets, the backends behind a load balancer. `enter` opens it in place, with the child's own columns and a trail naming the row you came in on; `esc` puts you back where you were, cursor and filter included. `d` still describes, so a row with children is not a row you can no longer inspect. These cost no hotkey, which is the point: the alphabet is full at twenty-three kinds, and this is how the tool grows past it.
 
 ![The g9s drill-down: four node pools inside a GKE cluster, with their machine types, node counts, autoscaling bounds and upgrade policy](docs/drilldown.png)
 
@@ -100,9 +100,10 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | GKE node pools | ✅ | drill-down | `enter` on a cluster; free — `clusters.list` already returned them |
 | Service account keys | ✅ | drill-down | `enter` on an account; free — the accounts listing already fetched them |
 | DNS record sets | ✅ | drill-down | `enter` on a zone; one call, capped at 1000, grouped by name so a name's A and AAAA sit together |
+| Subnets | ✅ | drill-down | `enter` on a VPC; one `aggregatedList` covers every region, then filtered to that network. Secondary ranges are named, since "which one is pods" is the question |
 | Cloud SQL databases & users | ✅ | drill-down | `enter` on an instance, `tab` between the two — the pair that made a row allowed more than one listing |
 | Load balancer backend health | ✅ | drill-down | `enter` on a forwarding rule; walks rule → proxy → URL map → backend services → `getHealth` per group, which is four-plus round trips nobody would pay per refresh |
-| Subnets, BigQuery tables, Cloud Run revisions, a VM's disks | 🔜 | drill-down | each hangs off a row that already exists and can already count them |
+| BigQuery tables, Cloud Run revisions, a VM's disks | 🔜 | drill-down | each hangs off a row that already exists and can already count them |
 | Cloud Functions, Compute disks, Batch jobs | 🔜 | needs a key | real kinds with nowhere to bind — see [The alphabet is full](ROADMAP.md#the-alphabet-is-full) |
 | Compute/serverless (Batch, instance groups, GPU/TPU) | 💡 | mixed | |
 | Data (Bigtable, Spanner, Memorystore, Firestore, Datastream, Artifact Registry) | 💡 | mixed | |
@@ -136,7 +137,7 @@ Cloud Asset Inventory makes "list everything in a project" a single API call. Wi
 
 ## Status
 
-MVP. Twenty-three resource kinds across compute, data, messaging, networking and identity, plus six drill-downs — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
+MVP. Twenty-three resource kinds across compute, data, messaging, networking and identity, plus seven drill-downs — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
 
 Navigation is three levels deep: projects → dashboard → a category's table, with `esc` walking back up. A new kind appears on the dashboard, in the tab bar and in *All Resources* automatically; there is nothing to register in the UI.
 

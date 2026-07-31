@@ -39,6 +39,7 @@ func Children() []ChildLister {
 		NodePoolLister{},
 		SQLDatabaseLister{},
 		SQLUserLister{},
+		SubnetLister{},
 		LoadBalancerHealthLister{},
 		DNSRecordLister{},
 		ServiceAccountKeyLister{},
