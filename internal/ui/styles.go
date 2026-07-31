@@ -70,8 +70,10 @@ func statusStyle(status string) lipgloss.Style {
 	// Dataflow job that was asked to stop and finished what it had in flight
 	// first, and UPDATED is one replaced by a newer version of itself — both
 	// are clean endings rather than interruptions.
+	// HEALTHY is a load balancer backend passing its health check, which is the
+	// one word the backend health table exists to show.
 	case "RUNNING", "RUNNABLE", "ACTIVE", "READY", "ESTABLISHED", "ENABLED", "DONE",
-		"SUCCEEDED", "DRAINED", "UPDATED":
+		"SUCCEEDED", "DRAINED", "UPDATED", "HEALTHY":
 		return goodStyle
 	case "PROVISIONING", "STAGING", "CREATING", "UPDATING", "STOPPING", "DELETING",
 		"REPAIRING", "SUSPENDING", "RECONCILING",

@@ -9,6 +9,7 @@ import (
 	"cloud.google.com/go/orchestration/airflow/service/apiv1/servicepb"
 	"cloud.google.com/go/storage"
 	bigquery "google.golang.org/api/bigquery/v2"
+	compute "google.golang.org/api/compute/v1"
 	dataflow "google.golang.org/api/dataflow/v1b3"
 	dns "google.golang.org/api/dns/v1"
 	iam "google.golang.org/api/iam/v1"
@@ -364,5 +365,53 @@ func testGKEClusterWithNodePools() *containerpb.Cluster {
 				Management: &containerpb.NodeManagement{AutoRepair: true},
 			},
 		},
+	}
+}
+
+func testSQLDatabase() *sqladmin.Database {
+	return &sqladmin.Database{
+		Name:      "orders",
+		Instance:  "orders-primary",
+		Project:   "sandbox-123",
+		Charset:   "UTF8",
+		Collation: "en_US.UTF8",
+	}
+}
+
+func testSQLUser() *sqladmin.User {
+	return &sqladmin.User{
+		Name:     "app-writer",
+		Instance: "orders-primary",
+		Project:  "sandbox-123",
+		Host:     "%",
+		Type:     "BUILT_IN",
+	}
+}
+
+func testRecordSet() *dns.ResourceRecordSet {
+	return &dns.ResourceRecordSet{
+		Name:    "api.example.com.",
+		Type:    "A",
+		Ttl:     300,
+		Rrdatas: []string{"34.120.0.10", "34.120.0.11"},
+	}
+}
+
+func testBackendService() *compute.BackendService {
+	return &compute.BackendService{
+		Name:     "prod-web-backend",
+		Protocol: "HTTPS",
+		Backends: []*compute.Backend{
+			{Group: "https://www.googleapis.com/compute/v1/projects/sandbox-123/zones/us-central1-a/instanceGroups/web-mig"},
+		},
+	}
+}
+
+func testHealthStatus() *compute.HealthStatus {
+	return &compute.HealthStatus{
+		HealthState: "HEALTHY",
+		Instance:    "https://www.googleapis.com/compute/v1/projects/sandbox-123/zones/us-central1-a/instances/web-01",
+		IpAddress:   "10.0.0.12",
+		Port:        8080,
 	}
 }

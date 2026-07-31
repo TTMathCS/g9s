@@ -19,10 +19,13 @@ import (
 // A child is reached with enter on its parent's row, costs no hotkey, and is
 // otherwise an ordinary listing: same table, same filter, same describe pane.
 //
-// Both children registered so far read what the parent listing already fetched,
-// so drilling in costs no API call. That is not a rule — List takes a context
-// and client options precisely so a child can fetch — it is what these two
-// happen to need.
+// Some children read what the parent listing already fetched and cost no API
+// call at all; others fetch. The interface takes a context and client options
+// so both work, and the difference is worth thinking about per kind: a
+// drill-down is the right home for a query too expensive to run for every row
+// on every refresh but cheap enough for one row on demand. The load balancer's
+// backend health is the clearest case — it walks a chain of four resources to
+// answer for a single rule.
 type ChildLister interface {
 	Kind() Kind
 	// ParentKind is the Kind.ID of the listing this drills down from.
@@ -30,22 +33,44 @@ type ChildLister interface {
 	List(ctx context.Context, cfg *config.Config, p config.Project, parent Resource, opts []option.ClientOption) (Result, error)
 }
 
-// Children returns the registered drill-downs.
+// Children returns the registered drill-downs, in display order.
 func Children() []ChildLister {
 	return []ChildLister{
 		NodePoolLister{},
+		SQLDatabaseLister{},
+		SQLUserLister{},
+		LoadBalancerHealthLister{},
+		DNSRecordLister{},
 		ServiceAccountKeyLister{},
 	}
 }
 
-// ChildOf returns the drill-down for a kind, if it has one.
-func ChildOf(kindID string) (ChildLister, bool) {
+// ChildrenOf returns every drill-down registered for a kind, in display order.
+//
+// More than one is allowed, because more than one is sometimes the honest
+// answer: a Cloud SQL instance holds databases and users, and neither is a
+// sub-listing of the other. enter opens the first, and tab moves between them
+// the same way it moves between top-level kinds.
+func ChildrenOf(kindID string) []ChildLister {
+	if kindID == "" {
+		return nil
+	}
+	var out []ChildLister
 	for _, c := range Children() {
 		if c.ParentKind() == kindID {
-			return c, true
+			out = append(out, c)
 		}
 	}
-	return nil, false
+	return out
+}
+
+// ChildOf returns the first drill-down for a kind, if it has one.
+func ChildOf(kindID string) (ChildLister, bool) {
+	children := ChildrenOf(kindID)
+	if len(children) == 0 {
+		return nil, false
+	}
+	return children[0], true
 }
 
 // BindChild pairs a drill-down with the row it was opened from, giving back an

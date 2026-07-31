@@ -87,22 +87,50 @@ func (m Model) headerView() string {
 	return line + "\n" + m.tabsView()
 }
 
-// drillCrumbView renders "‹ GKE Clusters · batch-cluster › Node Pools (2)".
+// drillCrumbView renders "‹ GKE Clusters · batch-cluster  Node Pools (2)".
+//
+// Where the row offers more than one listing they all appear, the open one
+// highlighted, so the second is discoverable rather than something you have to
+// already know tab reaches.
 func (m Model) drillCrumbView() string {
 	d := m.drill
-	trail := tabStyle.Render("‹ " + d.parentKind.Title + " · " + d.parent.Name)
+	parts := []string{tabStyle.Render("‹ " + d.parentKind.Title + " · " + d.parent.Name)}
 
-	kind := d.lister.Kind()
-	label := kind.Title
-	if n, known := m.tabCount(kind); known {
-		label += fmt.Sprintf(" (%d)", n)
-	}
-	if m.tabLoading(kind) {
-		label += " …"
+	// openDrill always records the siblings, but the trail is the only thing
+	// naming the listing on screen, so it falls back rather than render a bare
+	// parent with no child beside it.
+	siblings := d.siblings
+	if len(siblings) == 0 {
+		return lipgloss.JoinHorizontal(lipgloss.Bottom,
+			parts[0], tabActiveStyle.Render(d.lister.Kind().Title), mutedStyle.Render("  esc back"))
 	}
 
-	return lipgloss.JoinHorizontal(lipgloss.Bottom,
-		trail, tabActiveStyle.Render(label), mutedStyle.Render("  esc back"))
+	for i, sibling := range siblings {
+		// Bound to the parent, so each sibling resolves to its own cache key
+		// and carries its own count — including one you tabbed away from,
+		// which is the whole reason to look back at it.
+		kind := gcp.BindChild(sibling, d.parent).Kind()
+
+		label := kind.Title
+		if n, known := m.tabCount(kind); known {
+			label += fmt.Sprintf(" (%d)", n)
+		}
+		if m.tabLoading(kind) {
+			label += " …"
+		}
+
+		if i == d.siblingIdx {
+			parts = append(parts, tabActiveStyle.Render(label))
+			continue
+		}
+		parts = append(parts, tabStyle.Render(label))
+	}
+
+	hint := "  esc back"
+	if len(siblings) > 1 {
+		hint = "  tab switch · esc back"
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Bottom, append(parts, mutedStyle.Render(hint))...)
 }
 
 func (m Model) tabsView() string {
@@ -674,10 +702,10 @@ func (m Model) helpContent() string {
 		{"Navigation", []helpEntry{
 			{"↑/k ↓/j", "move cursor"},
 			{"g / G", "jump to top / bottom"},
-			{"enter", "go in — category (dashboard), node pools / keys where a row has them, else describe"},
+			{"enter", "go in — category (dashboard), the row's own listing where it has one, else describe"},
 			{m.hotkeyLegend(), "jump straight to a resource kind — the key is printed beside it"},
 			{"0 / a", "all resources, every kind in one table"},
-			{"tab / shift+tab", "cycle resource kinds"},
+			{"tab / shift+tab", "cycle resource kinds — or, in a drill-down with two listings, those"},
 			{"q / esc", "back up one level"},
 			{"p", "back to the project list"},
 			{"/", "filter rows (cleared when you switch kinds)"},

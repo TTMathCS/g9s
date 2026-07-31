@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"cloud.google.com/go/container/apiv1/containerpb"
+	sqladmin "google.golang.org/api/sqladmin/v1"
 
 	"github.com/TTMathCS/g9s/internal/auth"
 	"github.com/TTMathCS/g9s/internal/config"
@@ -285,5 +286,133 @@ func TestDrillErrorsRenderLikeAnyOtherListingFailure(t *testing.T) {
 	m.loadErr[id] = errTest{}
 	if got := m.resourcesView(); !strings.Contains(got, "failed to list Node Pools") {
 		t.Errorf("a failed drill-down does not report itself:\n%s", got)
+	}
+}
+
+// sqlDrillModel is parked on the Cloud SQL table, the one kind whose rows offer
+// two listings — which is the case the sibling machinery exists for.
+func sqlDrillModel(t *testing.T) Model {
+	t.Helper()
+
+	cfg := &config.Config{Projects: []config.Project{{Name: "sandbox", ProjectID: "sandbox-123"}}}
+	m := New(cfg, nil)
+	m.width, m.height = 132, 30
+	m.active, m.hasActive = cfg.Projects[0], true
+	m.authStatus["sandbox"] = auth.Status{State: auth.StateValid}
+	m.screen = screenResources
+	for i, k := range m.tabs() {
+		if k.ID == "sql" {
+			m.kindIdx = i
+		}
+	}
+	m.cache["sql"] = gcp.Result{Resources: []gcp.Resource{{
+		Name:     "orders-primary",
+		Location: "us-central1",
+		Status:   "RUNNABLE",
+		KindID:   "sql",
+		Row:      []string{"orders-primary", "us-central1", "POSTGRES_15", "db-custom-4", "REGIONAL", "RUNNABLE", "200d"},
+		Raw:      &sqladmin.DatabaseInstance{Name: "orders-primary", Region: "us-central1"},
+	}}}
+	return m
+}
+
+func TestEnterOpensTheFirstOfSeveralListings(t *testing.T) {
+	m := press(sqlDrillModel(t), "enter")
+
+	if m.drill == nil {
+		t.Fatal("enter on a Cloud SQL instance did not drill in")
+	}
+	if got := len(m.drill.siblings); got != 2 {
+		t.Fatalf("the drill knows about %d listings, want both", got)
+	}
+	if got := m.currentKind().Title; got != "Databases" {
+		t.Errorf("opened %q, want the first listing", got)
+	}
+}
+
+func TestTabMovesBetweenSiblingListings(t *testing.T) {
+	m := press(sqlDrillModel(t), "enter")
+
+	m = press(m, "tab")
+	if m.drill == nil {
+		t.Fatal("tab left the drill-down instead of moving inside it")
+	}
+	if got := m.currentKind().Title; got != "Users" {
+		t.Errorf("after tab the listing is %q, want Users", got)
+	}
+	// Each sibling caches separately, or the second would show the first's rows.
+	if got := m.currentKind().ID; got != "sqlusers/orders-primary" {
+		t.Errorf("cache key = %q", got)
+	}
+
+	// And it wraps, the same way the tab strip does.
+	m = press(m, "tab")
+	if got := m.currentKind().Title; got != "Databases" {
+		t.Errorf("tab did not wrap: %q", got)
+	}
+}
+
+func TestShiftTabMovesBackBetweenSiblings(t *testing.T) {
+	m := press(sqlDrillModel(t), "enter")
+	m = press(m, "shift+tab")
+
+	if m.drill == nil {
+		t.Fatal("shift+tab left the drill-down")
+	}
+	if got := m.currentKind().Title; got != "Users" {
+		t.Errorf("shift+tab from the first listing = %q, want the last", got)
+	}
+}
+
+func TestTabStillLeavesADrillWithOneListing(t *testing.T) {
+	// A GKE cluster offers only node pools, so there is nothing to move
+	// between and tab has to keep its ordinary meaning rather than doing
+	// nothing at all.
+	m := press(drillModel(t), "enter")
+	if len(m.drill.siblings) != 1 {
+		t.Fatalf("node pools should be the only listing, got %d", len(m.drill.siblings))
+	}
+
+	m = press(m, "tab")
+	if m.drill != nil {
+		t.Error("tab stayed in a drill-down that has nowhere to move")
+	}
+}
+
+func TestEscFromASiblingReturnsToTheParentTable(t *testing.T) {
+	// Not to the first sibling: esc means "out", at whichever listing you
+	// happen to be on.
+	m := press(sqlDrillModel(t), "enter")
+	m = press(m, "tab")
+	m = press(m, "esc")
+
+	if m.drill != nil {
+		t.Fatal("esc from the second listing did not leave the drill")
+	}
+	if got := m.currentKind().ID; got != "sql" {
+		t.Errorf("landed on %q, want the parent table", got)
+	}
+}
+
+func TestTheTrailNamesEverySiblingListing(t *testing.T) {
+	// The second listing has to be discoverable, not something you only find
+	// by already knowing tab reaches it.
+	m := press(sqlDrillModel(t), "enter")
+	m.cache[m.currentKind().ID] = gcp.Result{Resources: []gcp.Resource{
+		{Name: "orders", Row: []string{"orders", "UTF8", "en_US.UTF8"}},
+	}}
+
+	view := m.View()
+	for _, want := range []string{"orders-primary", "Databases", "Users", "tab switch"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the trail does not mention %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestHintNamesBothListingsBeforeYouPressAnything(t *testing.T) {
+	m := sqlDrillModel(t)
+	if got := m.keyHint(); !strings.Contains(got, "databases / users") {
+		t.Errorf("hint = %q, want both listings named", got)
 	}
 }

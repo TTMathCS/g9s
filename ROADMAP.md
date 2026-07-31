@@ -45,12 +45,17 @@ shape rather than another tab — see [The alphabet is full](#the-alphabet-is-fu
 | Secret Manager secrets | global | **metadata only — never values.** One paginated call to `secrets.list`; `AccessSecretVersion` is never called, so no payload enters the process |
 | Service accounts | global | one paginated call for the accounts, then `keys.list` per account — bounded to 200 accounts, twelve at a time. N+1 is the only shape on offer, and it is worth paying: key age is the standing audit question, and putting it on the row is the difference between a table you scan and one you have to interrogate account by account. User-managed keys only; Google-managed ones rotate themselves and would put "2 keys" on every row |
 
-Two of these have a listing underneath them, reached with `enter` on the row
-rather than a hotkey of their own:
+Six listings hang underneath these, reached with `enter` on the row rather
+than a hotkey of their own. A row may hold more than one — `tab` moves between
+them the way it moves between kinds one level up:
 
 | Drill-down | Parent | Notes |
 |---|---|---|
 | GKE node pools | a cluster | free: `clusters.list` already returns node pools inline. Node counts are multiplied out across the pool's zones, because a pool of 2 across three zones runs six VMs and reading the 2 as the total is how a cluster ends up mis-sized on paper |
+| Cloud SQL databases | an instance | one call. The first half of the pair that made a row allowed more than one listing |
+| Cloud SQL users | an instance | one call. `tab` moves between this and the databases; a disabled account still appears in the list, which is exactly the row worth colouring — it looks like access that exists and is not |
+| Load balancer backend health | a forwarding rule | the expensive one, and the argument for the whole mechanism: rule → target proxy → URL map → every backend service it routes to → `getHealth` per backend group. Four-plus round trips to answer for one row, which nobody would pay on every refresh of the load balancers table and everybody would pay once, on the rule they are actually looking at |
+| DNS record sets | a zone | one paginated call, capped at 1000. Grouped by name rather than sorted flat, so a name's A and AAAA sit on adjacent rows — they are read as a group |
 | Service account keys | an account | free: the accounts listing fetched them to compute the oldest-key age. Oldest first — that is the row the table was opened to find |
 
 Plus, across all kinds: a per-project dashboard with status rollups, a merged
@@ -81,10 +86,17 @@ not a question anyone asks.
 
 Those are **drill-downs**: `enter` on a row opens its listing in place, with the
 child's own columns and a trail naming the parent, and `esc` puts you back. They
-cost no hotkey, nothing has to be registered in the UI, and they are often free
-of API calls too — the parent listing has usually fetched the children already.
-`gcp.ChildLister` is the whole interface; see
+cost no hotkey and nothing has to be registered in the UI. A row may hold more
+than one where more than one is the honest answer — an instance has databases
+*and* users — and `tab` moves between them, the same key that moves between
+kinds one level up. `gcp.ChildLister` is the whole interface; see
 [Adding a resource kind](README.md#or-a-drill-down-which-needs-no-key).
+
+Cost varies and that is the point. Some are free — the parent listing already
+fetched the children. Others are the opposite, and are drill-downs *because*
+they are expensive: backend health walks four resources to answer for one
+forwarding rule, which is unthinkable per refresh and unremarkable per keypress.
+A drill-down is the right home for both.
 
 A twenty-fourth top-level kind would silently lose its hotkey, so a test fails
 the build instead — the reminder to reach for a drill-down.
@@ -93,28 +105,44 @@ the build instead — the reminder to reach for a drill-down.
 
 The ones that would earn their place first, roughly in order.
 
-| Resource | Scope | Why it's near the top |
+Everything here is a drill-down, and that is not a coincidence — see above.
+
+| Resource | Parent | Why it's near the top |
 |---|---|---|
-| DNS record sets | drill-down from a zone | the obvious next one: a zone row that cannot show you what is in it is half a table |
-| Backend service health | drill-down from a load balancer | which backends are actually passing health checks, which is the question behind most "the LB is down" reports |
-| Cloud SQL databases and users | drill-down from an instance | |
+| Subnets | a VPC network | the VPC row already counts them and offers no way to see them, which is the same gap the DNS zones row had |
+| BigQuery tables | a dataset | a dataset with no way into it is a row that only tells you the dataset exists |
+| Cloud Run revisions | a service | which revision is actually serving, and what the traffic split is — the question behind most "I deployed but nothing changed" |
+| Attached disks | a VM instance | |
+| Subscriptions on a topic | a topic | the subscriptions kind lists them project-wide; per topic is the other axis, and the one "who is reading this" is asked on |
+
+### Blocked on the keyspace
+
+Real kinds with nowhere to bind. Each would be a top-level tab and there is no
+key left for one, so they wait for either a drill-down shape that fits or a
+decision to change the scheme:
+
+| Resource | Scope | Notes |
+|---|---|---|
 | Cloud Functions | regional | the last serverless kind missing now that Run is in |
-| Compute disks and snapshots | zonal, aggregated | unattached disks are the quiet line on every bill |
+| Compute disks and snapshots | zonal, aggregated | unattached disks are the quiet line on every bill, and an unattached disk has no parent row to hang off |
+| Batch jobs | regional | |
 
 ## Candidates
 
 Plausible, lower priority, grouped by area.
 
-**Compute and serverless** — Batch jobs, instance groups and templates, GPU/TPU
-reservations. (Cloud Functions and Compute disks have moved up.)
+**Compute and serverless** — instance groups and templates, GPU/TPU
+reservations. (Cloud Functions, Compute disks and Batch jobs are up under
+*Blocked on the keyspace*.)
 
-**Data** — Bigtable instances, Spanner instances and databases, Memorystore
+**Data** — Cloud SQL is shipped, databases and users included. Still open:
+Bigtable instances, Spanner instances and databases, Memorystore
 (Redis / Memcached), Firestore databases, Datastream streams, Data Fusion
 instances, Artifact Registry repositories, BigQuery reservations.
 
-**Networking** — the core is shipped (see above). Still open: subnets, routes,
-Cloud NAT and routers, reserved static IPs. (Record sets and backend health have
-moved up, both as drill-downs.)
+**Networking** — the core is shipped, record sets and backend health included.
+Still open: routes, Cloud NAT and routers, reserved static IPs. (Subnets have
+moved up, as a drill-down from the VPC row.)
 
 **Security and identity** — service accounts are shipped. Still open: project
 IAM policy bindings, KMS keyrings and keys (with rotation age), Certificate

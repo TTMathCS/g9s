@@ -56,6 +56,7 @@ func TestGenerateScreenshots(t *testing.T) {
 		{"dashboard", dashboardShot()},
 		{"resources", resourcesShot()},
 		{"drilldown", drilldownShot()},
+		{"siblings", siblingsShot()},
 	} {
 		path := filepath.Join(outDir, shot.name+".ansi")
 		if err := os.WriteFile(path, []byte(padToWidth(shot.model.View())), 0o644); err != nil {
@@ -347,6 +348,7 @@ func drilldownShot() Model {
 	m.drill = &drillState{
 		lister:     gcp.BindChild(gcp.NodePoolLister{}, parent),
 		parent:     parent,
+		siblings:   gcp.ChildrenOf("gke"),
 		parentKind: kindByID("gke"),
 	}
 	m.cursor = 1
@@ -362,6 +364,59 @@ func drilldownShot() Model {
 		resources = append(resources, gcp.Resource{Name: r[0], Location: "us-central1", Status: r[6], Row: r})
 	}
 	m.cache[m.currentKind().ID] = gcp.Result{Resources: resources}
+	return m
+}
+
+// siblingsShot is a Cloud SQL instance, which holds two listings rather than
+// one: databases and users, side by side in the trail with tab between them.
+// A row offering more than one thing underneath it is not something a sentence
+// conveys — the two tabs on screen do it in a glance.
+func siblingsShot() Model {
+	m := baseShot(5 + 3 + chromeHeight)
+	m.screen = screenResources
+	m.active = m.cfg.Projects[0]
+	m.hasActive = true
+	m.authStatus[m.active.Name] = auth.Status{State: auth.StateValid, Expiry: time.Now().Add(38 * time.Minute)}
+
+	parent := gcp.Resource{
+		Name:     "orders-primary",
+		Location: "us-central1",
+		Status:   "RUNNABLE",
+		KindID:   "sql",
+		Row:      []string{"orders-primary", "us-central1", "POSTGRES_15", "db-custom-4-15360", "REGIONAL", "RUNNABLE", "200d"},
+	}
+	m.kindIdx = 2 // Cloud SQL Instances
+	m.cache["sql"] = gcp.Result{Resources: []gcp.Resource{parent}}
+
+	siblings := gcp.ChildrenOf("sql")
+	m.drill = &drillState{
+		lister:     gcp.BindChild(siblings[1], parent), // Users
+		parent:     parent,
+		siblings:   siblings,
+		siblingIdx: 1,
+		parentKind: kindByID("sql"),
+	}
+	m.cursor = 2
+
+	// A disabled account and an IAM identity the instance cannot confirm: the
+	// two rows this table is opened to find, next to the ordinary ones.
+	rows := [][]string{
+		{"app-writer", "%", "BUILT_IN", "-", "ACTIVE"},
+		{"dbt-runner@acme-dataeng-prod-4471.iam", "-", "SERVICE_ACCOUNT", "cloudsqlsuperuser", "ACTIVE"},
+		{"leaver@example.com", "-", "USER", "-", "DISABLED"},
+		{"postgres", "-", "BUILT_IN", "cloudsqlsuperuser", "ACTIVE"},
+		{"readonly-bi", "10.2.%", "BUILT_IN", "-", "ACTIVE"},
+	}
+	resources := make([]gcp.Resource, 0, len(rows))
+	for _, r := range rows {
+		resources = append(resources, gcp.Resource{Name: r[0], Location: "orders-primary", Status: r[4], Row: r})
+	}
+	m.cache[m.currentKind().ID] = gcp.Result{Resources: resources}
+	// The other listing is loaded too, so its tab carries a count rather than
+	// looking like something that failed.
+	m.cache["sqldbs/orders-primary"] = gcp.Result{
+		Resources: statusOnly(kindByID("sql"), map[string]int{"ACTIVE": 4}),
+	}
 	return m
 }
 
