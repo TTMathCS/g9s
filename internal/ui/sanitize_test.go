@@ -153,3 +153,27 @@ func TestFooterShowsTheWarningTextItself(t *testing.T) {
 		t.Errorf("footer does not show the warning text: %q", got)
 	}
 }
+
+func TestStatusStyleCoversTheNewKinds(t *testing.T) {
+	// Every status the Pub/Sub and Cloud Run listers can emit has to colour, or
+	// the row it matters most on is the one that renders as plain text.
+	good := []string{"READY", "SUCCEEDED", "ACTIVE"}
+	warn := []string{"PENDING", "RECONCILING", "DETACHED"}
+	bad := []string{"FAILED", "RESOURCE_ERROR", "INGESTION_RESOURCE_ERROR"}
+
+	for _, s := range good {
+		if statusStyle(s).GetForeground() != goodStyle.GetForeground() {
+			t.Errorf("%s does not render as healthy", s)
+		}
+	}
+	for _, s := range warn {
+		if statusStyle(s).GetForeground() != warnStyle.GetForeground() {
+			t.Errorf("%s does not render as in-flight", s)
+		}
+	}
+	for _, s := range bad {
+		if statusStyle(s).GetForeground() != badStyle.GetForeground() {
+			t.Errorf("%s does not render as broken", s)
+		}
+	}
+}

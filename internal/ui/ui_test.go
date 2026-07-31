@@ -670,7 +670,9 @@ func TestDashboardCursorStaysInRange(t *testing.T) {
 	m := populatedModel(t)
 	m.screen = screenOverview
 
-	for i := 0; i < 20; i++ {
+	// More presses than there are tabs, so the clamp is what stops it rather
+	// than running out of rows. Derived, so adding a kind does not fail this.
+	for i := 0; i < len(m.tabs())+5; i++ {
 		next, _ := m.handleOverviewKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
 		m = next.(Model)
 	}
@@ -678,7 +680,7 @@ func TestDashboardCursorStaysInRange(t *testing.T) {
 		t.Errorf("cursor ran to %d, want it to stop at the last tab %d", m.ovCursor, len(m.tabs())-1)
 	}
 
-	for i := 0; i < 20; i++ {
+	for i := 0; i < len(m.tabs())+5; i++ {
 		next, _ := m.handleOverviewKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
 		m = next.(Model)
 	}
@@ -690,6 +692,9 @@ func TestDashboardCursorStaysInRange(t *testing.T) {
 func TestDashboardRendersCountsStatusesAndWarnings(t *testing.T) {
 	m := populatedModel(t)
 	m.screen = screenOverview
+	// Tall enough for every category at once: the dashboard windows to fit the
+	// terminal, and this test is about what a row says, not about scrolling.
+	m.height = len(m.tabs()) + chromeHeight + 2
 	out := m.View()
 
 	for _, want := range []string{"VM Instances", "All Resources", "RUNNING", "TERMINATED"} {

@@ -10,6 +10,8 @@ import (
 	"cloud.google.com/go/storage"
 	bigquery "google.golang.org/api/bigquery/v2"
 	dns "google.golang.org/api/dns/v1"
+	pubsub "google.golang.org/api/pubsub/v1"
+	run "google.golang.org/api/run/v2"
 	secretmanager "google.golang.org/api/secretmanager/v1"
 	sqladmin "google.golang.org/api/sqladmin/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -249,5 +251,47 @@ func testSecret() *secretmanager.Secret {
 		// make the test flake on the sub-second precision RFC3339 drops.
 		Rotation: &secretmanager.Rotation{NextRotationTime: time.Now().Add(12*24*time.Hour + 6*time.Hour).Format(time.RFC3339)},
 		Labels:   map[string]string{"env": "prod", "owner": "dataeng"},
+	}
+}
+
+func testPubSubTopic() *pubsub.Topic {
+	return &pubsub.Topic{
+		Name:                     "projects/sandbox-123/topics/orders-events",
+		MessageRetentionDuration: "604800s",
+		Labels:                   map[string]string{"team": "dataeng"},
+	}
+}
+
+func testPubSubSubscription() *pubsub.Subscription {
+	return &pubsub.Subscription{
+		Name:                     "projects/sandbox-123/subscriptions/orders-events-etl",
+		Topic:                    "projects/sandbox-123/topics/orders-events",
+		AckDeadlineSeconds:       60,
+		MessageRetentionDuration: "604800s",
+	}
+}
+
+func testCloudRunService() *run.GoogleCloudRunV2Service {
+	return &run.GoogleCloudRunV2Service{
+		Name:                "projects/sandbox-123/locations/us-central1/services/api-gateway",
+		Uri:                 "https://api-gateway-abc123-uc.a.run.app",
+		Ingress:             "INGRESS_TRAFFIC_ALL",
+		LatestReadyRevision: "projects/sandbox-123/locations/us-central1/services/api-gateway/revisions/api-gateway-00042-xyz",
+		TerminalCondition:   &run.GoogleCloudRunV2Condition{Type: "Ready", State: "CONDITION_SUCCEEDED"},
+		CreateTime:          time.Now().Add(-60 * 24 * time.Hour).Format(time.RFC3339),
+	}
+}
+
+func testCloudRunJob() *run.GoogleCloudRunV2Job {
+	return &run.GoogleCloudRunV2Job{
+		Name:              "projects/sandbox-123/locations/us-central1/jobs/nightly-report",
+		ExecutionCount:    128,
+		TerminalCondition: &run.GoogleCloudRunV2Condition{Type: "Ready", State: "CONDITION_SUCCEEDED"},
+		LatestCreatedExecution: &run.GoogleCloudRunV2ExecutionReference{
+			Name:             "projects/sandbox-123/locations/us-central1/jobs/nightly-report/executions/nightly-report-9x8w7",
+			CompletionStatus: "EXECUTION_SUCCEEDED",
+			CompletionTime:   time.Now().Add(-3 * time.Hour).Format(time.RFC3339),
+		},
+		CreateTime: time.Now().Add(-200 * 24 * time.Hour).Format(time.RFC3339),
 	}
 }

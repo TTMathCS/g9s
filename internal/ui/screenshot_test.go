@@ -208,7 +208,31 @@ func resourcesShot() Model {
 	m.cache["secrets"] = gcp.Result{
 		Resources: statusOnly(kindByID("secrets"), map[string]int{"ACTIVE": 7, "EXPIRING": 1}),
 	}
+	for id, res := range messagingAndServerless() {
+		m.cache[id] = res
+	}
 	return m
+}
+
+// messagingAndServerless is the Pub/Sub and Cloud Run half of the fixture,
+// shared by both shots. The detached subscription and the failed execution are
+// there on purpose: they are the two states these kinds exist to surface, and a
+// screenshot of nothing but green says nothing about what the tool is for.
+func messagingAndServerless() map[string]gcp.Result {
+	return map[string]gcp.Result{
+		"topics": {
+			Resources: statusOnly(kindByID("topics"), map[string]int{"ACTIVE": 9}),
+		},
+		"subs": {
+			Resources: statusOnly(kindByID("subs"), map[string]int{"ACTIVE": 14, "DETACHED": 1}),
+		},
+		"run": {
+			Resources: statusOnly(kindByID("run"), map[string]int{"READY": 6, "RECONCILING": 1}),
+		},
+		"runjobs": {
+			Resources: statusOnly(kindByID("runjobs"), map[string]int{"SUCCEEDED": 4, "RUNNING": 1, "FAILED": 1}),
+		},
+	}
 }
 
 // dashboardShot is the per-project overview: every category with its count and
@@ -276,6 +300,9 @@ func dashboardShot() Model {
 	}
 	m.cache["secrets"] = gcp.Result{
 		Resources: statusOnly(kindByID("secrets"), map[string]int{"ACTIVE": 7, "EXPIRING": 1}),
+	}
+	for id, res := range messagingAndServerless() {
+		m.cache[id] = res
 	}
 	return m
 }

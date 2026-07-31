@@ -75,6 +75,10 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | Dataproc clusters | ✅ | **regional** | a client per region; `global` always swept |
 | Dataproc jobs | ✅ | **regional** | every state, newest first; capped at 200 per region — the API has no time filter |
 | Cloud Composer environments | ✅ | location-scoped | one client, location in the request parent |
+| Pub/Sub topics | ✅ | global | one call; a topic reports a state only once an ingestion source breaks |
+| Pub/Sub subscriptions | ✅ | global | backlog per subscription, from one Monitoring call covering all of them |
+| Cloud Run services | ✅ | **regional** | a client per region — the v2 API takes no `-` wildcard for location |
+| Cloud Run jobs | ✅ | **regional** | leads with the last execution's result, not the job's own condition |
 | VPC networks | ✅ | global | subnet mode, subnet count, routing mode |
 | Firewall rules | ✅ | global | sorted by evaluation priority, not name; disabled rules flagged |
 | Load balancers | ✅ | global + regional | forwarding rules; the only kind needing two calls, since global and regional live in separate collections |
@@ -83,8 +87,6 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | Interconnect attachments | ✅ | regional, aggregated | VLAN attachments, not circuits; admin-disabled beats a healthy-looking state |
 | PSC service attachments | ✅ | regional, aggregated | the producer side; consumer endpoints are forwarding rules, already under load balancers |
 | Secret Manager secrets | ✅ | global | **metadata only — never values**; replication, rotation and expiry |
-| Pub/Sub topics & subscriptions | 🔜 | global | subscription backlog is the number people actually want |
-| Cloud Run services & jobs | 🔜 | regional | |
 | Dataflow jobs | 🔜 | regional | |
 | Service accounts & keys | 🔜 | global | key age is a standing audit question |
 | GKE node pools | 🔜 | per-cluster | drill-down from a GKE row, not a new top-level tab |
@@ -120,11 +122,11 @@ Cloud Asset Inventory makes "list everything in a project" a single API call. Wi
 
 ## Status
 
-MVP. Seventeen resource kinds across compute, data and networking — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
+MVP. Twenty-one resource kinds across compute, data, messaging and networking — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
 
 Navigation is three levels deep: projects → dashboard → a category's table, with `esc` walking back up. A new kind appears on the dashboard, in the tab bar and in *All Resources* automatically; there is nothing to register in the UI.
 
-Every kind has a one-press key, past the ninth included. The digits run out at nine, so the sequence carries on into letters — `1`–`9`, then `b e f h i m n t u v w x z` — skipping every letter that is already an action, which is why the run starts at `b` and not at `a` (`a` is *All Resources*). Nothing to memorise: each kind's key is printed beside it on the dashboard and in the tab strip. `tab`/`shift+tab` and `:<kind>` still reach everything, and the tab strip scrolls to keep the active tab visible, marking hidden tabs with `‹`/`›`.
+Every kind has a one-press key, past the ninth included. The digits run out at nine, so the sequence carries on into letters — `1`–`9`, then `b e f h i m n t u v w x z` — skipping every letter that is already an action, which is why the run starts at `b` and not at `a` (`a` is *All Resources*). Nothing to memorise: each kind's key is printed beside it on the dashboard and in the tab strip. `tab`/`shift+tab` and `:<kind>` still reach everything, and the tab strip scrolls to keep the active tab visible, marking hidden tabs with `‹`/`›`. Twenty-one kinds against twenty-two keys leaves one spare, which is about where a flat list of tabs stops being worth scanning — see [ROADMAP.md](ROADMAP.md) for what happens after that.
 
 ## Requirements
 
@@ -469,7 +471,7 @@ The bindings follow k9s muscle memory where the two tools overlap: `:` jumps by 
 | `g` / `G` | top / bottom |
 | `enter` | dashboard: open the category · table: describe (YAML, as `gcloud describe` shows it) |
 | `d` | describe the selected resource |
-| `:` | command — `:vm` `:gke` `:gcs` `:dataproc` `:composer` `:all` `:projects` `:q` (prefixes work: `:data`) |
+| `:` | command — `:vm` `:gke` `:gcs` `:dataproc` `:topics` `:subs` `:run` `:all` `:projects` `:q` (prefixes work: `:data`) |
 | `1`–`9`, then `b e f h i m n t u v w x z` | jump straight to a resource kind — one key each, printed beside the kind on the dashboard and in the tab strip |
 | `0` / `a` | all resources — every kind in one table |
 | `tab` / `shift+tab` | cycle resource kinds |

@@ -66,7 +66,9 @@ func statusStyle(status string) lipgloss.Style {
 	// is a VPN tunnel that finished its handshake, ENABLED is a live firewall rule.
 	// DONE is BigQuery's word for a job that finished; a job that finished
 	// badly reports FAILED instead, which is why DONE is unambiguously green.
-	case "RUNNING", "RUNNABLE", "ACTIVE", "READY", "ESTABLISHED", "ENABLED", "DONE":
+	// SUCCEEDED is the Cloud Run execution that came back clean.
+	case "RUNNING", "RUNNABLE", "ACTIVE", "READY", "ESTABLISHED", "ENABLED", "DONE",
+		"SUCCEEDED":
 		return goodStyle
 	case "PROVISIONING", "STAGING", "CREATING", "UPDATING", "STOPPING", "DELETING",
 		"REPAIRING", "SUSPENDING", "RECONCILING",
@@ -84,7 +86,11 @@ func statusStyle(status string) lipgloss.Style {
 		"PARTNER_REQUEST_RECEIVED", "PENDING_CUSTOMER", "PENDING_PARTNER",
 		// Something that exists but is doing nothing: a firewall rule that looks
 		// like it protects an network but does not is worth drawing the eye to.
-		"DISABLED":
+		"DISABLED",
+		// A detached Pub/Sub subscription still exists and still costs nothing,
+		// but it retains nothing and delivers nothing — publishers carry on
+		// unaware, which is exactly the failure worth flagging.
+		"DETACHED":
 		return warnStyle
 	case "ERROR", "FAILED", "TERMINATED", "STOPPED", "SUSPENDED", "UNHEALTHY", "DEGRADED",
 		// VPN tunnels that will never carry traffic without intervention.
@@ -93,7 +99,10 @@ func statusStyle(status string) lipgloss.Style {
 		"DEFUNCT", "UNPROVISIONED",
 		// A Dataproc job that was killed or never got off the ground, and a
 		// secret whose expiry has passed — it and its versions are gone.
-		"CANCELLED", "ATTEMPT_FAILURE", "EXPIRED":
+		"CANCELLED", "ATTEMPT_FAILURE", "EXPIRED",
+		// A Pub/Sub topic whose ingestion source stopped working: the topic is
+		// fine, nothing is arriving on it.
+		"RESOURCE_ERROR", "INGESTION_RESOURCE_ERROR":
 		return badStyle
 	default:
 		return rowStyle
