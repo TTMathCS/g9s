@@ -28,6 +28,13 @@ defaults:
   # gcloud binary used for login and SSH. An absolute path is fine.
   gcloud_path: gcloud
 
+  # Read credentials from an existing file instead of logging in per project.
+  # Set this when the login handshake cannot complete at all — behind a proxy
+  # that swallows the loopback redirect, both gcloud flows end at a localhost
+  # your browser cannot reach. g9s only ever reads this file; keeping it fresh
+  # is then yours. Can also be set per project.
+  #credentials_file: ~/.config/gcloud/application_default_credentials.json
+
   # Always use gcloud's --no-browser flow for `l`, the same as pressing `L`
   # every time. Worth setting behind a proxy: the ordinary login ends with your
   # browser fetching http://localhost:<port>/ to hand the authorization code

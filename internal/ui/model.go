@@ -580,6 +580,16 @@ func (m Model) startLogin(noBrowser bool) (tea.Model, tea.Cmd) {
 		p = m.active
 	}
 
+	// A project reading a credentials file has no login for g9s to run: gcloud
+	// would write into the isolated config directory, which is not where the
+	// file is. Say where the credentials come from instead of starting a flow
+	// that cannot change anything.
+	if !m.auth.ManagesCredentials(p) {
+		return m, flash(fmt.Sprintf(
+			"%s reads credentials_file %s — refresh it with gcloud yourself, then press r",
+			p.Name, m.auth.ADCPath(p)), flashWarn)
+	}
+
 	// Choose the flow that can actually finish rather than letting the user
 	// find out by waiting. gcloud's browser login ends with the browser
 	// fetching http://localhost:<port>/ to hand the code back; when the browser

@@ -355,7 +355,22 @@ That looks like g9s produced a broken link. It didn't; the URL is half a request
 
 ### When nothing involving a browser works
 
-If the other machine has no gcloud, or its browser can't reach its own localhost either, sidestep the handshake entirely. Log in on whichever machine *does* work:
+Both gcloud flows end at a loopback redirect — the browser one on this machine, `--no-browser` on whichever machine runs the bootstrap command. If your browser can't reach `localhost` anywhere, neither can complete, and no flag fixes that.
+
+Point g9s at credentials you already have instead:
+
+```yaml
+projects:
+  - name: ny-dev
+    project_id: my-dev-project
+    credentials_file: ~/.config/gcloud/application_default_credentials.json
+```
+
+That is usually the file your normal `gcloud auth application-default login` already wrote, which is why this often needs no new login at all. Set it under `defaults:` to apply to every project.
+
+g9s then only reads that file: `l` stops offering a login it cannot own and tells you to refresh the file yourself. The trade is deliberate — projects sharing one file share one identity, which is exactly the isolation the per-project directories exist to provide, so use it where you need it rather than everywhere.
+
+The manual equivalent, if you would rather keep the isolation, is to copy the file into place. Log in on whichever machine *does* work:
 
 ```sh
 gcloud auth application-default login
@@ -416,6 +431,10 @@ defaults:
   # Always use gcloud's --no-browser flow for `l`. Set this behind a proxy —
   # see "I signed in, but g9s is still sitting on the URL" below.
   login_no_browser: false
+
+  # Read credentials from a file you already have, instead of logging in.
+  # The way through when no browser flow can work at all — see below.
+  #credentials_file: ~/.config/gcloud/application_default_credentials.json
 
   # How far back the BigQuery jobs table looks. Jobs are kept for six months,
   # which is far more than a "what is running" table can show, so this window
