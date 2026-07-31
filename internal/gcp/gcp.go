@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
@@ -322,4 +323,18 @@ func regionOfZone(zone string) string {
 		return zone[:i]
 	}
 	return zone
+}
+
+// stableSortBy is sort.SliceStable with a comparison written in terms of the
+// resources rather than their indices, which is how every lister's ordering
+// actually reads.
+func stableSortBy(resources []Resource, less func(a, b Resource) bool) {
+	sort.SliceStable(resources, func(i, j int) bool {
+		return less(resources[i], resources[j])
+	})
+}
+
+// secondsDuration converts an API's seconds field to a Duration.
+func secondsDuration(seconds int64) time.Duration {
+	return time.Duration(seconds) * time.Second
 }

@@ -1,7 +1,7 @@
 # Screenshots
 
-`projects.png`, `dashboard.png`, `resources.png` and `drilldown.png` in the
-README are generated,
+`projects.png`, `dashboard.png`, `resources.png`, `drilldown.png` and
+`siblings.png` in the README are generated,
 not captured by hand. The generator lives in
 [`internal/ui/screenshot_test.go`](../internal/ui/screenshot_test.go) behind a
 `screenshot` build tag, so it never affects a normal build or test run.
@@ -21,7 +21,7 @@ Three steps: render the views to ANSI, turn that into SVG, rasterize the SVG.
 go test -tags screenshot -run TestGenerateScreenshots ./internal/ui
 
 go install github.com/charmbracelet/freeze@latest
-for n in projects dashboard resources drilldown; do
+for n in projects dashboard resources drilldown siblings; do
   freeze --language ansi --output docs/$n.svg \
     --background "#1a1b26" --padding 32 --margin 0 --border.radius 10 \
     --border.width 1 --border.color "#2f3145" --font.size 7 --line-height 1.35 \
@@ -68,7 +68,7 @@ const LINE_HEIGHT = 7 * 1.35; // --font.size x --line-height
 
 (async () => {
   const browser = await chromium.launch();
-  for (const name of ['projects', 'dashboard', 'resources', 'drilldown']) {
+  for (const name of ['projects', 'dashboard', 'resources', 'drilldown', 'siblings']) {
     const svg = fs.readFileSync(`docs/${name}.svg`, 'utf8');
     const [, w, h] = svg.match(/<svg width="([\d.]+)" height="([\d.]+)"/);
 

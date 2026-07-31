@@ -47,6 +47,12 @@ var allKind = gcp.Kind{
 type drillState struct {
 	lister gcp.Lister // the child bound to parent, so it loads like any kind
 	parent gcp.Resource
+	// siblings are every drill-down the parent row offers, and which of them
+	// is open. A Cloud SQL instance holds databases and users, and neither is
+	// underneath the other — so tab moves between them here exactly as it moves
+	// between kinds on the table screen, and the trail shows them as tabs.
+	siblings   []gcp.ChildLister
+	siblingIdx int
 	// parentKind is the tab the drill was opened from, named rather than
 	// indexed so the breadcrumb reads right even from the merged table.
 	parentKind gcp.Kind
@@ -201,26 +207,23 @@ func (m Model) currentKind() gcp.Kind {
 	return tabs[m.kindIdx]
 }
 
-// childFor returns the drill-down available from a row, if any.
+// childrenFor returns the drill-downs available from a row.
 //
 // The kind comes from the row rather than the tab so enter behaves the same on
 // the merged table as on the kind's own — a GKE cluster is a GKE cluster
 // wherever it is listed, and a key whose meaning depends on how you got to the
 // row is a key nobody trusts.
-func (m Model) childFor(r gcp.Resource) (gcp.ChildLister, bool) {
+func (m Model) childrenFor(r gcp.Resource) []gcp.ChildLister {
 	if m.drill != nil {
 		// One level. Nothing registered has grandchildren, and nesting without
 		// a reason to would only make esc ambiguous.
-		return nil, false
+		return nil
 	}
 	id := m.currentKind().ID
 	if id == allKind.ID {
 		id = r.KindID
 	}
-	if id == "" {
-		return nil, false
-	}
-	return gcp.ChildOf(id)
+	return gcp.ChildrenOf(id)
 }
 
 // mergedResources flattens every loaded kind into one list, in lister order,
@@ -774,10 +777,20 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cursor = max(0, len(visible)-1)
 		return m, nil
 
+	// Inside a drill-down with more than one listing, tab moves between those
+	// rather than out to the next kind — it is still "the next table across",
+	// just at the level you are actually on. With only one listing there is
+	// nothing to move to, so tab keeps its usual meaning and leaves the drill.
 	case "tab", "]":
+		if m.drill != nil && len(m.drill.siblings) > 1 {
+			return m.openSibling(m.drill.siblingIdx + 1)
+		}
 		return m.openTab((m.kindIdx + 1) % len(m.tabs()))
 
 	case "shift+tab", "[":
+		if m.drill != nil && len(m.drill.siblings) > 1 {
+			return m.openSibling(m.drill.siblingIdx - 1)
+		}
 		return m.openTab((m.kindIdx - 1 + len(m.tabs())) % len(m.tabs()))
 
 	case "/":
@@ -803,8 +816,8 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		if child, drillable := m.childFor(r); drillable {
-			return m.openDrill(child, r)
+		if children := m.childrenFor(r); len(children) > 0 {
+			return m.openDrill(children, r)
 		}
 		return m.describe(r)
 
@@ -851,25 +864,29 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // selectedHasChild reports whether enter on the current row drills in.
 func (m Model) selectedHasChild() bool {
-	_, ok := m.selectedChild()
-	return ok
+	return len(m.selectedChildren()) > 0
 }
 
-// selectedChildTitle names that listing, lowercased for the hint line.
+// selectedChildTitle names those listings for the hint line, lowercased and
+// joined, so a row offering two says so before you press anything.
 func (m Model) selectedChildTitle() string {
-	child, ok := m.selectedChild()
-	if !ok {
+	children := m.selectedChildren()
+	if len(children) == 0 {
 		return "open"
 	}
-	return strings.ToLower(child.Kind().Title)
+	titles := make([]string, 0, len(children))
+	for _, c := range children {
+		titles = append(titles, strings.ToLower(c.Kind().Title))
+	}
+	return strings.Join(titles, " / ")
 }
 
-func (m Model) selectedChild() (gcp.ChildLister, bool) {
+func (m Model) selectedChildren() []gcp.ChildLister {
 	r, ok := m.selectedResource()
 	if !ok {
-		return nil, false
+		return nil
 	}
-	return m.childFor(r)
+	return m.childrenFor(r)
 }
 
 // describe opens the YAML pane on a row.
@@ -888,14 +905,41 @@ func (m Model) describe(r gcp.Resource) (tea.Model, tea.Cmd) {
 // The parent's cursor and filter are kept rather than recomputed: coming back
 // out to a table that has scrolled somewhere else, or lost the query you were
 // working through, makes drilling in feel like losing your place.
-func (m Model) openDrill(child gcp.ChildLister, parent gcp.Resource) (tea.Model, tea.Cmd) {
+func (m Model) openDrill(siblings []gcp.ChildLister, parent gcp.Resource) (tea.Model, tea.Cmd) {
+	if len(siblings) == 0 {
+		return m, nil
+	}
 	m.drill = &drillState{
-		lister:       gcp.BindChild(child, parent),
+		lister:       gcp.BindChild(siblings[0], parent),
 		parent:       parent,
+		siblings:     siblings,
 		parentKind:   m.currentKind(),
 		parentCursor: m.cursor,
 		parentFilter: m.filter.Value(),
 	}
+	m.cursor = 0
+	m.filter.SetValue("")
+	m.filtering = false
+	m.filter.Blur()
+	return m.loadCurrentIfEmpty()
+}
+
+// openSibling switches to another of the parent's listings, without leaving the
+// drill or losing the way back out.
+func (m Model) openSibling(idx int) (tea.Model, tea.Cmd) {
+	if m.drill == nil || len(m.drill.siblings) < 2 {
+		return m, nil
+	}
+	n := len(m.drill.siblings)
+	idx = ((idx % n) + n) % n
+
+	next := *m.drill
+	next.siblingIdx = idx
+	next.lister = gcp.BindChild(next.siblings[idx], next.parent)
+	m.drill = &next
+
+	// Same rule as switching kinds: cursor to the top, and the filter goes with
+	// the listing it was typed for.
 	m.cursor = 0
 	m.filter.SetValue("")
 	m.filtering = false

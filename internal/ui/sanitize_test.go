@@ -157,9 +157,9 @@ func TestFooterShowsTheWarningTextItself(t *testing.T) {
 func TestStatusStyleCoversTheNewKinds(t *testing.T) {
 	// Every status these listers can emit has to colour, or the row it matters
 	// most on is the one that renders as plain text.
-	good := []string{"READY", "SUCCEEDED", "ACTIVE", "DRAINED", "UPDATED"}
+	good := []string{"READY", "SUCCEEDED", "ACTIVE", "DRAINED", "UPDATED", "HEALTHY"}
 	warn := []string{"PENDING", "RECONCILING", "DETACHED", "STALE_KEY", "DRAINING", "CANCELLING"}
-	bad := []string{"FAILED", "RESOURCE_ERROR", "INGESTION_RESOURCE_ERROR", "CANCELLED", "EXPIRED"}
+	bad := []string{"FAILED", "RESOURCE_ERROR", "INGESTION_RESOURCE_ERROR", "CANCELLED", "EXPIRED", "UNHEALTHY"}
 
 	for _, s := range good {
 		if statusStyle(s).GetForeground() != goodStyle.GetForeground() {
@@ -175,5 +175,16 @@ func TestStatusStyleCoversTheNewKinds(t *testing.T) {
 		if statusStyle(s).GetForeground() != badStyle.GetForeground() {
 			t.Errorf("%s does not render as broken", s)
 		}
+	}
+}
+
+func TestUnknownIsDeliberatelyUncoloured(t *testing.T) {
+	// Three kinds report UNKNOWN — a Cloud Run condition with no terminal
+	// state, a Dataflow job the service has no state for, a backend the health
+	// checker has not answered on yet. In all three it means "no answer", which
+	// is neither good news nor bad, and amber would draw the eye to a backend
+	// that is simply still being checked.
+	if statusStyle("UNKNOWN").GetForeground() != rowStyle.GetForeground() {
+		t.Error("UNKNOWN is coloured; it should render as ordinary text")
 	}
 }

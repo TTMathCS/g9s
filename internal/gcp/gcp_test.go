@@ -290,6 +290,11 @@ func TestResourceRowsMatchColumns(t *testing.T) {
 			testGKEClusterWithNodePools().GetNodePools()[0]),
 		"sakeys": serviceAccountKeyResource(testProject(),
 			serviceAccountResource(testProject(), testServiceAccount(), nil), testServiceAccountKey()),
+		"sqldbs":   sqlDatabaseResource(testProject(), testSQLInstance(), testSQLDatabase()),
+		"sqlusers": sqlUserResource(testProject(), testSQLInstance(), testSQLUser()),
+		"records":  recordSetResource(testProject(), testDNSZone(), testRecordSet()),
+		"lbhealth": backendHealthResource(testProject(), testBackendService(),
+			testBackendService().Backends[0].Group, testHealthStatus()),
 	}
 
 	kinds := make([]Kind, 0, len(Listers())+len(Children()))

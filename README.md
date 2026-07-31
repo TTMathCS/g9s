@@ -56,11 +56,15 @@ Four screens, in the order you move through them.
 
 ![The g9s resource table: nine VM instances in the prod-data project, with a warning in the status bar that one region was unavailable](docs/resources.png)
 
-**Drill-down.** Some rows have a listing underneath them — a GKE cluster's node pools, a service account's keys. `enter` opens it in place, with the child's own columns and a trail naming the row you came in on; `esc` puts you back where you were. `d` still describes, so a row with children is not a row you can no longer inspect. These cost no hotkey, which is the point: the alphabet is full at twenty-three kinds, and this is how the tool grows past it.
+**Drill-down.** Some rows have a listing underneath them — a GKE cluster's node pools, a DNS zone's records, the backends behind a load balancer. `enter` opens it in place, with the child's own columns and a trail naming the row you came in on; `esc` puts you back where you were, cursor and filter included. `d` still describes, so a row with children is not a row you can no longer inspect. These cost no hotkey, which is the point: the alphabet is full at twenty-three kinds, and this is how the tool grows past it.
 
 ![The g9s drill-down: four node pools inside a GKE cluster, with their machine types, node counts, autoscaling bounds and upgrade policy](docs/drilldown.png)
 
-<sub>All four screenshots are generated from the real rendering code — see <a href="docs/">docs/</a>. The projects, IDs and accounts in them are invented.</sub>
+A row can hold more than one listing where more than one is the honest answer. A Cloud SQL instance has databases *and* users, neither underneath the other, so both appear in the trail and `tab` moves between them — the same key that moves between kinds one level up.
+
+![The g9s drill-down showing two listings under one row: Databases and Users tabs under a Cloud SQL instance, with the users table open and one disabled account](docs/siblings.png)
+
+<sub>All five screenshots are generated from the real rendering code — see <a href="docs/">docs/</a>. The projects, IDs and accounts in them are invented.</sub>
 
 ## Roadmap
 
@@ -95,8 +99,12 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | Service accounts | ✅ | global | one call for the accounts, then a bounded concurrent `keys.list` each, so the oldest key's age is on the row rather than three clicks away |
 | GKE node pools | ✅ | drill-down | `enter` on a cluster; free — `clusters.list` already returned them |
 | Service account keys | ✅ | drill-down | `enter` on an account; free — the accounts listing already fetched them |
-| DNS record sets, backend service health, Cloud SQL databases | 🔜 | drill-down | the shape everything new takes from here — no hotkey to spend |
-| Compute/serverless (Functions, Batch, instance groups, disks, GPU/TPU) | 💡 | mixed | |
+| DNS record sets | ✅ | drill-down | `enter` on a zone; one call, capped at 1000, grouped by name so a name's A and AAAA sit together |
+| Cloud SQL databases & users | ✅ | drill-down | `enter` on an instance, `tab` between the two — the pair that made a row allowed more than one listing |
+| Load balancer backend health | ✅ | drill-down | `enter` on a forwarding rule; walks rule → proxy → URL map → backend services → `getHealth` per group, which is four-plus round trips nobody would pay per refresh |
+| Subnets, BigQuery tables, Cloud Run revisions, a VM's disks | 🔜 | drill-down | each hangs off a row that already exists and can already count them |
+| Cloud Functions, Compute disks, Batch jobs | 🔜 | needs a key | real kinds with nowhere to bind — see [The alphabet is full](ROADMAP.md#the-alphabet-is-full) |
+| Compute/serverless (Batch, instance groups, GPU/TPU) | 💡 | mixed | |
 | Data (Bigtable, Spanner, Memorystore, Firestore, Datastream, Artifact Registry) | 💡 | mixed | |
 | Security/identity (IAM bindings, KMS, Certificate Manager, VPC-SC, Org Policy) | 💡 | mixed | |
 | Operations (Logging, Monitoring alerts, Error Reporting, Scheduler, Cloud Build) | 💡 | mixed | |
@@ -128,7 +136,7 @@ Cloud Asset Inventory makes "list everything in a project" a single API call. Wi
 
 ## Status
 
-MVP. Twenty-three resource kinds across compute, data, messaging, networking and identity, plus two drill-downs — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
+MVP. Twenty-three resource kinds across compute, data, messaging, networking and identity, plus six drill-downs — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
 
 Navigation is three levels deep: projects → dashboard → a category's table, with `esc` walking back up. A new kind appears on the dashboard, in the tab bar and in *All Resources* automatically; there is nothing to register in the UI.
 
@@ -477,12 +485,12 @@ The bindings follow k9s muscle memory where the two tools overlap: `:` jumps by 
 |---|---|
 | `↑`/`k`, `↓`/`j` | move cursor |
 | `g` / `G` | top / bottom |
-| `enter` | go in — dashboard: open the category · table: the row's node pools or keys where it has them, otherwise describe |
+| `enter` | go in — dashboard: open the category · table: the row's own listing where it has one (node pools, records, backends, databases…), otherwise describe |
 | `d` | describe the selected resource (YAML, as `gcloud describe` shows it) — always, including on a row `enter` drills into |
 | `:` | command — `:vm` `:gke` `:sa` `:dataflow` `:topics` `:run` `:all` `:projects` `:q` (prefixes work: `:data`) |
 | `1`–`9`, then `b c e f h i m n t u v w x z` | jump straight to a resource kind — one key each, printed beside the kind on the dashboard and in the tab strip |
 | `0` / `a` | all resources — every kind in one table |
-| `tab` / `shift+tab` | cycle resource kinds |
+| `tab` / `shift+tab` | cycle resource kinds — or, inside a drill-down offering more than one listing, cycle those |
 | `q` / `esc` | back up one level — drill-down to its table, table to dashboard, dashboard to projects |
 | `p` | back to the project list |
 | `/` | filter rows; `esc` clears |
@@ -543,7 +551,9 @@ type ChildLister interface {
 
 `enter` on a matching row opens it. There is nothing to register in the UI and no hotkey to find — which is why this, and not a twenty-fourth tab, is the shape everything new should take from here.
 
-Often it is free: check `parent.Raw` before writing a call, because the parent listing frequently fetched the children already. Both shipped drill-downs do exactly that — `clusters.list` returns node pools inline, and the service accounts table has to read keys anyway to put the oldest one's age on the row.
+Register more than one against the same `ParentKind()` and `tab` moves between them inside the drill; the trail shows them side by side, each with its own count. Cloud SQL does this — an instance holds databases and users, and neither is beneath the other.
+
+Check `parent.Raw` before writing a call: the parent listing has often fetched the children already, and node pools and service account keys both come straight off it for free. When it has not, fetch — an expensive answer is a *reason* to make something a drill-down rather than a column, because it gets paid once on the row someone asked about instead of on every row of every refresh. Backend health walks four resources per forwarding rule on exactly that basis.
 
 ## Design notes
 
