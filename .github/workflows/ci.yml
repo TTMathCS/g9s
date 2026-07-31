@@ -148,6 +148,22 @@ jobs:
   # what the checks ran against is what ships.
   build:
     needs: [version, test, vulncheck]
+    # Only on a run that will publish. On a pull request these four jobs used
+    # to compile the same code four more times, package four tarballs and
+    # upload them — and then `release` was skipped, so nothing ever downloaded
+    # them and they expired unread. Five runner-minutes per pull request for
+    # artifacts nobody sees.
+    #
+    # Safe because this code is portable: no _darwin.go or _linux.go files, no
+    # build tags outside the screenshot generator, no cgo. Cross-compiling
+    # cannot fail for one platform and not another unless the code does not
+    # compile at all, and `test` already runs `go build ./...`.
+    #
+    # What it gives up: a dependency bump that breaks one platform is now
+    # caught on main rather than on the pull request. `release` needs `build`,
+    # so that failure publishes nothing and is fixed forward — the cost is a
+    # missing release for ten minutes, not a broken one.
+    if: needs.version.outputs.publish == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -202,8 +218,9 @@ jobs:
           name: g9s_${{ matrix.goos }}_${{ matrix.goarch }}
           path: dist/*.tar.gz
           if-no-files-found: error
-          # Long enough to be useful for testing a branch, short enough that
-          # unpublished builds do not accumulate forever.
+          # These are handed straight to `release` in the same run, so they
+          # only need to outlive it. Two weeks is slack for re-running a failed
+          # release job against a build that already succeeded.
           retention-days: 14
 
   release:
