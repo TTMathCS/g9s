@@ -102,6 +102,7 @@ func Listers() []Lister {
 		CloudRunServiceLister{},
 		CloudRunJobLister{},
 		CloudFunctionLister{},
+		SchedulerJobLister{},
 		VPCLister{},
 		FirewallLister{},
 		LoadBalancerLister{},
@@ -113,6 +114,7 @@ func Listers() []Lister {
 		// kinds you open with an audit question rather than an outage.
 		SecretLister{},
 		ServiceAccountLister{},
+		KMSKeyLister{},
 	}
 }
 

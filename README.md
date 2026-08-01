@@ -68,7 +68,11 @@ A row can hold more than one listing where more than one is the honest answer. A
 
 ## Roadmap
 
-Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by design, not an oversight)
+Legend: ✅ shipped, complete · ◐ shipped, bounded · 🔜 next up · 💡 candidate · ⛔ not planned (by design, not an oversight)
+
+**◐ is not "half done"** — it is shipped and works, with a limit you should know before you trust the table. Three kinds of limit: a **row cap** (the API has no time filter, so the listing is truncated and says so in the footer), **metadata only** (secret and key *values* are never fetched, by design), or a **subset** (buckets but not objects). The exact bound is on the row. A kind with no such caveat is ✅.
+
+The **Scope** column says what one refresh costs. `global` is one call; `regional` fans out over your configured regions; `aggregated` means the API sweeps server-side, so it is one call despite being regional or zonal. Drill-downs carry their scope too — `free` means the parent listing already fetched the data and opening it costs no request at all.
 
 ### Resource kinds
 
@@ -78,17 +82,18 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | Compute persistent disks | ✅ | zonal + regional, aggregated | one `aggregatedList`; leads with the disks *nothing* is using and how long that has been true, which is the one thing a per-VM listing structurally cannot show |
 | GKE clusters | ✅ | zonal + regional, aggregated | `parent: projects/*/locations/-` covers everything in one call |
 | Cloud SQL instances | ✅ | global | one paginated call; unreachable regions arrive as response warnings, not errors |
-| Cloud Storage buckets | ✅ | global | simplest lister — one call, no fan-out |
+| Cloud Storage buckets | ◐ | global | buckets only, not objects — one call, no fan-out. Object listing is a different tool: a bucket can hold billions |
 | BigQuery datasets | ✅ | global | name, location, type and labels; anything more costs a `Get` per dataset |
-| BigQuery jobs | ✅ | global | recent jobs, newest first; window from `defaults.bigquery_job_window`, capped at 500 rows |
+| BigQuery jobs | ◐ | global | recent jobs, newest first; window from `defaults.bigquery_job_window`, **capped at 500 rows** — the footer says when it truncated |
 | Dataproc clusters | ✅ | **regional** | a client per region; `global` always swept |
-| Dataproc jobs | ✅ | **regional** | every state, newest first; capped at 200 per region — the API has no time filter |
+| Dataproc jobs | ◐ | **regional** | every state, newest first; **capped at 200 per region** — the API has no time filter |
 | Cloud Composer environments | ✅ | location-scoped | one client, location in the request parent |
-| Dataflow jobs | ✅ | regional, aggregated | `jobs.aggregated` sweeps every regional endpoint server-side — no fan-out, and jobs outside your configured regions still show up |
+| Dataflow jobs | ◐ | regional, aggregated | `jobs.aggregated` sweeps every regional endpoint server-side — no fan-out, and jobs outside your configured regions still show up; **capped at 500** |
 | Pub/Sub topics | ✅ | global | one call; a topic reports a state only once an ingestion source breaks |
 | Pub/Sub subscriptions | ✅ | global | backlog per subscription, from one Monitoring call covering all of them |
 | Cloud Run services | ✅ | **regional** | a client per region — the v2 API takes no `-` wildcard for location |
 | Cloud Run jobs | ✅ | **regional** | leads with the last execution's result, not the job's own condition |
+| Cloud Scheduler jobs | ✅ | **regional** | the cron entries, and what the last run did. Two ways a scheduled job stops working that a config-only table cannot tell apart: PAUSED (nothing errors, the work just stops) and a target that rejects every attempt |
 | Cloud Functions | ✅ | regional, aggregated | the v2 API *does* take `locations/-`, unlike Cloud Run's — same family, opposite answer. Both generations list, with which one on the row |
 | VPC networks | ✅ | global | subnet mode, subnet count, routing mode |
 | Firewall rules | ✅ | global | sorted by evaluation priority, not name; disabled rules flagged |
@@ -97,27 +102,28 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | VPN tunnels | ✅ | regional, aggregated | real tunnel status — ESTABLISHED vs a handshake that never finished |
 | Interconnect attachments | ✅ | regional, aggregated | VLAN attachments, not circuits; admin-disabled beats a healthy-looking state |
 | PSC service attachments | ✅ | regional, aggregated | the producer side; consumer endpoints are forwarding rules, already under load balancers |
-| Secret Manager secrets | ✅ | global | **metadata only — never values**; replication, rotation and expiry |
-| Service accounts | ✅ | global | one call for the accounts, then a bounded concurrent `keys.list` each, so the oldest key's age is on the row rather than three clicks away |
-| GKE node pools | ✅ | drill-down | `enter` on a cluster; free — `clusters.list` already returned them |
-| Service account keys | ✅ | drill-down | `enter` on an account; free — the accounts listing already fetched them |
-| DNS record sets | ✅ | drill-down | `enter` on a zone; one call, capped at 1000, grouped by name so a name's A and AAAA sit together |
-| Subnets | ✅ | drill-down | `enter` on a VPC; one `aggregatedList` covers every region, then filtered to that network. Secondary ranges are named, since "which one is pods" is the question |
-| BigQuery tables | ✅ | drill-down | `enter` on a dataset; one call, capped at 1000. Says whether a partitioned table *requires* a filter, which is the cost question a row count would not answer |
-| Cloud Run revisions | ✅ | drill-down | `enter` on a service; joins the revisions list with the traffic split, which lives on the service and not on any revision |
-| A VM's attached disks | ✅ | drill-down | `enter` on an instance; free — `aggregatedList` already returned them. Flags the one setting that destroys data on VM delete |
-| Subscriptions on a topic | ✅ | drill-down | `enter` on a topic; a topic with none is publishing into nothing, which the topics table cannot show |
-| Secret versions | ✅ | drill-down | `enter` on a secret. **Metadata only, same as the parent** — the secrets row shows the rotation *policy*, this shows whether rotation happened |
-| Cloud Run job executions | ✅ | drill-down | `enter` on a job; the history behind the last result, which is what separates "failed once" from "failing nightly" |
-| Bucket lifecycle rules | ✅ | drill-down | `enter` on a bucket; free. Answers "why did my data disappear" and "why is nothing being archived", neither visible from a bucket row |
-| Dataproc jobs on a cluster | ✅ | drill-down | `enter` on a cluster; *cheaper* than the region-wide kind — `ListJobs` filters by cluster server-side, so one call to one region |
-| Cloud SQL databases & users | ✅ | drill-down | `enter` on an instance, `tab` between the two — the pair that made a row allowed more than one listing |
-| Load balancer backend health | ✅ | drill-down | `enter` on a forwarding rule; walks rule → proxy → URL map → backend services → `getHealth` per group, which is four-plus round trips nobody would pay per refresh |
+| Secret Manager secrets | ◐ | global | **metadata only — never values**; replication, rotation and expiry |
+| KMS keys | ◐ | **regional** + global | keys, not key rings — a ring's row would carry a name and nothing else. Leads with rotation: a symmetric key with rotation never configured reports ENABLED forever. **Metadata only — never key material**, and **first 100 rings per location** |
+| Service accounts | ◐ | global | one call for the accounts, then a bounded concurrent `keys.list` each, so the oldest key's age is on the row rather than three clicks away; **key ages read for the first 200 accounts** |
+| GKE node pools | ✅ | drill-down · free | `enter` on a cluster; free — `clusters.list` already returned them |
+| Service account keys | ✅ | drill-down · free | `enter` on an account; free — the accounts listing already fetched them |
+| DNS record sets | ◐ | drill-down · 1 call | `enter` on a zone; **capped at 1000**, grouped by name so a name's A and AAAA sit together |
+| Subnets | ✅ | drill-down · aggregated | `enter` on a VPC; one `aggregatedList` covers every region, then filtered to that network. Secondary ranges are named, since "which one is pods" is the question |
+| BigQuery tables | ◐ | drill-down · 1 call | `enter` on a dataset; **capped at 1000**. Says whether a partitioned table *requires* a filter, which is the cost question a row count would not answer |
+| Cloud Run revisions | ✅ | drill-down · 1 call | `enter` on a service; joins the revisions list with the traffic split, which lives on the service and not on any revision |
+| A VM's attached disks | ✅ | drill-down · free | `enter` on an instance; free — `aggregatedList` already returned them. Flags the one setting that destroys data on VM delete |
+| Subscriptions on a topic | ✅ | drill-down · 1 call | `enter` on a topic; a topic with none is publishing into nothing, which the topics table cannot show |
+| Secret versions | ◐ | drill-down · 1 call | `enter` on a secret. **Metadata only, same as the parent** — the secrets row shows the rotation *policy*, this shows whether rotation happened |
+| Cloud Run job executions | ✅ | drill-down · 1 call | `enter` on a job; the history behind the last result, which is what separates "failed once" from "failing nightly" |
+| Bucket lifecycle rules | ✅ | drill-down · free | `enter` on a bucket; free. Answers "why did my data disappear" and "why is nothing being archived", neither visible from a bucket row |
+| Dataproc jobs on a cluster | ◐ | drill-down · 1 call | `enter` on a cluster; *cheaper* than the region-wide kind — `ListJobs` filters by cluster server-side, so one call to one region; **capped at 200** |
+| Cloud SQL databases & users | ✅ | drill-down · 2 calls | `enter` on an instance, `tab` between the two — the pair that made a row allowed more than one listing |
+| Load balancer backend health | ◐ | drill-down · 4+ calls | `enter` on a forwarding rule; walks rule → proxy → URL map → backend services → `getHealth` per group, which is four-plus round trips nobody would pay per refresh; **capped at 40 backend groups** |
 | Compute/serverless (Batch, instance groups, GPU/TPU) | 💡 | mixed | |
 | Data (Bigtable, Spanner, Memorystore, Firestore, Datastream, Artifact Registry) | 💡 | mixed | |
-| Security/identity (IAM bindings, KMS, Certificate Manager, VPC-SC, Org Policy) | 💡 | mixed | |
-| Operations (Logging, Monitoring alerts, Error Reporting, Scheduler, Cloud Build) | 💡 | mixed | |
-| Cost & quota (usage vs. limits, monthly spend) | 💡 | mixed | needs billing export reachable |
+| Security/identity (IAM bindings, Certificate Manager, VPC-SC, Org Policy) | 💡 | mixed | KMS is shipped above. IAM bindings are the awkward one: rows are (role, member) pairs, not resources with a location and a status |
+| Operations (Monitoring alerts, Error Reporting, Cloud Build) | 💡 | mixed | Scheduler is shipped above. Logging is deliberately absent: log entries are an unbounded query, not a listing |
+| Cost & quota (usage vs. limits, monthly spend) | 💡 | mixed | needs a billing export many projects do not have, and quota comes back as nested consumer-quota metrics rather than resources |
 
 ### Platform features
 
@@ -145,7 +151,7 @@ Cloud Asset Inventory makes "list everything in a project" a single API call. Wi
 
 ## Status
 
-MVP. Twenty-five resource kinds across compute, data, messaging, networking and identity, plus fifteen drill-downs — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
+MVP. Twenty-seven resource kinds across compute, data, messaging, networking, operations and identity, plus fifteen drill-downs — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
 
 Navigation is three levels deep: projects → dashboard → a category's table, with `esc` walking back up. A new kind appears on the dashboard, in the tab bar and in *All Resources* automatically; there is nothing to register in the UI.
 
