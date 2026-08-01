@@ -9,6 +9,7 @@ import (
 	"cloud.google.com/go/orchestration/airflow/service/apiv1/servicepb"
 	"cloud.google.com/go/storage"
 	bigquery "google.golang.org/api/bigquery/v2"
+	cloudfunctions "google.golang.org/api/cloudfunctions/v2"
 	compute "google.golang.org/api/compute/v1"
 	dataflow "google.golang.org/api/dataflow/v1b3"
 	dns "google.golang.org/api/dns/v1"
@@ -533,5 +534,31 @@ func testCloudRunExecution() *run.GoogleCloudRunV2Execution {
 		CreateTime:     start.Format(time.RFC3339),
 		StartTime:      start.Format(time.RFC3339),
 		CompletionTime: start.Add(7 * time.Minute).Format(time.RFC3339),
+	}
+}
+
+// testDisk is unattached and has been for a while, which is the finding the
+// kind exists to surface.
+func testDisk() *computepb.Disk {
+	return &computepb.Disk{
+		Name:                strPtr("etl-scratch-old"),
+		SizeGb:              int64Ptr(500),
+		Type:                strPtr("https://www.googleapis.com/compute/v1/projects/sandbox-123/zones/us-central1-a/diskTypes/pd-ssd"),
+		Status:              strPtr("READY"),
+		CreationTimestamp:   strPtr(time.Now().Add(-400 * 24 * time.Hour).Format(time.RFC3339)),
+		LastDetachTimestamp: strPtr(time.Now().Add(-240 * 24 * time.Hour).Format(time.RFC3339)),
+	}
+}
+
+func testFunction() *cloudfunctions.Function {
+	return &cloudfunctions.Function{
+		Name:        "projects/sandbox-123/locations/us-central1/functions/thumbnailer",
+		Environment: "GEN_2",
+		State:       "ACTIVE",
+		BuildConfig: &cloudfunctions.BuildConfig{Runtime: "python312", EntryPoint: "handle"},
+		EventTrigger: &cloudfunctions.EventTrigger{
+			EventType: "google.cloud.storage.object.v1.finalized",
+		},
+		UpdateTime: time.Now().Add(-16 * 24 * time.Hour).Format(time.RFC3339),
 	}
 }

@@ -158,8 +158,9 @@ func TestStatusStyleCoversTheNewKinds(t *testing.T) {
 	// Every status these listers can emit has to colour, or the row it matters
 	// most on is the one that renders as plain text.
 	good := []string{"READY", "SUCCEEDED", "ACTIVE", "DRAINED", "UPDATED", "HEALTHY", "ENABLED"}
-	warn := []string{"PENDING", "RECONCILING", "DETACHED", "STALE_KEY", "DRAINING", "CANCELLING"}
-	bad := []string{"FAILED", "RESOURCE_ERROR", "INGESTION_RESOURCE_ERROR", "CANCELLED", "EXPIRED", "UNHEALTHY", "DESTROYED", "DELETE"}
+	warn := []string{"PENDING", "RECONCILING", "DETACHED", "STALE_KEY", "DRAINING", "CANCELLING",
+		"UNATTACHED", "DEPLOYING", "RESTORING"}
+	bad := []string{"FAILED", "RESOURCE_ERROR", "INGESTION_RESOURCE_ERROR", "CANCELLED", "EXPIRED", "UNHEALTHY", "DESTROYED", "DELETE", "UNAVAILABLE"}
 
 	for _, s := range good {
 		if statusStyle(s).GetForeground() != goodStyle.GetForeground() {

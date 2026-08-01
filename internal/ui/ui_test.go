@@ -940,6 +940,72 @@ func TestCommandModeKindMatchingByPrefix(t *testing.T) {
 	}
 }
 
+// TestCommandModeIDsBeatTitles pins the precedence, which is the only reason
+// `:comp` still reaches Composer. "Compute Disks" and "Compute Instances" both
+// begin with "comp" and both sort ahead of Composer in the display order, so a
+// single pass over ids and titles together hands the word to whichever kind was
+// registered first — and that answer changes every time a kind is added.
+func TestCommandModeIDsBeatTitles(t *testing.T) {
+	m := populatedModel(t)
+
+	tests := []struct {
+		word string
+		want string
+	}{
+		// An id prefix beats a title prefix, however early the title sits.
+		{"comp", "composer"},
+		// An exact id beats a shorter id's prefix match: `vm` is the whole id
+		// of Compute Instances and also the start of `vmdisks`.
+		{"vm", "vm"},
+		// Nothing claims this as an id, so titles get their turn.
+		{"compute d", "disks"},
+	}
+	for _, tc := range tests {
+		idx, ok := m.matchKind(tc.word)
+		if !ok {
+			t.Errorf("matchKind(%q) found nothing", tc.word)
+			continue
+		}
+		if got := m.tabs()[idx].ID; got != tc.want {
+			t.Errorf("matchKind(%q) = %s, want %s", tc.word, got, tc.want)
+		}
+	}
+}
+
+func TestCommandModeMatchesNothingSensibly(t *testing.T) {
+	m := populatedModel(t)
+
+	tests := []string{"", "zzzz", "not-a-kind"}
+	for _, word := range tests {
+		if idx, ok := m.matchKind(word); ok {
+			t.Errorf("matchKind(%q) = %s, want no match", word, m.tabs()[idx].ID)
+		}
+	}
+}
+
+func TestCommandModeKindMatchingIsCaseInsensitive(t *testing.T) {
+	m := populatedModel(t)
+
+	tests := []struct {
+		word string
+		want string
+	}{
+		{"GKE", "gke"},
+		{"Storage", "gcs"},
+		{"CoMpOsEr", "composer"},
+	}
+	for _, tc := range tests {
+		idx, ok := m.matchKind(tc.word)
+		if !ok {
+			t.Errorf("matchKind(%q) found nothing", tc.word)
+			continue
+		}
+		if got := m.tabs()[idx].ID; got != tc.want {
+			t.Errorf("matchKind(%q) = %s, want %s", tc.word, got, tc.want)
+		}
+	}
+}
+
 // --- open guard ---
 
 // TestSafeToOpenRejectsNonWebSchemes covers the one place an untrusted string

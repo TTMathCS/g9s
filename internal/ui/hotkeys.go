@@ -14,19 +14,27 @@ package ui
 // The mapping is not something to memorise: every kind's key is printed beside
 // it in the dashboard and in the tab strip, so the legend is always on screen.
 //
-// Twenty-three kinds is where the run ends, and that is the whole alphabet —
-// there is no twenty-fourth key to find without taking one back off an action.
-// Which is the point at which more top-level kinds is the wrong answer: what
-// comes next drills down from a row instead (see gcp.ChildLister), and a
-// drill-down costs no key at all.
+// Lowercase runs out at twenty-three, which is the whole lowercase alphabet.
+// The run then continues into shift — `A` to `Z`, minus the two already bound
+// (`G` jumps to the bottom, `L` logs in without a browser). Still one press,
+// still printed beside the kind, and it keeps the scheme mechanical rather than
+// making the twenty-fourth kind a special case reachable only by typing.
+//
+// This is a keyspace, not a recommendation. A dashboard with forty rows is not
+// a good dashboard, and anything that belongs to a parent row should still be a
+// drill-down (see gcp.ChildLister) — those cost no key and do not lengthen the
+// list. What changed is that the keyspace is no longer the thing deciding which
+// kinds can exist.
 
-// kindKeys selects a resource kind by index into Listers(). Twenty-three kinds
+// kindKeys selects a resource kind by index into Listers(). Forty-seven kinds
 // fit; past that a kind gets noHotkey and is reached with tab, the dashboard
-// cursor or `:<kind>`. TestKindKeysCoverEveryLister fails first, which is the
-// reminder to reach for a drill-down rather than let a kind go quiet.
+// cursor or `:<kind>`. TestEveryKindStillHasAKey fails first.
 var kindKeys = []string{
 	"1", "2", "3", "4", "5", "6", "7", "8", "9",
 	"b", "c", "e", "f", "h", "i", "m", "n", "t", "u", "v", "w", "x", "z",
+	// Shift, in alphabetical order, skipping G and L.
+	"A", "B", "C", "D", "E", "F", "H", "I", "J", "K", "M", "N", "O",
+	"P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
 }
 
 // allKeys select the merged view. `0` is the k9s reflex for "everything at

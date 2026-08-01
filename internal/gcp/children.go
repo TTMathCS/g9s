@@ -10,11 +10,11 @@ import (
 
 // ChildLister lists the resources belonging to one parent row.
 //
-// The reason this exists: the hotkey alphabet runs out at twenty-three kinds,
-// and the kinds worth adding next are not project-wide lists at all. Node pools
-// belong to a cluster, keys belong to a service account. "Every node pool in the
-// project" is the wrong question to build a table around, and giving one a
-// top-level tab spends a scarce key on a listing nobody opens cold.
+// The reason this exists: many of the kinds worth adding are not project-wide
+// lists at all. Node pools belong to a cluster, keys belong to a service
+// account. "Every node pool in the project" is the wrong question to build a
+// table around, and giving one a top-level tab spends a dashboard row and a
+// hotkey on a listing nobody opens cold.
 //
 // A child is reached with enter on its parent's row, costs no hotkey, and is
 // otherwise an ordinary listing: same table, same filter, same describe pane.

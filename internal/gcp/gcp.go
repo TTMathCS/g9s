@@ -87,6 +87,7 @@ func Listers() []Lister {
 		// Compute and data first, then networking. Order is display order, and
 		// the number keys bind to it, so the kinds reached most often lead.
 		ComputeLister{},
+		ComputeDiskLister{},
 		GKELister{},
 		CloudSQLLister{},
 		StorageLister{},
@@ -100,6 +101,7 @@ func Listers() []Lister {
 		PubSubSubscriptionLister{},
 		CloudRunServiceLister{},
 		CloudRunJobLister{},
+		CloudFunctionLister{},
 		VPCLister{},
 		FirewallLister{},
 		LoadBalancerLister{},

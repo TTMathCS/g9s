@@ -20,9 +20,10 @@ import (
 // of which instance each belongs to, is not a question anyone asks.
 //
 // These are the *attachments*, not the disks. The size and the source are here;
-// the disk's own state, its snapshot schedule and whether anything else is
-// attached to it live on the Disk resource, which is a listing of its own and
-// has nowhere to bind while the hotkey alphabet is full.
+// the disk's own state, how long it has been idle and whether anything else is
+// attached to it live on the Disk resource, which is its own kind — see
+// ComputeDiskLister, and note that the rows it exists for are precisely the ones
+// this listing can never contain.
 type AttachedDiskLister struct{}
 
 func (AttachedDiskLister) ParentKind() string { return "vm" }

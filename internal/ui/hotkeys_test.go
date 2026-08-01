@@ -181,10 +181,10 @@ func TestHotkeyLegendMatchesTheKeys(t *testing.T) {
 }
 
 func TestEveryKindStillHasAKey(t *testing.T) {
-	// Twenty-three kinds against twenty-three keys: the scheme is exactly full,
-	// so a twenty-fourth lister silently loses its hotkey. This is the failure
-	// that says the next kind wants to be a drill-down (gcp.ChildLister), which
-	// needs no key, rather than another tab.
+	// A lister past the end of the key run silently loses its hotkey and
+	// becomes reachable only by typing `:<kind>`. This is the failure that says
+	// either the run needs extending again or — more likely by then — that the
+	// next kind wants to be a drill-down (gcp.ChildLister), which needs no key.
 	m := hotkeyModel(t)
 	for i, l := range m.listers {
 		if kindKey(i) == noHotkey {

@@ -198,6 +198,12 @@ func resourcesShot() Model {
 	m.cache["gcs"] = gcp.Result{
 		Resources: statusOnly(kindByID("gcs"), map[string]int{"ACTIVE": 5}),
 	}
+	m.cache["disks"] = gcp.Result{
+		Resources: statusOnly(kindByID("disks"), map[string]int{"READY": 14, "UNATTACHED": 3}),
+	}
+	m.cache["functions"] = gcp.Result{
+		Resources: statusOnly(kindByID("functions"), map[string]int{"ACTIVE": 8, "DEPLOYING": 1}),
+	}
 	m.cache["dataproc"] = gcp.Result{
 		Resources: statusOnly(kindByID("dataproc"), map[string]int{"RUNNING": 2, "UPDATING": 1}),
 	}
@@ -298,6 +304,12 @@ func dashboardShot() Model {
 	}
 	m.cache["gcs"] = gcp.Result{
 		Resources: statusOnly(kindByID("gcs"), map[string]int{"ACTIVE": 5}),
+	}
+	m.cache["disks"] = gcp.Result{
+		Resources: statusOnly(kindByID("disks"), map[string]int{"READY": 14, "UNATTACHED": 3}),
+	}
+	m.cache["functions"] = gcp.Result{
+		Resources: statusOnly(kindByID("functions"), map[string]int{"ACTIVE": 8, "DEPLOYING": 1}),
 	}
 	m.cache["dataproc"] = gcp.Result{
 		Resources: statusOnly(kindByID("dataproc"), map[string]int{"RUNNING": 2, "UPDATING": 1}),
