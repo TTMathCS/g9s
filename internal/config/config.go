@@ -52,6 +52,129 @@ type Defaults struct {
 	// table can show, so the window is what makes the listing a complete
 	// answer rather than a truncated one.
 	BigQueryJobWindow Duration `yaml:"bigquery_job_window"`
+	// Limits raises or removes the per-kind row caps.
+	Limits Limits `yaml:"limits"`
+}
+
+// Limits are the row caps each listing stops at.
+//
+// Every one of these was a constant compiled into a lister, which made the
+// bound the tool's opinion rather than the reader's. The defaults are unchanged
+// and are sized for a table a person scrolls; the point of the block is that a
+// project big enough to hit one is no longer stuck at a number it did not pick.
+//
+// Zero means "use the default". A negative value means no cap at all, which is
+// a real choice with real consequences — a zone with 90,000 record sets will
+// fetch all 90,000 — so it has to be asked for explicitly rather than being
+// what an empty field happens to mean.
+type Limits struct {
+	// BigQueryJobs caps the BigQuery jobs table. The window bounds it first;
+	// this is the backstop for a busy hour inside that window.
+	BigQueryJobs int `yaml:"bigquery_jobs"`
+	// DataflowJobs caps the Dataflow jobs table.
+	DataflowJobs int `yaml:"dataflow_jobs"`
+	// DataprocJobsPerRegion caps each region's Dataproc job listing. It is per
+	// region, so the table can hold this many times your region count.
+	DataprocJobsPerRegion int `yaml:"dataproc_jobs_per_region"`
+	// ClusterJobs caps the per-cluster Dataproc job drill-down.
+	ClusterJobs int `yaml:"cluster_jobs"`
+	// BigQueryTables caps one dataset's table listing.
+	BigQueryTables int `yaml:"bigquery_tables"`
+	// DNSRecordSets caps one zone's record listing.
+	DNSRecordSets int `yaml:"dns_record_sets"`
+	// BackendGroups caps the getHealth calls one backend-health drill-down
+	// makes. Unlike the others this bounds *requests*, not rows: each group is
+	// its own round trip, so raising it costs latency rather than memory.
+	BackendGroups int `yaml:"backend_groups"`
+	// ServiceAccountKeyLookups caps how many accounts get their key ages read.
+	// Also a request bound: one keys.list per account.
+	ServiceAccountKeyLookups int `yaml:"service_account_key_lookups"`
+	// KMSKeyRings caps how many key rings per location get their keys read.
+	// One cryptoKeys.list per ring, so this is a request bound too.
+	KMSKeyRings int `yaml:"kms_key_rings"`
+}
+
+// Default row caps. These are the numbers that used to be compiled into each
+// lister, kept exactly as they were so upgrading changes nothing on its own.
+const (
+	DefaultBigQueryJobs             = 500
+	DefaultDataflowJobs             = 500
+	DefaultDataprocJobsPerRegion    = 200
+	DefaultClusterJobs              = 200
+	DefaultBigQueryTables           = 1000
+	DefaultDNSRecordSets            = 1000
+	DefaultBackendGroups            = 40
+	DefaultServiceAccountKeyLookups = 200
+	DefaultKMSKeyRings              = 100
+)
+
+// limit resolves one configured cap: unset falls back to the default, and a
+// negative value means uncapped, which callers see as a very large number so
+// none of them needs a special case for it.
+func limit(configured, fallback int) int {
+	switch {
+	case configured == 0:
+		return fallback
+	case configured < 0:
+		return maxInt
+	default:
+		return configured
+	}
+}
+
+// maxInt stands in for "no cap". Comparing a row count against it is false for
+// any listing that fits in memory, which is the only property callers need.
+const maxInt = int(^uint(0) >> 1)
+
+// limits reads the configured caps, tolerating a nil Config.
+//
+// Nil is not hypothetical: a drill-down that needs no configuration is called
+// with a nil *Config in tests and would panic here on the first field access.
+// A nil config means "nothing configured", which is exactly the zero value.
+func (c *Config) limits() Limits {
+	if c == nil {
+		return Limits{}
+	}
+	return c.Defaults.Limits
+}
+
+// Cap accessors. One per limit rather than a map lookup, so a typo is a compile
+// error and every call site names which bound it is asking about.
+
+func (c *Config) LimitBigQueryJobs() int {
+	return limit(c.limits().BigQueryJobs, DefaultBigQueryJobs)
+}
+
+func (c *Config) LimitDataflowJobs() int {
+	return limit(c.limits().DataflowJobs, DefaultDataflowJobs)
+}
+
+func (c *Config) LimitDataprocJobsPerRegion() int {
+	return limit(c.limits().DataprocJobsPerRegion, DefaultDataprocJobsPerRegion)
+}
+
+func (c *Config) LimitClusterJobs() int {
+	return limit(c.limits().ClusterJobs, DefaultClusterJobs)
+}
+
+func (c *Config) LimitBigQueryTables() int {
+	return limit(c.limits().BigQueryTables, DefaultBigQueryTables)
+}
+
+func (c *Config) LimitDNSRecordSets() int {
+	return limit(c.limits().DNSRecordSets, DefaultDNSRecordSets)
+}
+
+func (c *Config) LimitBackendGroups() int {
+	return limit(c.limits().BackendGroups, DefaultBackendGroups)
+}
+
+func (c *Config) LimitServiceAccountKeyLookups() int {
+	return limit(c.limits().ServiceAccountKeyLookups, DefaultServiceAccountKeyLookups)
+}
+
+func (c *Config) LimitKMSKeyRings() int {
+	return limit(c.limits().KMSKeyRings, DefaultKMSKeyRings)
 }
 
 // Project is one GCP project as the user works with it: the project ID plus

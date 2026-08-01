@@ -17,7 +17,6 @@ import (
 // maxHealthGroups bounds the getHealth calls one drill-down makes. Each backend
 // group is its own request, and a URL map fanning out to a dozen services with
 // several groups each would otherwise turn one keypress into a burst.
-const maxHealthGroups = 40
 
 // LoadBalancerHealthLister is the backend health behind one forwarding rule.
 //
@@ -49,7 +48,7 @@ func (LoadBalancerHealthLister) Kind() Kind {
 	}
 }
 
-func (LoadBalancerHealthLister) List(ctx context.Context, _ *config.Config, p config.Project, parent Resource, opts []option.ClientOption) (Result, error) {
+func (LoadBalancerHealthLister) List(ctx context.Context, cfg *config.Config, p config.Project, parent Resource, opts []option.ClientOption) (Result, error) {
 	rule, ok := parent.Raw.(*computepb.ForwardingRule)
 	if !ok {
 		return Result{}, fmt.Errorf("no forwarding rule data for %s", parent.Name)
@@ -66,7 +65,7 @@ func (LoadBalancerHealthLister) List(ctx context.Context, _ *config.Config, p co
 		return result, nil
 	}
 
-	health, healthWarnings := groupHealth(ctx, svc, p, services)
+	health, healthWarnings := groupHealth(ctx, svc, p, services, cfg.LimitBackendGroups())
 	result.Warnings = append(result.Warnings, healthWarnings...)
 	result.Resources = health
 
@@ -261,7 +260,7 @@ func getBackendService(ctx context.Context, svc *compute.Service, p config.Proje
 }
 
 // groupHealth asks each backend group how it is doing, concurrently.
-func groupHealth(ctx context.Context, svc *compute.Service, p config.Project, services []*compute.BackendService) ([]Resource, []string) {
+func groupHealth(ctx context.Context, svc *compute.Service, p config.Project, services []*compute.BackendService, maxHealthGroups int) ([]Resource, []string) {
 	type job struct {
 		service *compute.BackendService
 		group   string

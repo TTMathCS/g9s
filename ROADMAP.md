@@ -169,6 +169,30 @@ unstarted: spend needs a billing export plenty of projects have never set up,
 and quota comes back as nested consumer-quota metrics rather than as resources
 with a name and a state.
 
+## Row caps are settings now
+
+Nine listings stop at a cap. Each was a constant compiled into its lister, which
+made the bound the tool's opinion rather than the reader's: a project with 3,000
+BigQuery jobs in the window saw 500 and a footer warning, and there was nothing
+to do about it. They now live in `defaults.limits`, documented in
+[Row limits](README.md#row-limits), and can be raised, lowered, or removed with
+`-1`.
+
+The defaults did not change, so upgrading changes nothing on its own. What
+changed is who decides.
+
+Three of the nine bound *requests* rather than rows — backend health does one
+`getHealth` per group, service accounts one `keys.list` per account, KMS one
+`cryptoKeys.list` per ring. Raising those costs latency and quota rather than
+memory, which is a different trade and is called out per key.
+
+Two limits are deliberately not settings. Secret Manager and KMS are metadata
+only: names, versions, rotation, expiry, never the value or the key material.
+That is not a cap waiting to be raised, it is the point of listing them at all —
+`gcloud secrets versions access` is audit-logged and is the right way to read a
+secret. Both are guarded by tests that fail on the call name, and both guards
+were verified by injecting a violation and watching them fail.
+
 ## Features, not resources
 
 These change how the whole tool behaves rather than adding a kind.

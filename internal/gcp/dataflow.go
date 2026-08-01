@@ -18,7 +18,6 @@ import (
 // days, and a project that launches a pipeline per hour accumulates hundreds in
 // that window — more history than a "what is running" table can show, and more
 // pages than a refresh should spend.
-const maxDataflowJobs = 500
 
 // DataflowLister lists Dataflow jobs.
 //
@@ -48,7 +47,8 @@ func (DataflowLister) Kind() Kind {
 	}
 }
 
-func (DataflowLister) List(ctx context.Context, _ *config.Config, p config.Project, opts []option.ClientOption) (Result, error) {
+func (DataflowLister) List(ctx context.Context, cfg *config.Config, p config.Project, opts []option.ClientOption) (Result, error) {
+	maxDataflowJobs := cfg.LimitDataflowJobs()
 	svc, err := dataflow.NewService(ctx, opts...)
 	if err != nil {
 		return Result{}, fmt.Errorf("dataflow client: %w", err)

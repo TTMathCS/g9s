@@ -119,9 +119,8 @@ func datasetResource(p config.Project, d *bigquery.DatasetListDatasets) Resource
 // quietly handing back a list that looks complete.
 type BigQueryJobLister struct{}
 
-// maxJobs bounds one refresh. A table nobody can scroll to the end of is no
+// The default cap bounds one refresh. A table nobody can scroll to the end of is no
 // more useful than one that says where it stopped.
-const maxJobs = 500
 
 // jobPageSize is what the API is asked for per round trip. It honours up to
 // 1000, so asking for the whole cap keeps a quiet project to a single request.
@@ -144,6 +143,7 @@ func (BigQueryJobLister) Kind() Kind {
 }
 
 func (BigQueryJobLister) List(ctx context.Context, cfg *config.Config, p config.Project, opts []option.ClientOption) (Result, error) {
+	maxJobs := cfg.LimitBigQueryJobs()
 	svc, err := bigquery.NewService(ctx, opts...)
 	if err != nil {
 		return Result{}, fmt.Errorf("bigquery client: %w", err)

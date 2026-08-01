@@ -16,7 +16,6 @@ import (
 
 // maxKeyRings bounds the per-location N+1. A project with more key rings than
 // this in one location is not a project anyone is auditing from a table.
-const maxKeyRings = 100
 
 // keyRingConcurrency is how many rings are read at once within a location.
 // Matches the service-account key lookup: enough to hide the latency, not
@@ -68,12 +67,12 @@ func (KMSKeyLister) List(ctx context.Context, cfg *config.Config, p config.Proje
 	}
 
 	return fanOut(ctx, locations, func(ctx context.Context, location string) (Result, error) {
-		return kmsKeysIn(ctx, svc, p, location)
+		return kmsKeysIn(ctx, svc, p, location, cfg.LimitKMSKeyRings())
 	}), nil
 }
 
 // kmsKeysIn lists every key in one location, ring by ring.
-func kmsKeysIn(ctx context.Context, svc *cloudkms.Service, p config.Project, location string) (Result, error) {
+func kmsKeysIn(ctx context.Context, svc *cloudkms.Service, p config.Project, location string, maxKeyRings int) (Result, error) {
 	var (
 		out   Result
 		rings []string

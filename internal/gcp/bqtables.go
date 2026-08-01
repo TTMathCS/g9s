@@ -17,7 +17,6 @@ import (
 // maxTables caps one dataset's listing. A dataset holding a table per day per
 // source runs to tens of thousands, which is a scroll buffer rather than a
 // table.
-const maxTables = 1000
 
 // BigQueryTableLister is the tables inside one dataset.
 //
@@ -48,7 +47,8 @@ func (BigQueryTableLister) Kind() Kind {
 	}
 }
 
-func (BigQueryTableLister) List(ctx context.Context, _ *config.Config, p config.Project, parent Resource, opts []option.ClientOption) (Result, error) {
+func (BigQueryTableLister) List(ctx context.Context, cfg *config.Config, p config.Project, parent Resource, opts []option.ClientOption) (Result, error) {
+	maxTables := cfg.LimitBigQueryTables()
 	dataset, ok := parent.Raw.(*bigquery.DatasetListDatasets)
 	if !ok || dataset.DatasetReference == nil {
 		return Result{}, fmt.Errorf("no dataset data for %s", parent.Name)
