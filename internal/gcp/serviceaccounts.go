@@ -26,7 +26,6 @@ const (
 	// hundreds of accounts would otherwise turn one refresh into hundreds of
 	// requests. The accounts past the cap still list; only their key columns go
 	// unanswered, and the listing says so.
-	maxKeyLookups = 200
 
 	// keyLookupConcurrency is how many of those requests are in flight at once.
 	// High enough that a hundred accounts do not serialise into a visible
@@ -63,7 +62,7 @@ func (ServiceAccountLister) Kind() Kind {
 	}
 }
 
-func (ServiceAccountLister) List(ctx context.Context, _ *config.Config, p config.Project, opts []option.ClientOption) (Result, error) {
+func (ServiceAccountLister) List(ctx context.Context, cfg *config.Config, p config.Project, opts []option.ClientOption) (Result, error) {
 	svc, err := iam.NewService(ctx, opts...)
 	if err != nil {
 		return Result{}, fmt.Errorf("iam client: %w", err)
@@ -83,7 +82,7 @@ func (ServiceAccountLister) List(ctx context.Context, _ *config.Config, p config
 	// columns does not change between refreshes.
 	sort.SliceStable(accounts, func(i, j int) bool { return accounts[i].Email < accounts[j].Email })
 
-	keys, warnings := accountKeys(ctx, svc, accounts)
+	keys, warnings := accountKeys(ctx, svc, accounts, cfg.LimitServiceAccountKeyLookups())
 
 	var result Result
 	result.Warnings = warnings
@@ -100,7 +99,7 @@ func (ServiceAccountLister) List(ctx context.Context, _ *config.Config, p config
 // account whose keys cannot be read is far more common than a broken project —
 // iam.serviceAccountKeys.list is a separate permission from the one that let
 // you list the accounts in the first place.
-func accountKeys(ctx context.Context, svc *iam.Service, accounts []*iam.ServiceAccount) (map[string][]*iam.ServiceAccountKey, []string) {
+func accountKeys(ctx context.Context, svc *iam.Service, accounts []*iam.ServiceAccount, maxKeyLookups int) (map[string][]*iam.ServiceAccountKey, []string) {
 	var warnings []string
 	if len(accounts) > maxKeyLookups {
 		warnings = append(warnings, fmt.Sprintf(

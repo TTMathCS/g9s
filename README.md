@@ -68,9 +68,11 @@ A row can hold more than one listing where more than one is the honest answer. A
 
 ## Roadmap
 
-Legend: ✅ shipped, complete · ◐ shipped, bounded · 🔜 next up · 💡 candidate · ⛔ not planned (by design, not an oversight)
+Legend: ✅ shipped · 🔒 shipped, deliberately limited · 🔜 next up · 💡 candidate · ⛔ not planned (by design, not an oversight)
 
-**◐ is not "half done"** — it is shipped and works, with a limit you should know before you trust the table. Three kinds of limit: a **row cap** (the API has no time filter, so the listing is truncated and says so in the footer), **metadata only** (secret and key *values* are never fetched, by design), or a **subset** (buckets but not objects). The exact bound is on the row. A kind with no such caveat is ✅.
+**Every listing is complete by default, and every row cap is now yours to set.** The caps that used to be compiled in — 500 BigQuery jobs, 200 Dataproc jobs per region, 1000 record sets, 40 backend groups — live in `defaults.limits` and can be raised, lowered, or removed entirely. See [Row limits](#row-limits). Defaults are unchanged, so upgrading changes nothing on its own; a truncated listing still says so in the footer rather than passing itself off as the whole answer.
+
+**🔒 marks the two limits that are not settings and never will be.** Secret Manager and KMS return *metadata only* — names, versions, rotation, expiry — and never the secret value or the key material. There is no config key for that and there is not going to be one: `gcloud secrets versions access` exists, is audit-logged, and is the right way to read a secret. A tool that renders one into a scrollback buffer is not.
 
 The **Scope** column says what one refresh costs. `global` is one call; `regional` fans out over your configured regions; `aggregated` means the API sweeps server-side, so it is one call despite being regional or zonal. Drill-downs carry their scope too — `free` means the parent listing already fetched the data and opening it costs no request at all.
 
@@ -82,13 +84,13 @@ The **Scope** column says what one refresh costs. `global` is one call; `regiona
 | Compute persistent disks | ✅ | zonal + regional, aggregated | one `aggregatedList`; leads with the disks *nothing* is using and how long that has been true, which is the one thing a per-VM listing structurally cannot show |
 | GKE clusters | ✅ | zonal + regional, aggregated | `parent: projects/*/locations/-` covers everything in one call |
 | Cloud SQL instances | ✅ | global | one paginated call; unreachable regions arrive as response warnings, not errors |
-| Cloud Storage buckets | ◐ | global | buckets only, not objects — one call, no fan-out. Object listing is a different tool: a bucket can hold billions |
+| Cloud Storage buckets | ✅ | global | buckets, not objects — one call, no fan-out. Objects are a different resource with a different shape: a bucket can hold billions, so listing them is not a table |
 | BigQuery datasets | ✅ | global | name, location, type and labels; anything more costs a `Get` per dataset |
-| BigQuery jobs | ◐ | global | recent jobs, newest first; window from `defaults.bigquery_job_window`, **capped at 500 rows** — the footer says when it truncated |
+| BigQuery jobs | ✅ | global | recent jobs, newest first; window from `defaults.bigquery_job_window`, then `limits.bigquery_jobs` (default 500) |
 | Dataproc clusters | ✅ | **regional** | a client per region; `global` always swept |
-| Dataproc jobs | ◐ | **regional** | every state, newest first; **capped at 200 per region** — the API has no time filter |
+| Dataproc jobs | ✅ | **regional** | every state, newest first; `limits.dataproc_jobs_per_region` (default 200) — the API has no time filter |
 | Cloud Composer environments | ✅ | location-scoped | one client, location in the request parent |
-| Dataflow jobs | ◐ | regional, aggregated | `jobs.aggregated` sweeps every regional endpoint server-side — no fan-out, and jobs outside your configured regions still show up; **capped at 500** |
+| Dataflow jobs | ✅ | regional, aggregated | `jobs.aggregated` sweeps every regional endpoint server-side — no fan-out, and jobs outside your configured regions still show up; `limits.dataflow_jobs` (default 500) |
 | Pub/Sub topics | ✅ | global | one call; a topic reports a state only once an ingestion source breaks |
 | Pub/Sub subscriptions | ✅ | global | backlog per subscription, from one Monitoring call covering all of them |
 | Cloud Run services | ✅ | **regional** | a client per region — the v2 API takes no `-` wildcard for location |
@@ -102,23 +104,23 @@ The **Scope** column says what one refresh costs. `global` is one call; `regiona
 | VPN tunnels | ✅ | regional, aggregated | real tunnel status — ESTABLISHED vs a handshake that never finished |
 | Interconnect attachments | ✅ | regional, aggregated | VLAN attachments, not circuits; admin-disabled beats a healthy-looking state |
 | PSC service attachments | ✅ | regional, aggregated | the producer side; consumer endpoints are forwarding rules, already under load balancers |
-| Secret Manager secrets | ◐ | global | **metadata only — never values**; replication, rotation and expiry |
-| KMS keys | ◐ | **regional** + global | keys, not key rings — a ring's row would carry a name and nothing else. Leads with rotation: a symmetric key with rotation never configured reports ENABLED forever. **Metadata only — never key material**, and **first 100 rings per location** |
-| Service accounts | ◐ | global | one call for the accounts, then a bounded concurrent `keys.list` each, so the oldest key's age is on the row rather than three clicks away; **key ages read for the first 200 accounts** |
+| Secret Manager secrets | 🔒 | global | **metadata only — never values**; replication, rotation and expiry. Not configurable, by design |
+| KMS keys | 🔒 | **regional** + global | keys, not key rings — a ring's row would carry a name and nothing else. Leads with rotation: a symmetric key with rotation never configured reports ENABLED forever. **Metadata only — never key material**, not configurable. Ring lookups: `limits.kms_key_rings` (default 100) |
+| Service accounts | ✅ | global | one call for the accounts, then a bounded concurrent `keys.list` each, so the oldest key's age is on the row rather than three clicks away; `limits.service_account_key_lookups` (default 200) |
 | GKE node pools | ✅ | drill-down · free | `enter` on a cluster; free — `clusters.list` already returned them |
 | Service account keys | ✅ | drill-down · free | `enter` on an account; free — the accounts listing already fetched them |
-| DNS record sets | ◐ | drill-down · 1 call | `enter` on a zone; **capped at 1000**, grouped by name so a name's A and AAAA sit together |
+| DNS record sets | ✅ | drill-down · 1 call | `enter` on a zone; `limits.dns_record_sets` (default 1000), grouped by name so a name's A and AAAA sit together |
 | Subnets | ✅ | drill-down · aggregated | `enter` on a VPC; one `aggregatedList` covers every region, then filtered to that network. Secondary ranges are named, since "which one is pods" is the question |
-| BigQuery tables | ◐ | drill-down · 1 call | `enter` on a dataset; **capped at 1000**. Says whether a partitioned table *requires* a filter, which is the cost question a row count would not answer |
+| BigQuery tables | ✅ | drill-down · 1 call | `enter` on a dataset; `limits.bigquery_tables` (default 1000). Says whether a partitioned table *requires* a filter, which is the cost question a row count would not answer |
 | Cloud Run revisions | ✅ | drill-down · 1 call | `enter` on a service; joins the revisions list with the traffic split, which lives on the service and not on any revision |
 | A VM's attached disks | ✅ | drill-down · free | `enter` on an instance; free — `aggregatedList` already returned them. Flags the one setting that destroys data on VM delete |
 | Subscriptions on a topic | ✅ | drill-down · 1 call | `enter` on a topic; a topic with none is publishing into nothing, which the topics table cannot show |
-| Secret versions | ◐ | drill-down · 1 call | `enter` on a secret. **Metadata only, same as the parent** — the secrets row shows the rotation *policy*, this shows whether rotation happened |
+| Secret versions | 🔒 | drill-down · 1 call | `enter` on a secret. **Metadata only, same as the parent** — the secrets row shows the rotation *policy*, this shows whether rotation happened |
 | Cloud Run job executions | ✅ | drill-down · 1 call | `enter` on a job; the history behind the last result, which is what separates "failed once" from "failing nightly" |
 | Bucket lifecycle rules | ✅ | drill-down · free | `enter` on a bucket; free. Answers "why did my data disappear" and "why is nothing being archived", neither visible from a bucket row |
-| Dataproc jobs on a cluster | ◐ | drill-down · 1 call | `enter` on a cluster; *cheaper* than the region-wide kind — `ListJobs` filters by cluster server-side, so one call to one region; **capped at 200** |
+| Dataproc jobs on a cluster | ✅ | drill-down · 1 call | `enter` on a cluster; *cheaper* than the region-wide kind — `ListJobs` filters by cluster server-side, so one call to one region; `limits.cluster_jobs` (default 200) |
 | Cloud SQL databases & users | ✅ | drill-down · 2 calls | `enter` on an instance, `tab` between the two — the pair that made a row allowed more than one listing |
-| Load balancer backend health | ◐ | drill-down · 4+ calls | `enter` on a forwarding rule; walks rule → proxy → URL map → backend services → `getHealth` per group, which is four-plus round trips nobody would pay per refresh; **capped at 40 backend groups** |
+| Load balancer backend health | ✅ | drill-down · 4+ calls | `enter` on a forwarding rule; walks rule → proxy → URL map → backend services → `getHealth` per group, four-plus round trips nobody would pay per refresh; `limits.backend_groups` (default 40) |
 | Compute/serverless (Batch, instance groups, GPU/TPU) | 💡 | mixed | |
 | Data (Bigtable, Spanner, Memorystore, Firestore, Datastream, Artifact Registry) | 💡 | mixed | |
 | Security/identity (IAM bindings, Certificate Manager, VPC-SC, Org Policy) | 💡 | mixed | KMS is shipped above. IAM bindings are the awkward one: rows are (role, member) pairs, not resources with a location and a status |
@@ -474,6 +476,20 @@ defaults:
   # is what makes that listing a complete answer rather than a truncated one.
   bigquery_job_window: 24h
 
+  # Row caps. Every one of these is optional — omit the block entirely and you
+  # get the defaults below, which are what these numbers used to be when they
+  # were compiled in. See "Row limits".
+  #limits:
+  #  bigquery_jobs: 500                # the jobs table, inside the window above
+  #  dataflow_jobs: 500
+  #  dataproc_jobs_per_region: 200     # per region, so x your region count
+  #  cluster_jobs: 200                 # the per-cluster drill-down
+  #  bigquery_tables: 1000             # one dataset's tables
+  #  dns_record_sets: 1000             # one zone's records
+  #  backend_groups: 40                # bounds *requests*, not rows
+  #  service_account_key_lookups: 200  # one keys.list per account
+  #  kms_key_rings: 100                # one cryptoKeys.list per ring
+
 projects:
   - name: sandbox                    # label in the picker; names the credential dir
     project_id: my-sandbox-project
@@ -491,6 +507,38 @@ projects:
 Region resolution runs most-specific-first: `projects[].composer_locations` → `projects[].regions` → `defaults.composer_locations` → `defaults.regions`. Dataproc works the same way via `dataproc_regions`, and always includes the `global` region, which is easy to forget and does hold clusters.
 
 Unknown keys are an error rather than a silent default, so a typo'd `regionz:` tells you instead of quietly scanning nothing.
+
+### Row limits
+
+Nine listings stop at a row cap. The caps exist because a table nobody can scroll to the end of is no more useful than a truncated one, and because a few of them bound *requests* rather than rows — but the number was the tool's opinion, compiled in, and a project big enough to hit one was simply stuck. It is now a setting.
+
+| Key | Default | Bounds |
+|---|---|---|
+| `bigquery_jobs` | 500 | rows, inside `bigquery_job_window` |
+| `dataflow_jobs` | 500 | rows |
+| `dataproc_jobs_per_region` | 200 | rows **per region** — the table holds this × your region count |
+| `cluster_jobs` | 200 | rows, in the per-cluster drill-down |
+| `bigquery_tables` | 1000 | rows, per dataset |
+| `dns_record_sets` | 1000 | rows, per zone |
+| `backend_groups` | 40 | **requests** — one `getHealth` per group, so raising it costs latency |
+| `service_account_key_lookups` | 200 | **requests** — one `keys.list` per account |
+| `kms_key_rings` | 100 | **requests** — one `cryptoKeys.list` per ring, per location |
+
+Three values, and the difference matters:
+
+- **omitted, or `0`** — the default above. An absent key and a mistyped one both decode to zero, which is exactly why zero cannot mean "unlimited".
+- **a positive number** — that cap. Lowering one is as reasonable as raising it: a slow link is a good reason to fetch fewer rows.
+- **`-1`** — no cap at all. This is a real choice with real consequences — a zone with 90,000 record sets will fetch all 90,000, and a `-1` on one of the three request-bound limits multiplies round trips rather than memory. It has to be asked for explicitly, which is why an empty field does not mean it.
+
+```yaml
+defaults:
+  limits:
+    bigquery_jobs: 5000     # a busy warehouse
+    dns_record_sets: -1     # every record, however many there are
+    backend_groups: 10      # fewer round trips per drill-down
+```
+
+Two limits are **not** settings and will not become ones. Secret Manager and KMS return metadata only — never a secret value, never key material. `gcloud secrets versions access` exists, is audit-logged, and is the right way to read a secret; a TUI that renders one into a scrollback buffer is not. A test fails the build if either lister ever calls the API that would return one.
 
 ## Keys
 

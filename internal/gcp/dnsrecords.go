@@ -15,7 +15,6 @@ import (
 
 // maxRecordSets caps one zone's listing. A zone serving a large estate can hold
 // tens of thousands of records, which is a scroll buffer rather than a table.
-const maxRecordSets = 1000
 
 // DNSRecordLister is the record sets inside one managed zone.
 //
@@ -43,7 +42,8 @@ func (DNSRecordLister) Kind() Kind {
 	}
 }
 
-func (DNSRecordLister) List(ctx context.Context, _ *config.Config, p config.Project, parent Resource, opts []option.ClientOption) (Result, error) {
+func (DNSRecordLister) List(ctx context.Context, cfg *config.Config, p config.Project, parent Resource, opts []option.ClientOption) (Result, error) {
+	maxRecordSets := cfg.LimitDNSRecordSets()
 	zone, ok := parent.Raw.(*dns.ManagedZone)
 	if !ok {
 		return Result{}, fmt.Errorf("no zone data for %s", parent.Name)

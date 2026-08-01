@@ -27,7 +27,6 @@ type DataprocJobLister struct{}
 // maxDataprocJobsPerRegion bounds one region's listing. Job history is kept
 // long after the cluster is gone and there is no time filter on the API, so
 // without a bound one busy region can stall the whole refresh.
-const maxDataprocJobsPerRegion = 200
 
 func (DataprocJobLister) Kind() Kind {
 	return Kind{
@@ -45,6 +44,7 @@ func (DataprocJobLister) Kind() Kind {
 }
 
 func (DataprocJobLister) List(ctx context.Context, cfg *config.Config, p config.Project, opts []option.ClientOption) (Result, error) {
+	maxDataprocJobsPerRegion := cfg.LimitDataprocJobsPerRegion()
 	regions := cfg.DataprocRegions(p)
 
 	result := fanOut(ctx, regions, func(ctx context.Context, region string) (Result, error) {

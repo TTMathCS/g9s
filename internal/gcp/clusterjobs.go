@@ -15,7 +15,6 @@ import (
 // maxClusterJobs bounds one cluster's history. Smaller than the per-region cap
 // because this is one cluster's worth: past a couple of hundred rows nobody is
 // reading, they are searching, and `/` does that better than scrolling.
-const maxClusterJobs = 200
 
 // ClusterJobLister is the jobs that ran on one Dataproc cluster.
 //
@@ -46,7 +45,8 @@ func (ClusterJobLister) Kind() Kind {
 	}
 }
 
-func (ClusterJobLister) List(ctx context.Context, _ *config.Config, p config.Project, parent Resource, opts []option.ClientOption) (Result, error) {
+func (ClusterJobLister) List(ctx context.Context, cfg *config.Config, p config.Project, parent Resource, opts []option.ClientOption) (Result, error) {
+	maxClusterJobs := cfg.LimitClusterJobs()
 	cluster, ok := parent.Raw.(*dataprocpb.Cluster)
 	if !ok {
 		return Result{}, fmt.Errorf("no cluster data for %s", parent.Name)
