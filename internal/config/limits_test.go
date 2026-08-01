@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -242,3 +243,61 @@ projects:
 		t.Errorf("dns_record_sets = %d, want uncapped", got)
 	}
 }
+
+// TestEveryLimitIsDocumented catches the drift that keeps happening: a setting
+// that exists in the struct and nowhere a user would look, or docs naming a key
+// the loader would reject. Both fail silently — the first as a knob nobody
+// discovers, the second as "unknown field" on a key the README told them to
+// write.
+//
+// Reading the docs from a test is unusual. It earns its place because the
+// mismatch is invisible from either side alone: the code compiles, the docs
+// render, and only a user hits the gap.
+func TestEveryLimitIsDocumented(t *testing.T) {
+	docs := map[string]string{}
+	for _, name := range []string{"README.md", "ROADMAP.md"} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", name))
+		if err != nil {
+			t.Fatalf("reading %s: %v", name, err)
+		}
+		docs[name] = string(raw)
+	}
+
+	tags := limitYAMLTags()
+	if len(tags) == 0 {
+		t.Fatal("no yaml tags found on Limits — the reflection is not working")
+	}
+	for _, tag := range tags {
+		for name, body := range docs {
+			if !strings.Contains(body, tag) {
+				t.Errorf("%s does not mention limits key %q — a setting nobody can find", name, tag)
+			}
+		}
+	}
+
+	// The other direction: a documented key that is not a real field would be
+	// rejected by the strict loader, so the docs would be telling users to
+	// write something that fails to load.
+	real := map[string]bool{}
+	for _, tag := range tags {
+		real[tag] = true
+	}
+	for name, body := range docs {
+		for _, m := range documentedLimitKeys(body) {
+			if !real[m] {
+				t.Errorf("%s documents limits.%s, which is not a field — the loader would reject it", name, m)
+			}
+		}
+	}
+}
+
+// documentedLimitKeys finds `limits.<key>` references in prose.
+func documentedLimitKeys(body string) []string {
+	var keys []string
+	for _, m := range limitKeyPattern.FindAllStringSubmatch(body, -1) {
+		keys = append(keys, m[1])
+	}
+	return keys
+}
+
+var limitKeyPattern = regexp.MustCompile(`limits\.([a-z_]+)`)
