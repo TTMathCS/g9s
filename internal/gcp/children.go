@@ -37,6 +37,8 @@ type ChildLister interface {
 func Children() []ChildLister {
 	return []ChildLister{
 		AttachedDiskLister{},
+		BucketLifecycleLister{},
+		ClusterJobLister{},
 		NodePoolLister{},
 		TopicSubscriptionLister{},
 		SQLDatabaseLister{},

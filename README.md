@@ -107,6 +107,8 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | Subscriptions on a topic | ✅ | drill-down | `enter` on a topic; a topic with none is publishing into nothing, which the topics table cannot show |
 | Secret versions | ✅ | drill-down | `enter` on a secret. **Metadata only, same as the parent** — the secrets row shows the rotation *policy*, this shows whether rotation happened |
 | Cloud Run job executions | ✅ | drill-down | `enter` on a job; the history behind the last result, which is what separates "failed once" from "failing nightly" |
+| Bucket lifecycle rules | ✅ | drill-down | `enter` on a bucket; free. Answers "why did my data disappear" and "why is nothing being archived", neither visible from a bucket row |
+| Dataproc jobs on a cluster | ✅ | drill-down | `enter` on a cluster; *cheaper* than the region-wide kind — `ListJobs` filters by cluster server-side, so one call to one region |
 | Cloud SQL databases & users | ✅ | drill-down | `enter` on an instance, `tab` between the two — the pair that made a row allowed more than one listing |
 | Load balancer backend health | ✅ | drill-down | `enter` on a forwarding rule; walks rule → proxy → URL map → backend services → `getHealth` per group, which is four-plus round trips nobody would pay per refresh |
 | Cloud Functions, Compute disks, Batch jobs | 🔜 | needs a key | real kinds with nowhere to bind — see [The alphabet is full](ROADMAP.md#the-alphabet-is-full) |
@@ -142,7 +144,7 @@ Cloud Asset Inventory makes "list everything in a project" a single API call. Wi
 
 ## Status
 
-MVP. Twenty-three resource kinds across compute, data, messaging, networking and identity, plus thirteen drill-downs — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
+MVP. Twenty-three resource kinds across compute, data, messaging, networking and identity, plus fifteen drill-downs — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
 
 Navigation is three levels deep: projects → dashboard → a category's table, with `esc` walking back up. A new kind appears on the dashboard, in the tab bar and in *All Resources* automatically; there is nothing to register in the UI.
 

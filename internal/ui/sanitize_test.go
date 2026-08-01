@@ -159,7 +159,7 @@ func TestStatusStyleCoversTheNewKinds(t *testing.T) {
 	// most on is the one that renders as plain text.
 	good := []string{"READY", "SUCCEEDED", "ACTIVE", "DRAINED", "UPDATED", "HEALTHY", "ENABLED"}
 	warn := []string{"PENDING", "RECONCILING", "DETACHED", "STALE_KEY", "DRAINING", "CANCELLING"}
-	bad := []string{"FAILED", "RESOURCE_ERROR", "INGESTION_RESOURCE_ERROR", "CANCELLED", "EXPIRED", "UNHEALTHY", "DESTROYED"}
+	bad := []string{"FAILED", "RESOURCE_ERROR", "INGESTION_RESOURCE_ERROR", "CANCELLED", "EXPIRED", "UNHEALTHY", "DESTROYED", "DELETE"}
 
 	for _, s := range good {
 		if statusStyle(s).GetForeground() != goodStyle.GetForeground() {

@@ -117,7 +117,11 @@ func statusStyle(status string) lipgloss.Style {
 		"RESOURCE_ERROR", "INGESTION_RESOURCE_ERROR",
 		// A secret version that has been destroyed. The row still lists, and
 		// anything still pinned to that version is already broken.
-		"DESTROYED":
+		"DESTROYED",
+		// A bucket lifecycle rule that deletes. Not a failure — it is the rule
+		// working — but it is the only irreversible one, and the row someone
+		// scanning for "where did my data go" needs to find first.
+		"DELETE":
 		return badStyle
 	default:
 		return rowStyle

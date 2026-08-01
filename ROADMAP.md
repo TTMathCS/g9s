@@ -45,13 +45,15 @@ shape rather than another tab — see [The alphabet is full](#the-alphabet-is-fu
 | Secret Manager secrets | global | **metadata only — never values.** One paginated call to `secrets.list`; `AccessSecretVersion` is never called, so no payload enters the process |
 | Service accounts | global | one paginated call for the accounts, then `keys.list` per account — bounded to 200 accounts, twelve at a time. N+1 is the only shape on offer, and it is worth paying: key age is the standing audit question, and putting it on the row is the difference between a table you scan and one you have to interrogate account by account. User-managed keys only; Google-managed ones rotate themselves and would put "2 keys" on every row |
 
-Thirteen listings hang underneath these, reached with `enter` on the row rather
+Fifteen listings hang underneath these, reached with `enter` on the row rather
 than a hotkey of their own. A row may hold more than one — `tab` moves between
 them the way it moves between kinds one level up:
 
 | Drill-down | Parent | Notes |
 |---|---|---|
 | A VM's attached disks | an instance | free: `aggregatedList` already returns the attachments inline. These are the attachments rather than the disks — the size and source are here, the disk's own state and snapshot schedule live on the Disk resource, which has nowhere to bind while the alphabet is full. Auto-delete gets both a column and the row's status, because it is the one setting on an attachment that loses data when the VM goes |
+| Bucket lifecycle rules | a bucket | free — the buckets listing already carries them. Two questions a bucket row cannot touch: "why did my data disappear" is usually a Delete rule nobody remembered, and "why is nothing being archived" is usually a SetStorageClass rule that was never added or whose condition never matches. Delete is the only irreversible action and is the only one coloured. Rule order is kept rather than sorted, because GCS evaluates every matching rule and the written order is how the set is edited |
+| Dataproc jobs on a cluster | a cluster | one call, and *cheaper* than the parent kind rather than more expensive: `ListJobs` takes a `ClusterName` filter, so this is one region rather than a fan-out across every configured one. The axis you are already on when a cluster rather than a job is the thing behaving oddly |
 | GKE node pools | a cluster | free: `clusters.list` already returns node pools inline. Node counts are multiplied out across the pool's zones, because a pool of 2 across three zones runs six VMs and reading the 2 as the total is how a cluster ends up mis-sized on paper |
 | Cloud SQL databases | an instance | one call. The first half of the pair that made a row allowed more than one listing |
 | Cloud SQL users | an instance | one call. `tab` moves between this and the databases; a disabled account still appears in the list, which is exactly the row worth colouring — it looks like access that exists and is not |
@@ -116,8 +118,6 @@ Everything here is a drill-down, and that is not a coincidence — see above.
 
 | Resource | Parent | Why it's near the top |
 |---|---|---|
-| Bucket lifecycle rules | a bucket | free — the bucket listing already carries them. The answer to "why did my data disappear" and to "why is nothing being archived", neither of which is visible from a bucket row |
-| Dataproc jobs on a cluster | a cluster | the jobs kind lists them per region; per cluster is the axis you are on when a cluster is the thing behaving oddly |
 | Roles held by a service account | an account | one `getIamPolicy`, filtered to the member. "What can this thing actually do" is the other half of the key-age question, and nothing in the tool answers it yet |
 
 ### Blocked on the keyspace
