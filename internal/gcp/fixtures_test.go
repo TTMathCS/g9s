@@ -123,6 +123,22 @@ func testBucket() *storage.BucketAttrs {
 		StorageClass:      "STANDARD",
 		VersioningEnabled: true,
 		Created:           time.Now().Add(-400 * 24 * time.Hour),
+		// One rule that costs money and one that loses data, which are the two
+		// things this bucket's lifecycle can do to you.
+		Lifecycle: storage.Lifecycle{Rules: []storage.LifecycleRule{
+			{
+				Action:    storage.LifecycleAction{Type: "SetStorageClass", StorageClass: "NEARLINE"},
+				Condition: storage.LifecycleCondition{AgeInDays: 30, Liveness: storage.Live},
+			},
+			{
+				Action: storage.LifecycleAction{Type: "Delete"},
+				Condition: storage.LifecycleCondition{
+					AgeInDays:        365,
+					NumNewerVersions: 3,
+					MatchesPrefix:    []string{"exports/"},
+				},
+			},
+		}},
 	}
 }
 
