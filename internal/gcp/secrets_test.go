@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -31,33 +32,66 @@ func TestSecretResourceShape(t *testing.T) {
 	}
 }
 
-// TestSecretListerNeverFetchesAValue is the point of the whole kind.
+// TestNoSecretFileFetchesAValue is the point of the whole kind.
 //
-// The guarantee is structural — projects.secrets.list returns metadata and
-// there is no call to AccessSecretVersion anywhere — so this asserts on the
-// source rather than on behaviour: a future edit that reaches for a payload
-// fails here, before it ever renders one.
-func TestSecretListerNeverFetchesAValue(t *testing.T) {
+// The guarantee is structural — the list calls return metadata and there is no
+// call to AccessSecretVersion anywhere — so this asserts on the source rather
+// than on behaviour: an edit that reaches for a payload fails here, before it
+// ever renders one.
+//
+// Every file in the package is scanned, not just secrets.go. It used to check
+// that one file, which meant the guarantee could be sidestepped simply by
+// adding another — and then secretversions.go was added, doing exactly the kind
+// of work that needs covering. A whole-package scan cannot be outrun that way.
+func TestNoSecretFileFetchesAValue(t *testing.T) {
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "secrets.go", nil, 0)
+	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
+		return !strings.HasSuffix(fi.Name(), "_test.go")
+	}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	forbidden := []string{"AccessSecretVersion", "Access(", "SecretPayload", "Payload"}
-	ast.Inspect(file, func(n ast.Node) bool {
-		sel, ok := n.(*ast.SelectorExpr)
-		if !ok {
-			return true
+	// Exact names for the access calls, substrings for payload types.
+	//
+	// The distinction matters once the scan covers the whole package: matching
+	// "Access" as a substring catches GetAccessConfigs on a network interface
+	// and GetPrivateIpGoogleAccess on a subnet, neither of which has anything
+	// to do with secrets. Exact names catch the calls that do — `Access` is the
+	// generated client's method, `AccessSecretVersion` the RPC it wraps.
+	forbiddenExact := map[string]bool{"Access": true, "AccessSecretVersion": true}
+	forbiddenPart := []string{"SecretPayload", "Payload"}
+
+	scanned := 0
+	for _, pkg := range pkgs {
+		for path, file := range pkg.Files {
+			scanned++
+			ast.Inspect(file, func(n ast.Node) bool {
+				sel, ok := n.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				if forbiddenExact[sel.Sel.Name] {
+					t.Errorf("%s reaches for a secret value via %q at %s",
+						path, sel.Sel.Name, fset.Position(sel.Pos()))
+					return true
+				}
+				for _, bad := range forbiddenPart {
+					if strings.Contains(sel.Sel.Name, bad) {
+						t.Errorf("%s names a secret payload via %q at %s",
+							path, sel.Sel.Name, fset.Position(sel.Pos()))
+					}
+				}
+				return true
+			})
 		}
-		for _, bad := range forbidden {
-			if strings.Contains(sel.Sel.Name, strings.TrimSuffix(bad, "(")) {
-				t.Errorf("secrets.go reaches for a secret value via %q at %s",
-					sel.Sel.Name, fset.Position(sel.Pos()))
-			}
-		}
-		return true
-	})
+	}
+
+	// A scan that silently matched nothing would pass forever. The package has
+	// dozens of files; anything near zero means the walk broke.
+	if scanned < 10 {
+		t.Fatalf("scanned only %d files — the walk is not covering the package", scanned)
+	}
 }
 
 func TestSecretMetadataCarriesNoPayloadField(t *testing.T) {

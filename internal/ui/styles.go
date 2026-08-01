@@ -114,7 +114,10 @@ func statusStyle(status string) lipgloss.Style {
 		"CANCELLED", "ATTEMPT_FAILURE", "EXPIRED",
 		// A Pub/Sub topic whose ingestion source stopped working: the topic is
 		// fine, nothing is arriving on it.
-		"RESOURCE_ERROR", "INGESTION_RESOURCE_ERROR":
+		"RESOURCE_ERROR", "INGESTION_RESOURCE_ERROR",
+		// A secret version that has been destroyed. The row still lists, and
+		// anything still pinned to that version is already broken.
+		"DESTROYED":
 		return badStyle
 	default:
 		return rowStyle
