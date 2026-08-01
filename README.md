@@ -28,7 +28,7 @@ No Go toolchain and nothing compiled on your machine. Direct per-platform links,
 
 | Platform | Download |
 |---|---|
-| **macOS** — Apple Silicon (M1–M4) | **[g9s_darwin_arm64.tar.gz](https://github.com/TTMathCS/g9s/releases/latest/download/g9s_darwin_arm64.tar.gz)** |
+| **macOS** — Apple Silicon (any M-series) | **[g9s_darwin_arm64.tar.gz](https://github.com/TTMathCS/g9s/releases/latest/download/g9s_darwin_arm64.tar.gz)** |
 | **macOS** — Intel | **[g9s_darwin_amd64.tar.gz](https://github.com/TTMathCS/g9s/releases/latest/download/g9s_darwin_amd64.tar.gz)** |
 | **Linux** — x86-64 | **[g9s_linux_amd64.tar.gz](https://github.com/TTMathCS/g9s/releases/latest/download/g9s_linux_amd64.tar.gz)** |
 | **Linux** — ARM64 | **[g9s_linux_arm64.tar.gz](https://github.com/TTMathCS/g9s/releases/latest/download/g9s_linux_arm64.tar.gz)** |
