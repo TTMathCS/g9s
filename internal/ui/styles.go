@@ -109,7 +109,15 @@ func statusStyle(status string) lipgloss.Style {
 		// is a cost, not an outage — and because deleting one is irreversible.
 		"UNATTACHED",
 		// A Cloud Function mid-deploy, and a disk being rebuilt from a snapshot.
-		"DEPLOYING", "RESTORING":
+		"DEPLOYING", "RESTORING",
+		// A KMS key that cannot rotate because rotation was never configured,
+		// or whose scheduled rotation date has passed. Amber, not red: nothing
+		// is broken and nothing is down — it is the key that will still be the
+		// same key in three years, which is the whole point of the column.
+		"ROTATION_OFF", "ROTATION_OVERDUE",
+		// A Cloud Scheduler job that is not running. Nothing errors and nothing
+		// alerts; the work just stops. That is why it is coloured at all.
+		"PAUSED":
 		return warnStyle
 	case "ERROR", "FAILED", "TERMINATED", "STOPPED", "SUSPENDED", "UNHEALTHY", "DEGRADED",
 		// VPN tunnels that will never carry traffic without intervention.
@@ -131,7 +139,10 @@ func statusStyle(status string) lipgloss.Style {
 		"DELETE",
 		// A disk whose backing storage the service cannot reach. Anything using
 		// it is already having a bad time.
-		"UNAVAILABLE":
+		"UNAVAILABLE",
+		// A scheduled job whose last attempt was rejected. The job's own state
+		// stays ENABLED throughout, which is true and useless.
+		"LAST_RUN_FAILED":
 		return badStyle
 	default:
 		return rowStyle

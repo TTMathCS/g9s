@@ -198,6 +198,12 @@ func resourcesShot() Model {
 	m.cache["gcs"] = gcp.Result{
 		Resources: statusOnly(kindByID("gcs"), map[string]int{"ACTIVE": 5}),
 	}
+	m.cache["kms"] = gcp.Result{
+		Resources: statusOnly(kindByID("kms"), map[string]int{"ENABLED": 9, "ROTATION_OFF": 2}),
+	}
+	m.cache["scheduler"] = gcp.Result{
+		Resources: statusOnly(kindByID("scheduler"), map[string]int{"ENABLED": 6, "PAUSED": 1, "LAST_RUN_FAILED": 1}),
+	}
 	m.cache["disks"] = gcp.Result{
 		Resources: statusOnly(kindByID("disks"), map[string]int{"READY": 14, "UNATTACHED": 3}),
 	}
@@ -304,6 +310,12 @@ func dashboardShot() Model {
 	}
 	m.cache["gcs"] = gcp.Result{
 		Resources: statusOnly(kindByID("gcs"), map[string]int{"ACTIVE": 5}),
+	}
+	m.cache["kms"] = gcp.Result{
+		Resources: statusOnly(kindByID("kms"), map[string]int{"ENABLED": 9, "ROTATION_OFF": 2}),
+	}
+	m.cache["scheduler"] = gcp.Result{
+		Resources: statusOnly(kindByID("scheduler"), map[string]int{"ENABLED": 6, "PAUSED": 1, "LAST_RUN_FAILED": 1}),
 	}
 	m.cache["disks"] = gcp.Result{
 		Resources: statusOnly(kindByID("disks"), map[string]int{"READY": 14, "UNATTACHED": 3}),

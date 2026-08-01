@@ -36,6 +36,8 @@ is left below wants that shape rather than another tab — see
 | Pub/Sub subscriptions | global | the backlog column is the point, and it is not on the subscription — it comes from one Monitoring `timeSeries.list` covering every subscription at once, so an unavailable metric costs a warning rather than the table |
 | Cloud Run services | **regional** | one client per region: the v2 API documents that location cannot be the `-` wildcard, so there is no aggregated call to fall back on |
 | Cloud Run jobs | **regional** | same fan-out as the services; the row leads with the last execution's result, because a job whose executions all fail is still a perfectly healthy job resource |
+| Cloud Scheduler jobs | **regional** | one client per region; the parent is a concrete location. The row leads with what happened last rather than what is configured, because a cron entry is not interesting for existing — it is interesting when it stopped working, and there are two ways for that which a config-only table cannot tell apart. PAUSED is the quiet one: nothing errors, nothing alerts, the work simply stops, and someone paused it for a deploy in March. The other is a job running exactly on schedule against a target that rejects every attempt, where the job's own state stays a perfectly truthful ENABLED. LAST and RESULT are the two columns that separate them |
+| KMS keys | **regional** + global | keys rather than key rings, which is a choice about what the table is for: a ring is a folder, and its row would carry a name, a location and nothing anyone opens a tool to find. So the ring becomes a column and the N+1 to reach the keys is paid — the same trade service accounts make for key age. Two calls per location, bounded to 100 rings, twelve at a time; one unreadable ring costs its own keys rather than the location, since `cryptoKeys.list` is a separate grant from the one that listed the rings. "global" is always swept because that is where most projects' first key ring lives. Rotation leads the row: a symmetric key with rotation never configured reports ENABLED forever, which is exactly what hides it. Asymmetric keys are explicitly *not* flagged — KMS cannot rotate one on a schedule, its public half is pinned by whoever verifies signatures, and a column of invented findings is a column nobody reads when a real one appears. **Metadata only, like Secret Manager**: no Decrypt, no AsymmetricSign, no key material, guarded by a test that fails on the call name |
 | Cloud Functions | regional, aggregated | the v2 API takes `locations/-` for the parent and sweeps every location in one paginated call, naming the ones that did not answer in `Unreachable` — the opposite of Cloud Run, in the same product family, which is why each lister says which answer it got. Both generations list together with a `GEN` column, because gen 2 is Cloud Run with a build attached and gen 1 is not: they scale, time out and bill differently, and "which generation is this" is the first question when one behaves unlike its neighbour. The trigger column separates HTTP functions, reachable by whoever IAM allows, from event-driven ones that only fire on their source |
 | VPC networks | global | one call |
 | Firewall rules | global | ordered by evaluation priority rather than name, because that is the only order a rule set can be reasoned about |
@@ -73,7 +75,7 @@ Plus, across all kinds: a per-project dashboard with status rollups, a merged
 *All Resources* table, filtering, describe-as-YAML, Console/Airflow deep links,
 clipboard yank over OSC 52, and SSH to a running VM.
 
-Twenty-five kinds is well past what the digits cover, so the hotkey sequence
+Twenty-seven kinds is well past what the digits cover, so the hotkey sequence
 continues into letters — `1`-`9`, then `b c e f h i m n t u v w x z`, then shift
 for `A` through `Z`, skipping every letter already bound to an action. Each
 kind's key is printed beside it on the dashboard and in the tab strip, and
@@ -146,17 +148,26 @@ instances, Artifact Registry repositories, BigQuery reservations.
 **Networking** — the core is shipped: record sets, backend health and subnets
 included. Still open: routes, Cloud NAT and routers, reserved static IPs.
 
-**Security and identity** — service accounts are shipped. Still open: project
-IAM policy bindings, KMS keyrings and keys (with rotation age), Certificate
-Manager certificates, Binary Authorization policies, VPC Service Controls
-perimeters, Org Policy constraints in effect.
+**Security and identity** — service accounts and KMS keys are shipped. Still
+open: Certificate Manager certificates, Binary Authorization policies, VPC
+Service Controls perimeters, Org Policy constraints in effect. Project IAM
+policy bindings are the awkward one and the reason they are not done yet: a
+binding is a (role, member) pair, not a resource with a location and a status,
+so it fits `Resource` badly and would want a table shaped differently from
+every other kind.
 
-**Operations** — recent Cloud Logging entries scoped to a resource, Monitoring
-alert policies and which are firing, Error Reporting groups, Cloud Scheduler
-jobs, Cloud Tasks queues, Cloud Build history.
+**Operations** — Cloud Scheduler is shipped. Still open: Monitoring alert
+policies and which are firing, Error Reporting groups, Cloud Tasks queues,
+Cloud Build history. Cloud Logging is deliberately not on this list: log
+entries are an unbounded, query-driven stream with no location or status axis,
+so they are not a `Lister` and pretending otherwise would produce a table that
+lies about what it contains.
 
 **Cost and quota** — quota usage against limits per service and region, and
-current-month spend per project if billing export is reachable.
+current-month spend per project. Both are genuinely awkward rather than merely
+unstarted: spend needs a billing export plenty of projects have never set up,
+and quota comes back as nested consumer-quota metrics rather than as resources
+with a name and a state.
 
 ## Features, not resources
 

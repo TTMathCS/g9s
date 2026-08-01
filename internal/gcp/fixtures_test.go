@@ -10,6 +10,8 @@ import (
 	"cloud.google.com/go/storage"
 	bigquery "google.golang.org/api/bigquery/v2"
 	cloudfunctions "google.golang.org/api/cloudfunctions/v2"
+	cloudkms "google.golang.org/api/cloudkms/v1"
+	cloudscheduler "google.golang.org/api/cloudscheduler/v1"
 	compute "google.golang.org/api/compute/v1"
 	dataflow "google.golang.org/api/dataflow/v1b3"
 	dns "google.golang.org/api/dns/v1"
@@ -560,5 +562,40 @@ func testFunction() *cloudfunctions.Function {
 			EventType: "google.cloud.storage.object.v1.finalized",
 		},
 		UpdateTime: time.Now().Add(-16 * 24 * time.Hour).Format(time.RFC3339),
+	}
+}
+
+// testCryptoKey rotates on a schedule and is not overdue: the ordinary case, so
+// a test asserting a finding has to set one up rather than inherit it.
+func testCryptoKey() *cloudkms.CryptoKey {
+	return &cloudkms.CryptoKey{
+		Name:             "projects/sandbox-123/locations/us-central1/keyRings/app-secrets/cryptoKeys/db-encryption",
+		Purpose:          "ENCRYPT_DECRYPT",
+		RotationPeriod:   "7776000s",
+		NextRotationTime: time.Now().Add(30 * 24 * time.Hour).Format(time.RFC3339),
+		CreateTime:       time.Now().Add(-400 * 24 * time.Hour).Format(time.RFC3339),
+		Primary: &cloudkms.CryptoKeyVersion{
+			Name:            "projects/sandbox-123/locations/us-central1/keyRings/app-secrets/cryptoKeys/db-encryption/cryptoKeyVersions/7",
+			State:           "ENABLED",
+			ProtectionLevel: "SOFTWARE",
+			Algorithm:       "GOOGLE_SYMMETRIC_ENCRYPTION",
+		},
+		VersionTemplate: &cloudkms.CryptoKeyVersionTemplate{ProtectionLevel: "SOFTWARE"},
+	}
+}
+
+// testSchedulerJob last ran cleanly. The failing and paused cases are the
+// findings, so tests build those explicitly.
+func testSchedulerJob() *cloudscheduler.Job {
+	return &cloudscheduler.Job{
+		Name:            "projects/sandbox-123/locations/us-central1/jobs/nightly-rollup",
+		Schedule:        "0 3 * * *",
+		TimeZone:        "Etc/UTC",
+		State:           "ENABLED",
+		LastAttemptTime: time.Now().Add(-9 * time.Hour).Format(time.RFC3339),
+		HttpTarget: &cloudscheduler.HttpTarget{
+			Uri:        "https://api.internal.example.com/jobs/rollup",
+			HttpMethod: "POST",
+		},
 	}
 }

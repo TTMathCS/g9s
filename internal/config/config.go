@@ -113,6 +113,16 @@ func (c *Config) DataprocRegions(p Project) []string {
 	return withGlobal(regions)
 }
 
+// KMSLocations returns the locations to sweep for KMS key rings.
+//
+// Regions plus "global", always, and for a stronger reason than Dataproc's: a
+// key ring in the global location is not an edge case, it is where most
+// projects put their first one. Sweeping only the configured regions would show
+// an empty KMS table to a project whose keys all exist.
+func (c *Config) KMSLocations(p Project) []string {
+	return withGlobal(c.Regions(p))
+}
+
 // ComposerLocations returns the locations to sweep for Composer environments.
 func (c *Config) ComposerLocations(p Project) []string {
 	return firstNonEmpty(p.ComposerLocations, p.Regions, c.Defaults.ComposerLocations, c.Defaults.Regions)
