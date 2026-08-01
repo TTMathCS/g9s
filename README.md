@@ -56,7 +56,7 @@ Four screens, in the order you move through them.
 
 ![The g9s resource table: nine VM instances in the prod-data project, with a warning in the status bar that one region was unavailable](docs/resources.png)
 
-**Drill-down.** Some rows have a listing underneath them — a GKE cluster's node pools, a VPC's subnets, the backends behind a load balancer. `enter` opens it in place, with the child's own columns and a trail naming the row you came in on; `esc` puts you back where you were, cursor and filter included. `d` still describes, so a row with children is not a row you can no longer inspect. These cost no hotkey, which is the point: the alphabet is full at twenty-three kinds, and this is how the tool grows past it.
+**Drill-down.** Some rows have a listing underneath them — a GKE cluster's node pools, a VPC's subnets, the backends behind a load balancer. `enter` opens it in place, with the child's own columns and a trail naming the row you came in on; `esc` puts you back where you were, cursor and filter included. `d` still describes, so a row with children is not a row you can no longer inspect. These cost no hotkey and no dashboard row, which is the point: a listing that only makes sense under its parent belongs under its parent.
 
 ![The g9s drill-down: four node pools inside a GKE cluster, with their machine types, node counts, autoscaling bounds and upgrade policy](docs/drilldown.png)
 
@@ -75,6 +75,7 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | Kind | Status | Scope | Notes |
 |---|---|---|---|
 | Compute Engine instances | ✅ | zonal, aggregated | one `aggregatedList` call covers every zone |
+| Compute persistent disks | ✅ | zonal + regional, aggregated | one `aggregatedList`; leads with the disks *nothing* is using and how long that has been true, which is the one thing a per-VM listing structurally cannot show |
 | GKE clusters | ✅ | zonal + regional, aggregated | `parent: projects/*/locations/-` covers everything in one call |
 | Cloud SQL instances | ✅ | global | one paginated call; unreachable regions arrive as response warnings, not errors |
 | Cloud Storage buckets | ✅ | global | simplest lister — one call, no fan-out |
@@ -88,6 +89,7 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | Pub/Sub subscriptions | ✅ | global | backlog per subscription, from one Monitoring call covering all of them |
 | Cloud Run services | ✅ | **regional** | a client per region — the v2 API takes no `-` wildcard for location |
 | Cloud Run jobs | ✅ | **regional** | leads with the last execution's result, not the job's own condition |
+| Cloud Functions | ✅ | regional, aggregated | the v2 API *does* take `locations/-`, unlike Cloud Run's — same family, opposite answer. Both generations list, with which one on the row |
 | VPC networks | ✅ | global | subnet mode, subnet count, routing mode |
 | Firewall rules | ✅ | global | sorted by evaluation priority, not name; disabled rules flagged |
 | Load balancers | ✅ | global + regional | forwarding rules; the only kind needing two calls, since global and regional live in separate collections |
@@ -111,7 +113,6 @@ Legend: ✅ shipped · 🔜 next up · 💡 candidate · ⛔ not planned (by des
 | Dataproc jobs on a cluster | ✅ | drill-down | `enter` on a cluster; *cheaper* than the region-wide kind — `ListJobs` filters by cluster server-side, so one call to one region |
 | Cloud SQL databases & users | ✅ | drill-down | `enter` on an instance, `tab` between the two — the pair that made a row allowed more than one listing |
 | Load balancer backend health | ✅ | drill-down | `enter` on a forwarding rule; walks rule → proxy → URL map → backend services → `getHealth` per group, which is four-plus round trips nobody would pay per refresh |
-| Cloud Functions, Compute disks, Batch jobs | 🔜 | needs a key | real kinds with nowhere to bind — see [The alphabet is full](ROADMAP.md#the-alphabet-is-full) |
 | Compute/serverless (Batch, instance groups, GPU/TPU) | 💡 | mixed | |
 | Data (Bigtable, Spanner, Memorystore, Firestore, Datastream, Artifact Registry) | 💡 | mixed | |
 | Security/identity (IAM bindings, KMS, Certificate Manager, VPC-SC, Org Policy) | 💡 | mixed | |
@@ -144,13 +145,13 @@ Cloud Asset Inventory makes "list everything in a project" a single API call. Wi
 
 ## Status
 
-MVP. Twenty-three resource kinds across compute, data, messaging, networking and identity, plus fifteen drill-downs — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
+MVP. Twenty-five resource kinds across compute, data, messaging, networking and identity, plus fifteen drill-downs — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
 
 Navigation is three levels deep: projects → dashboard → a category's table, with `esc` walking back up. A new kind appears on the dashboard, in the tab bar and in *All Resources* automatically; there is nothing to register in the UI.
 
-Every kind has a one-press key, past the ninth included. The digits run out at nine, so the sequence carries on into letters — `1`–`9`, then `b c e f h i m n t u v w x z` — skipping every letter that is already an action, which is why the run starts at `b` and not at `a` (`a` is *All Resources*). Nothing to memorise: each kind's key is printed beside it on the dashboard and in the tab strip. `tab`/`shift+tab` and `:<kind>` still reach everything, and the tab strip scrolls to keep the active tab visible, marking hidden tabs with `‹`/`›`.
+Every kind has a one-press key, past the ninth included. The digits run out at nine, so the sequence carries on into letters — `1`–`9`, then `b c e f h i m n t u v w x z`, then shift, `A` through `Z` minus the two already bound. It skips every letter that is already an action, which is why the run starts at `b` and not at `a` (`a` is *All Resources*). Nothing to memorise: each kind's key is printed beside it on the dashboard and in the tab strip. `tab`/`shift+tab` and `:<kind>` still reach everything, and the tab strip scrolls to keep the active tab visible, marking hidden tabs with `‹`/`›`.
 
-Twenty-three kinds against twenty-three keys means the scheme is now exactly full — that is the whole alphabet, and there is no twenty-fourth key to find without taking one back off an action. Which is the answer, not a problem: what comes next hangs off a row instead of the tab strip. `enter` on a GKE cluster opens its node pools, `enter` on a service account opens its keys, and a drill-down costs no key at all. A test fails the build if a kind is ever added without a key, so this cannot go quiet.
+Lowercase ran out at twenty-three — the whole unclaimed alphabet — so the run continues into shift rather than making the twenty-fourth kind a special case reachable only by typing. Forty-seven keys is a keyspace, not a target: a dashboard with forty rows is not a good dashboard, and anything that belongs to a parent row should still be a drill-down. `enter` on a GKE cluster opens its node pools, `enter` on a service account opens its keys, and a drill-down costs no key at all. What changed is that the keyspace no longer decides which kinds are allowed to exist. A test fails the build if a kind is ever added without a key, so running out again cannot go quiet.
 
 ## Requirements
 
@@ -541,7 +542,7 @@ type Lister interface {
 
 Use `fanOut` for anything region-scoped; it handles the concurrency, the partial-failure collection and the stable ordering. `internal/gcp/dataproc.go` is the shortest example.
 
-Two things the UI relies on, both covered by tests: your `Resource.Row` must have exactly as many cells as `Kind.Columns`, and there has to be a hotkey left for your kind. The alphabet in `internal/ui/hotkeys.go` holds twenty-three, which is exactly how many kinds there are — so `TestEveryKindStillHasAKey` fails the moment you add a twenty-fourth, rather than letting it become reachable only by typing a command.
+Two things the UI relies on, both covered by tests: your `Resource.Row` must have exactly as many cells as `Kind.Columns`, and there has to be a hotkey left for your kind. The key run in `internal/ui/hotkeys.go` holds forty-seven — `TestEveryKindStillHasAKey` fails the moment a kind falls off the end, rather than letting it become reachable only by typing a command. Before adding one, check it isn't really a [drill-down](#or-a-drill-down-which-needs-no-key): anything that belongs to a parent row reads better there and costs no key.
 
 If the raw object your lister puts in `Resource.Raw` carries a secret — an API that returns a key, a password, a token — add its field name to `secretFields` in `internal/ui/commands.go`. The detail pane renders `Raw` in full, and `y` copies it.
 

@@ -58,8 +58,11 @@ were made with; it screenshots the `<svg>` element through Playwright's
 Chromium, which avoids most of the traps listed after it:
 
 ```js
-// node this with playwright available; PLAYWRIGHT_BROWSERS_PATH is already set
-// in the dev container.
+// node this with playwright available. PLAYWRIGHT_BROWSERS_PATH points at the
+// dev container's browsers, but a freshly npm-installed playwright pins a
+// build number that is not the one on disk and fails with "Executable doesn't
+// exist" — hence the explicit executablePath rather than `playwright install`,
+// which would download a second copy of Chromium.
 const { chromium } = require('playwright');
 const fs = require('fs'), path = require('path'), os = require('os');
 
@@ -67,7 +70,7 @@ const TARGET_WIDTH = 2344;   // width of the images already in the README
 const LINE_HEIGHT = 7 * 1.35; // --font.size x --line-height
 
 (async () => {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
   for (const name of ['projects', 'dashboard', 'resources', 'drilldown', 'siblings']) {
     const svg = fs.readFileSync(`docs/${name}.svg`, 'utf8');
     const [, w, h] = svg.match(/<svg width="([\d.]+)" height="([\d.]+)"/);
@@ -96,8 +99,11 @@ Note the clip, and note that the spare line the generator appends is *not*
 optional here. Dropping the last line is freeze's layout, not its PNG renderer:
 remove the spare line from the `.ansi` and the footer becomes the last line and
 vanishes from the SVG too — which is easy to miss, because the image still looks
-plausible without it. `grep -c unavailable docs/resources.svg` is the quick
-check; that warning lives in the footer of that shot.
+plausible without it. `grep -c 'permission denied' docs/resources.svg` is the
+quick check — that warning lives in the footer of that shot, so a `0` means the
+footer was clipped away. Grep for the text the footer actually renders and
+re-check it when that wording changes; a check that can no longer match is worse
+than no check, because it goes on passing silently in the other direction.
 
 Three more things matter if you rasterize some other way:
 

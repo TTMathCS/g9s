@@ -12,16 +12,17 @@ implementing a one-method interface — see
 [Adding a resource kind](README.md#adding-a-resource-kind). The interface is
 the reason this list is long: most entries are a day's work, not a project.
 
-Since the hotkey alphabet filled up, there is a second shape too: a
-**drill-down**, which hangs off one parent row rather than the project, is
-reached with `enter`, and costs no key. Most of what is left below wants that
-shape rather than another tab — see [The alphabet is full](#the-alphabet-is-full).
+There is a second shape too: a **drill-down**, which hangs off one parent row
+rather than the project, is reached with `enter`, and costs no key. Most of what
+is left below wants that shape rather than another tab — see
+[Tabs and drill-downs](#tabs-and-drill-downs).
 
 ## Shipped
 
 | Resource | Scope | Notes |
 |---|---|---|
 | Compute Engine instances | zonal, aggregated | one `aggregatedList` call covers every zone |
+| Compute persistent disks | zonal + regional, aggregated | one `aggregatedList`, the same trick the instances use. Top-level rather than a drill-down from the VM, and deliberately: the disks worth finding are the ones no VM uses, and those have no parent row to hang off — a per-instance listing is exactly the view that cannot show them. So the status column says `UNATTACHED` where the API says `READY`, and the row carries how long it has been true. "Unattached" invites the reply that it is about to be used; "unattached for 240 days" does not |
 | GKE clusters | zonal + regional, aggregated | `parent: projects/*/locations/-` covers every zone and region in one call, same as Compute; no fan-out despite being both zonal and regional |
 | Cloud SQL instances | global | one paginated `Instances.List`; the only lister whose partial failures arrive as `Warnings` in the response body rather than as an error, so unreachable regions are collected from there instead of through `fanOut` |
 | Cloud Storage buckets | global | the simplest lister here — one call, no fan-out, no aggregation trick needed |
@@ -35,6 +36,7 @@ shape rather than another tab — see [The alphabet is full](#the-alphabet-is-fu
 | Pub/Sub subscriptions | global | the backlog column is the point, and it is not on the subscription — it comes from one Monitoring `timeSeries.list` covering every subscription at once, so an unavailable metric costs a warning rather than the table |
 | Cloud Run services | **regional** | one client per region: the v2 API documents that location cannot be the `-` wildcard, so there is no aggregated call to fall back on |
 | Cloud Run jobs | **regional** | same fan-out as the services; the row leads with the last execution's result, because a job whose executions all fail is still a perfectly healthy job resource |
+| Cloud Functions | regional, aggregated | the v2 API takes `locations/-` for the parent and sweeps every location in one paginated call, naming the ones that did not answer in `Unreachable` — the opposite of Cloud Run, in the same product family, which is why each lister says which answer it got. Both generations list together with a `GEN` column, because gen 2 is Cloud Run with a build attached and gen 1 is not: they scale, time out and bill differently, and "which generation is this" is the first question when one behaves unlike its neighbour. The trigger column separates HTTP functions, reachable by whoever IAM allows, from event-driven ones that only fire on their source |
 | VPC networks | global | one call |
 | Firewall rules | global | ordered by evaluation priority rather than name, because that is the only order a rule set can be reasoned about |
 | Load balancers | global + regional | forwarding rules; the one kind needing two calls, as global and regional rules live in separate collections and missing the global one hides every external HTTP(S) load balancer |
@@ -51,7 +53,7 @@ them the way it moves between kinds one level up:
 
 | Drill-down | Parent | Notes |
 |---|---|---|
-| A VM's attached disks | an instance | free: `aggregatedList` already returns the attachments inline. These are the attachments rather than the disks — the size and source are here, the disk's own state and snapshot schedule live on the Disk resource, which has nowhere to bind while the alphabet is full. Auto-delete gets both a column and the row's status, because it is the one setting on an attachment that loses data when the VM goes |
+| A VM's attached disks | an instance | free: `aggregatedList` already returns the attachments inline. These are the attachments rather than the disks — the size and source are here, the disk's own state and idle time live on the Disk resource, which is now its own kind. Auto-delete gets both a column and the row's status, because it is the one setting on an attachment that loses data when the VM goes |
 | Bucket lifecycle rules | a bucket | free — the buckets listing already carries them. Two questions a bucket row cannot touch: "why did my data disappear" is usually a Delete rule nobody remembered, and "why is nothing being archived" is usually a SetStorageClass rule that was never added or whose condition never matches. Delete is the only irreversible action and is the only one coloured. Rule order is kept rather than sorted, because GCS evaluates every matching rule and the written order is how the set is edited |
 | Dataproc jobs on a cluster | a cluster | one call, and *cheaper* than the parent kind rather than more expensive: `ListJobs` takes a `ClusterName` filter, so this is one region rather than a fan-out across every configured one. The axis you are already on when a cluster rather than a job is the thing behaving oddly |
 | GKE node pools | a cluster | free: `clusters.list` already returns node pools inline. Node counts are multiplied out across the pool's zones, because a pool of 2 across three zones runs six VMs and reading the 2 as the total is how a cluster ends up mis-sized on paper |
@@ -71,27 +73,34 @@ Plus, across all kinds: a per-project dashboard with status rollups, a merged
 *All Resources* table, filtering, describe-as-YAML, Console/Airflow deep links,
 clipboard yank over OSC 52, and SSH to a running VM.
 
-Twenty-three kinds is well past what the digits cover, so the hotkey sequence
-continues into letters — `1`-`9`, then `b c e f h i m n t u v w x z`, skipping
-every letter already bound to an action. Each kind's key is printed beside it on
-the dashboard and in the tab strip, and `tab`/`shift+tab`, `0`/`a` and `:<kind>`
-still reach everything. The strip scrolls around the active tab and marks hidden
-tabs with `‹`/`›`.
+Twenty-five kinds is well past what the digits cover, so the hotkey sequence
+continues into letters — `1`-`9`, then `b c e f h i m n t u v w x z`, then shift
+for `A` through `Z`, skipping every letter already bound to an action. Each
+kind's key is printed beside it on the dashboard and in the tab strip, and
+`tab`/`shift+tab`, `0`/`a` and `:<kind>` still reach everything. The strip
+scrolls around the active tab and marks hidden tabs with `‹`/`›`.
 
-## The alphabet is full
+## Tabs and drill-downs
 
-Twenty-three kinds, twenty-three keys, nothing spare. That is the whole
-lowercase alphabet: twelve letters are actions, fourteen are kinds, and the
-digits carry the first nine. The twenty-third key came from folding `c` (open in
-Cloud Console) into `o` (open), which did the same thing on every kind but
-Composer — the last redundancy there was to spend.
+Lowercase ran out at twenty-three. That is the whole usable alphabet: twelve
+letters are actions, fourteen are kinds, and the digits carry the first nine.
+The twenty-third key came from folding `c` (open in Cloud Console) into `o`
+(open), which did the same thing on every kind but Composer — the last
+redundancy there was to spend.
 
-So this is where adding tabs stops, and it is not a limit that needs raising.
-Twenty-three rows is already about as much as a dashboard is worth scanning, and
-the kinds still worth having are mostly not project-wide lists at all. Node
-pools belong to a cluster; keys belong to an account; record sets belong to a
-zone. "Every node pool in the project", stripped of which cluster each is in, is
-not a question anyone asks.
+The run then continues into shift: `A` through `Z`, minus `G` (jump to bottom)
+and `L` (log in without a browser). Forty-seven keys, all still one press, all
+still printed beside the kind. Extending the scheme mechanically beat making the
+twenty-fourth kind a special case reachable only by typing `:<kind>`.
+
+That is a keyspace, not a target. A dashboard with forty rows is not a good
+dashboard, and the kinds still worth having are mostly not project-wide lists at
+all. Node pools belong to a cluster; keys belong to an account; record sets
+belong to a zone. "Every node pool in the project", stripped of which cluster
+each is in, is not a question anyone asks. What changed when the run reached
+shift is only that the keyspace stopped being the thing deciding which kinds are
+allowed to exist — the question is now whether a kind reads better as a tab or
+as a drill-down, which is the question it should have been all along.
 
 Those are **drill-downs**: `enter` on a row opens its listing in place, with the
 child's own columns and a trail naming the parent, and `esc` puts you back. They
@@ -107,7 +116,7 @@ they are expensive: backend health walks four resources to answer for one
 forwarding rule, which is unthinkable per refresh and unremarkable per keypress.
 A drill-down is the right home for both.
 
-A twenty-fourth top-level kind would silently lose its hotkey, so a test fails
+A forty-eighth top-level kind would silently lose its hotkey, so a test fails
 the build instead — the reminder to reach for a drill-down.
 
 ## Next up
@@ -120,25 +129,13 @@ Everything here is a drill-down, and that is not a coincidence — see above.
 |---|---|---|
 | Roles held by a service account | an account | one `getIamPolicy`, filtered to the member. "What can this thing actually do" is the other half of the key-age question, and nothing in the tool answers it yet |
 
-### Blocked on the keyspace
-
-Real kinds with nowhere to bind. Each would be a top-level tab and there is no
-key left for one, so they wait for either a drill-down shape that fits or a
-decision to change the scheme:
-
-| Resource | Scope | Notes |
-|---|---|---|
-| Cloud Functions | regional | the last serverless kind missing now that Run is in |
-| Compute disks and snapshots | zonal, aggregated | unattached disks are the quiet line on every bill, and an unattached disk has no parent row to hang off |
-| Batch jobs | regional | |
-
 ## Candidates
 
 Plausible, lower priority, grouped by area.
 
-**Compute and serverless** — instance groups and templates, GPU/TPU
-reservations. (Cloud Functions, Compute disks and Batch jobs are up under
-*Blocked on the keyspace*.)
+**Compute and serverless** — Batch jobs, instance groups and templates, GPU/TPU
+reservations, disk snapshots (a drill-down from the disk they were taken of, not
+a kind of their own).
 
 **Data** — Cloud SQL and BigQuery are shipped, down to databases, users and
 tables. Still open:

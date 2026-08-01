@@ -102,7 +102,14 @@ func statusStyle(status string) lipgloss.Style {
 		"STALE_KEY",
 		// Dataflow jobs on their way somewhere. DRAINING is a deliberate
 		// shutdown that is still processing what it has in flight.
-		"DRAINING", "CANCELLING", "QUEUED", "RESOURCE_CLEANING_UP":
+		"DRAINING", "CANCELLING", "QUEUED", "RESOURCE_CLEANING_UP",
+		// A persistent disk no instance is using. The API calls it READY, which
+		// is true and is exactly what hides it: it bills every month at the
+		// full rate for storage nothing reads. Amber rather than red because it
+		// is a cost, not an outage — and because deleting one is irreversible.
+		"UNATTACHED",
+		// A Cloud Function mid-deploy, and a disk being rebuilt from a snapshot.
+		"DEPLOYING", "RESTORING":
 		return warnStyle
 	case "ERROR", "FAILED", "TERMINATED", "STOPPED", "SUSPENDED", "UNHEALTHY", "DEGRADED",
 		// VPN tunnels that will never carry traffic without intervention.
@@ -121,7 +128,10 @@ func statusStyle(status string) lipgloss.Style {
 		// A bucket lifecycle rule that deletes. Not a failure — it is the rule
 		// working — but it is the only irreversible one, and the row someone
 		// scanning for "where did my data go" needs to find first.
-		"DELETE":
+		"DELETE",
+		// A disk whose backing storage the service cannot reach. Anything using
+		// it is already having a bad time.
+		"UNAVAILABLE":
 		return badStyle
 	default:
 		return rowStyle

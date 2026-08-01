@@ -532,19 +532,37 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 	return m.openTab(idx)
 }
 
-// matchKind resolves a command word to a tab: exact kind ID first, then a
-// prefix of the ID or title, in display order.
+// matchKind resolves a command word to a tab: exact kind ID, then a prefix of
+// an ID, then a prefix of a title — each pass in display order.
+//
+// IDs beat titles, and that ordering is load-bearing rather than tidy. `:comp`
+// is the id of Composer and merely the start of "Compute Disks"; folding both
+// into one pass hands it to whichever sits earlier in the display order, which
+// is a coin toss decided by an unrelated list. The id is what someone typing a
+// short command means, so it is what wins.
 func (m Model) matchKind(word string) (int, bool) {
 	word = strings.ToLower(word)
+	if word == "" {
+		// Every string has the empty prefix, so without this the empty word
+		// silently means "the first kind". runCommand happens to return early
+		// on a blank line today, but that is the caller's habit, not this
+		// function's contract.
+		return -1, false
+	}
 	tabs := m.tabs()
+
 	for i, k := range tabs {
 		if strings.ToLower(k.ID) == word {
 			return i, true
 		}
 	}
 	for i, k := range tabs {
-		if strings.HasPrefix(strings.ToLower(k.ID), word) ||
-			strings.HasPrefix(strings.ToLower(k.Title), word) {
+		if strings.HasPrefix(strings.ToLower(k.ID), word) {
+			return i, true
+		}
+	}
+	for i, k := range tabs {
+		if strings.HasPrefix(strings.ToLower(k.Title), word) {
 			return i, true
 		}
 	}
