@@ -493,3 +493,29 @@ func testCloudRunRevision() *run.GoogleCloudRunV2Revision {
 		CreateTime: time.Now().Add(-9 * 24 * time.Hour).Format(time.RFC3339),
 	}
 }
+
+func testSecretVersion() *secretmanager.SecretVersion {
+	return &secretmanager.SecretVersion{
+		Name:       "projects/sandbox-123/secrets/prod-db-password/versions/7",
+		State:      "ENABLED",
+		CreateTime: time.Now().Add(-18 * 24 * time.Hour).Format(time.RFC3339),
+	}
+}
+
+// testCloudRunExecution finished cleanly across every task, so a test that
+// wants a failure has to make one.
+func testCloudRunExecution() *run.GoogleCloudRunV2Execution {
+	start := time.Now().Add(-3 * time.Hour)
+	return &run.GoogleCloudRunV2Execution{
+		Name:           "projects/sandbox-123/locations/us-central1/jobs/nightly-report/executions/nightly-report-9x8w7",
+		Job:            "projects/sandbox-123/locations/us-central1/jobs/nightly-report",
+		TaskCount:      12,
+		SucceededCount: 12,
+		Conditions: []*run.GoogleCloudRunV2Condition{
+			{Type: "Completed", State: "CONDITION_SUCCEEDED"},
+		},
+		CreateTime:     start.Format(time.RFC3339),
+		StartTime:      start.Format(time.RFC3339),
+		CompletionTime: start.Add(7 * time.Minute).Format(time.RFC3339),
+	}
+}

@@ -43,9 +43,11 @@ func Children() []ChildLister {
 		SQLUserLister{},
 		BigQueryTableLister{},
 		CloudRunRevisionLister{},
+		CloudRunExecutionLister{},
 		SubnetLister{},
 		LoadBalancerHealthLister{},
 		DNSRecordLister{},
+		SecretVersionLister{},
 		ServiceAccountKeyLister{},
 	}
 }

@@ -45,7 +45,7 @@ shape rather than another tab — see [The alphabet is full](#the-alphabet-is-fu
 | Secret Manager secrets | global | **metadata only — never values.** One paginated call to `secrets.list`; `AccessSecretVersion` is never called, so no payload enters the process |
 | Service accounts | global | one paginated call for the accounts, then `keys.list` per account — bounded to 200 accounts, twelve at a time. N+1 is the only shape on offer, and it is worth paying: key age is the standing audit question, and putting it on the row is the difference between a table you scan and one you have to interrogate account by account. User-managed keys only; Google-managed ones rotate themselves and would put "2 keys" on every row |
 
-Eleven listings hang underneath these, reached with `enter` on the row rather
+Thirteen listings hang underneath these, reached with `enter` on the row rather
 than a hotkey of their own. A row may hold more than one — `tab` moves between
 them the way it moves between kinds one level up:
 
@@ -61,6 +61,8 @@ them the way it moves between kinds one level up:
 | Cloud Run revisions | a service | one call, joined with the parent. The revisions come from the list; the traffic split is a field on the *service*, so answering "which revision is actually serving" takes both halves. A service row can say READY while the revision serving all its traffic is three deploys old, which is most of "I deployed but nothing changed" |
 | Subscriptions on a topic | a topic | one call, filtered — deliberately not `topics.subscriptions.list`, which returns names only and would need a `Get` each to fill a row. A topic with no subscriptions says so as a warning rather than rendering an empty table that reads as a failed call: anything published to it is discarded, and the topics table cannot show that |
 | DNS record sets | a zone | one paginated call, capped at 1000. Grouped by name rather than sorted flat, so a name's A and AAAA sit on adjacent rows — they are read as a group |
+| Secret versions | a secret | **metadata only, exactly like the parent.** `versions.list` returns names, states and timestamps; `AccessSecretVersion` is not called here either, and the test that guarantees it now scans every file in the package rather than just `secrets.go` — the single-file scan could have been sidestepped by adding one, which is precisely what this drill-down did. What it adds: the secrets row shows the rotation *policy*, this shows whether rotation actually happened. A secret set to rotate every 30 days whose newest enabled version is eight months old looks perfectly healthy one level up |
+| Cloud Run job executions | a job | one call. The jobs row leads with the *last* execution's result, which answers "is this broken now" and nothing at all about "how long has it been broken" — one failure is an incident, the same failure every night for a week is a different conversation. The task tally separates one bad shard from a whole run collapsing |
 | Service account keys | an account | free: the accounts listing fetched them to compute the oldest-key age. Oldest first — that is the row the table was opened to find |
 
 Plus, across all kinds: a per-project dashboard with status rollups, a merged
@@ -114,8 +116,6 @@ Everything here is a drill-down, and that is not a coincidence — see above.
 
 | Resource | Parent | Why it's near the top |
 |---|---|---|
-| Secret versions | a secret | **metadata only, same as the parent.** Which version is enabled, when each was added, which are disabled but not destroyed — the secrets row shows rotation policy, this shows whether rotation actually happened. `AccessSecretVersion` stays uncalled |
-| Cloud Run job executions | a job | the jobs row leads with the *last* execution's result; this is the history behind it, which is the difference between "failed once" and "has been failing nightly for a week" |
 | Bucket lifecycle rules | a bucket | free — the bucket listing already carries them. The answer to "why did my data disappear" and to "why is nothing being archived", neither of which is visible from a bucket row |
 | Dataproc jobs on a cluster | a cluster | the jobs kind lists them per region; per cluster is the axis you are on when a cluster is the thing behaving oddly |
 | Roles held by a service account | an account | one `getIamPolicy`, filtered to the member. "What can this thing actually do" is the other half of the key-age question, and nothing in the tool answers it yet |
