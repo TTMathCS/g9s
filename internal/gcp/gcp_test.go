@@ -71,6 +71,35 @@ func TestDescribeFailureTruncatesLongMessages(t *testing.T) {
 	}
 }
 
+func TestComputeScopeWarningSuppressesEmptyScopes(t *testing.T) {
+	if got := computeScopeWarning("zones/us-east1-b", "NO_RESULTS_ON_PAGE", "no results"); got != "" {
+		t.Errorf("empty scope warning = %q, want it suppressed", got)
+	}
+	got := computeScopeWarning("regions/us-east1", "UNREACHABLE", "backend unavailable")
+	if !strings.Contains(got, "us-east1: backend unavailable") {
+		t.Errorf("real warning = %q", got)
+	}
+}
+
+func TestAppendComputeUnreachablesNamesEachScope(t *testing.T) {
+	var result Result
+	appendComputeUnreachables(&result, []string{"zones/us-east1-b", "regions/us-west1"})
+	if len(result.Warnings) != 2 || result.Warnings[0] != "us-east1-b: unreachable" ||
+		result.Warnings[1] != "us-west1: unreachable" {
+		t.Errorf("warnings = %v", result.Warnings)
+	}
+}
+
+func TestSegmentAfterFindsAZoneInAResourceURL(t *testing.T) {
+	ref := "https://www.googleapis.com/compute/v1/projects/p/zones/us-central1-b/instances/vm-1"
+	if got := segmentAfter(ref, "zones"); got != "us-central1-b" {
+		t.Errorf("zone = %q", got)
+	}
+	if got := segmentAfter(ref, "regions"); got != "" {
+		t.Errorf("missing region = %q", got)
+	}
+}
+
 func TestFanOutCollectsPartialResults(t *testing.T) {
 	// The core promise of the fan-out: one bad region must not discard the
 	// results from the good ones.
@@ -260,6 +289,10 @@ func TestListersHaveDistinctIDsAndColumns(t *testing.T) {
 func TestResourceRowsMatchColumns(t *testing.T) {
 	fixtures := map[string]Resource{
 		"vm":           instanceResource(testProject(), "us-central1-a", testInstance()),
+		"snapshots":    snapshotResource(testProject(), testSnapshot()),
+		"migs":         managedInstanceGroupResource(testProject(), "us-central1", testInstanceGroupManager()),
+		"templates":    instanceTemplateResource(testProject(), "us-central1", testInstanceTemplate()),
+		"reservations": reservationResource(testProject(), "us-central1-a", testReservation()),
 		"gke":          clusterNodeResource(testProject(), testGKECluster()),
 		"sql":          sqlInstanceResource(testProject(), testSQLInstance()),
 		"gcs":          bucketResource(testProject(), testBucket()),
@@ -276,6 +309,9 @@ func TestResourceRowsMatchColumns(t *testing.T) {
 
 		"vpc":          networkResource(testProject(), testNetwork()),
 		"fw":           firewallResource(testProject(), testFirewall()),
+		"routes":       routeResource(testProject(), testRoute()),
+		"routers":      routerResource(testProject(), "us-central1", testRouter()),
+		"addresses":    addressResource(testProject(), "us-central1", testAddress()),
 		"lb":           forwardingRuleResource(testProject(), "global", testForwardingRule()),
 		"dns":          dnsZoneResource(testProject(), testDNSZone()),
 		"vpn":          vpnTunnelResource(testProject(), "us-central1", testVPNTunnel()),
@@ -296,6 +332,9 @@ func TestResourceRowsMatchColumns(t *testing.T) {
 		"subnets":   subnetResource(testProject(), "us-central1", testSubnet()),
 		"bqtables":  tableResource(testProject(), "sandbox-123", "analytics", testBigQueryTable()),
 		"vmdisks":   attachedDiskResource(testProject(), testInstance(), testInstance().GetDisks()[0]),
+		"managedinstances": managedInstanceResource(testProject(), testInstanceGroupManager(),
+			testManagedInstance()),
+		"routernats": routerNATResource(testProject(), testRouter(), testRouter().Nats[0]),
 		"disks":     diskResource(testProject(), "us-central1-a", testDisk()),
 		"functions": functionResource(testProject(), testFunction()),
 		"kms": cryptoKeyResource(testProject(), "us-central1",

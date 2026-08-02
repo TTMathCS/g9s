@@ -4,8 +4,8 @@ A k9s-style terminal console for Google Cloud. Switch between projects and
 accounts, inspect resources, and navigate related resources without changing
 your global gcloud configuration.
 
-> **Current maturity:** read-only MVP. The source contains 27 top-level
-> resource kinds and 15 drill-down listings. SSH to a running VM is the only
+> **Current maturity:** read-only MVP. The source contains 34 top-level
+> resource kinds and 17 drill-down listings. SSH to a running VM is the only
 > interactive resource operation; mutating API actions are not implemented.
 
 ## At a glance
@@ -53,10 +53,12 @@ drill-down opened from a parent row.
 | Compute and serverless | **Compute Engine** → VM instances | Top-level | ✅ Implemented | One aggregated call covers every zone |
 |  | ↳ Attached disks | VM drill-down | ✅ Implemented | Already present on the VM response; highlights auto-delete |
 |  | **Compute Engine** → Persistent disks | Top-level | ✅ Implemented | Includes unattached state and age |
-|  | ↳ Disk snapshots | Disk drill-down | ⬜ Candidate | Not implemented |
-|  | **Compute Engine** → Managed instance groups | — | ⬜ Candidate | Not implemented |
-|  | **Compute Engine** → Instance templates | — | ⬜ Candidate | Not implemented |
-|  | **Compute Engine** → GPU/TPU reservations | — | ⬜ Candidate | Not implemented |
+|  | **Compute Engine** → Disk snapshots | Top-level | ✅ Implemented | Global plus regional (GCP Preview), in one project-wide listing; snapshots can outlive their source disks |
+|  | **Compute Engine** → Managed instance groups | Top-level | ✅ Implemented | Zonal and regional groups in one aggregated listing |
+|  | ↳ Managed VM instances | Group drill-down | ✅ Implemented | Instance state, current action, intended template and version |
+|  | **Compute Engine** → Instance templates | Top-level | ✅ Implemented | Global and regional templates; includes machine shape and accelerators |
+|  | **Compute Engine** → Capacity reservations | Top-level | ✅ Implemented | Includes GPU-backed reservations and unused/partial utilization findings |
+|  | **Cloud TPU** → Queued resources and reservations | — | ⬜ Candidate | Separate service and API; not part of Compute Engine reservation coverage |
 |  | **Batch** → Jobs | — | ⬜ Candidate | Not implemented |
 |  | **Cloud Functions** → Functions | Top-level | ✅ Implemented | Both generations; aggregated across locations |
 |  | **Cloud Run** → Services | Top-level | ✅ Implemented | Listed across configured regions |
@@ -95,8 +97,9 @@ drill-down opened from a parent row.
 | Networking | **VPC** → Networks | Top-level | ✅ Implemented | Subnet mode, count and routing mode |
 |  | ↳ Subnets | Network drill-down | ✅ Implemented | Aggregated across regions; includes secondary ranges |
 |  | **VPC** → Firewall rules | Top-level | ✅ Implemented | Sorted by evaluation priority; disabled rules are flagged |
-|  | **VPC** → Routes | — | ⬜ Candidate | Not implemented |
-|  | **Cloud NAT** → Routers and NAT gateways | — | ⬜ Candidate | Not implemented |
+|  | **VPC** → Routes | Top-level | ✅ Implemented | Network, destination, priority and resolved next-hop type |
+|  | **Cloud Router** → Routers | Top-level | ✅ Implemented | Region, network, ASN, peers, interfaces and NAT count |
+|  | ↳ Cloud NAT gateways | Router drill-down | ✅ Implemented | Inline router configuration; IP allocation, sources, ports and logging |
 |  | **Cloud Load Balancing** → Forwarding rules | Top-level | ✅ Implemented | Covers global and regional forwarding rules |
 |  | ↳ Backend health | Rule drill-down | 🟡 Implemented, bounded | 40 backend groups by default; bounds API requests |
 |  | **Cloud DNS** → Managed zones | Top-level | ✅ Implemented | Global listing |
@@ -104,7 +107,7 @@ drill-down opened from a parent row.
 |  | **Cloud VPN** → VPN tunnels | Top-level | ✅ Implemented | Aggregated across regions with live tunnel status |
 |  | **Cloud Interconnect** → VLAN attachments | Top-level | ✅ Implemented | Aggregated across regions |
 |  | **Private Service Connect** → Service attachments | Top-level | ✅ Implemented | Producer side; consumer endpoints are forwarding rules |
-|  | **Compute networking** → Reserved static IPs | — | ⬜ Candidate | Not implemented |
+|  | **Compute networking** → Reserved static IPs | Top-level | ✅ Implemented | Global and regional IPv4/IPv6 addresses, users and reservation state |
 | Security and identity | **Secret Manager** → Secrets | Top-level | 🔒 Metadata only | Replication, rotation and expiry; never secret values |
 |  | ↳ Versions | Secret drill-down | 🔒 Metadata only | Names, states and timestamps; never secret values |
 |  | **IAM** → Service accounts | Top-level | 🟡 Implemented, bounded | Key age lookup for 200 accounts by default |
@@ -133,7 +136,7 @@ drill-down opened from a parent row.
 | Isolated credentials per project | ✅ Implemented | Does not mutate global gcloud state |
 | Per-project dashboard and **All Resources** view | ✅ Implemented | Status rollups plus a merged table |
 | Filtering, YAML detail, links, clipboard and SSH | ✅ Implemented | SSH is limited to running VMs |
-| Parent/child drill-downs with sibling tabs | ✅ Implemented | 15 child listings |
+| Parent/child drill-downs with sibling tabs | ✅ Implemented | 17 child listings |
 | Partial-result and row-cap warnings | ✅ Implemented | A bounded or incomplete result cannot look complete |
 | Expected account versus actual ADC identity | 🟡 Needs improvement | Actual identity is read but not displayed or enforced |
 | Consistent HTTP/gRPC permission errors | 🟡 Needs improvement | REST 403 responses still need normalized wording |

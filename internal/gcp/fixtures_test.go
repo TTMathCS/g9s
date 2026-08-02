@@ -552,6 +552,135 @@ func testDisk() *computepb.Disk {
 	}
 }
 
+func testSnapshot() *compute.Snapshot {
+	return &compute.Snapshot{
+		Name:              "orders-db-2026-07-31",
+		SourceDisk:        "https://www.googleapis.com/compute/v1/projects/sandbox-123/zones/us-central1-a/disks/orders-db",
+		DiskSizeGb:        500,
+		StorageBytes:      64 * 1024 * 1024 * 1024,
+		StorageLocations:  []string{"us-central1"},
+		Status:            "READY",
+		CreationTimestamp: time.Now().Add(-36 * time.Hour).Format(time.RFC3339),
+	}
+}
+
+func testInstanceGroupManager() *compute.InstanceGroupManager {
+	return &compute.InstanceGroupManager{
+		Name:              "api-mig",
+		Region:            "https://www.googleapis.com/compute/v1/projects/sandbox-123/regions/us-central1",
+		TargetSize:        6,
+		InstanceTemplate:  "https://www.googleapis.com/compute/v1/projects/sandbox-123/global/instanceTemplates/api-v12",
+		Status:            &compute.InstanceGroupManagerStatus{IsStable: true},
+		UpdatePolicy:      &compute.InstanceGroupManagerUpdatePolicy{Type: "PROACTIVE"},
+		CreationTimestamp: time.Now().Add(-150 * 24 * time.Hour).Format(time.RFC3339),
+	}
+}
+
+func testManagedInstance() *compute.ManagedInstance {
+	return &compute.ManagedInstance{
+		Name:           "api-mig-2f8q",
+		Instance:       "https://www.googleapis.com/compute/v1/projects/sandbox-123/zones/us-central1-b/instances/api-mig-2f8q",
+		InstanceStatus: "RUNNING",
+		CurrentAction:  "NONE",
+		Version: &compute.ManagedInstanceVersion{
+			Name:             "primary",
+			InstanceTemplate: "https://www.googleapis.com/compute/v1/projects/sandbox-123/global/instanceTemplates/api-v12",
+		},
+	}
+}
+
+func testInstanceTemplate() *compute.InstanceTemplate {
+	return &compute.InstanceTemplate{
+		Name:              "gpu-worker-v4",
+		Region:            "https://www.googleapis.com/compute/v1/projects/sandbox-123/regions/us-central1",
+		CreationTimestamp: time.Now().Add(-80 * 24 * time.Hour).Format(time.RFC3339),
+		Properties: &compute.InstanceProperties{
+			MachineType: "g2-standard-8",
+			Disks:       []*compute.AttachedDisk{{Boot: true}, {Boot: false}},
+			NetworkInterfaces: []*compute.NetworkInterface{
+				{Network: "https://www.googleapis.com/compute/v1/projects/sandbox-123/global/networks/prod-vpc"},
+			},
+			GuestAccelerators: []*compute.AcceleratorConfig{{
+				AcceleratorType:  "nvidia-l4",
+				AcceleratorCount: 1,
+			}},
+		},
+	}
+}
+
+func testReservation() *compute.Reservation {
+	return &compute.Reservation{
+		Name:                        "gpu-inference-capacity",
+		Zone:                        "https://www.googleapis.com/compute/v1/projects/sandbox-123/zones/us-central1-a",
+		Status:                      "READY",
+		SpecificReservationRequired: true,
+		CreationTimestamp:           time.Now().Add(-30 * 24 * time.Hour).Format(time.RFC3339),
+		SpecificReservation: &compute.AllocationSpecificSKUReservation{
+			Count:      4,
+			InUseCount: 2,
+			InstanceProperties: &compute.AllocationSpecificSKUAllocationReservedInstanceProperties{
+				MachineType: "g2-standard-8",
+				GuestAccelerators: []*compute.AcceleratorConfig{{
+					AcceleratorType:  "nvidia-l4",
+					AcceleratorCount: 1,
+				}},
+			},
+		},
+	}
+}
+
+func testRoute() *compute.Route {
+	return &compute.Route{
+		Name:              "egress-via-appliance",
+		Network:           "https://www.googleapis.com/compute/v1/projects/sandbox-123/global/networks/prod-vpc",
+		DestRange:         "0.0.0.0/0",
+		Priority:          900,
+		NextHopInstance:   "https://www.googleapis.com/compute/v1/projects/sandbox-123/zones/us-central1-a/instances/egress-appliance",
+		RouteStatus:       "ACTIVE",
+		RouteType:         "STATIC",
+		Tags:              []string{"private-egress"},
+		CreationTimestamp: time.Now().Add(-200 * 24 * time.Hour).Format(time.RFC3339),
+	}
+}
+
+func testRouter() *compute.Router {
+	return &compute.Router{
+		Name:              "prod-router",
+		Region:            "https://www.googleapis.com/compute/v1/projects/sandbox-123/regions/us-central1",
+		Network:           "https://www.googleapis.com/compute/v1/projects/sandbox-123/global/networks/prod-vpc",
+		Bgp:               &compute.RouterBgp{Asn: 64514},
+		BgpPeers:          []*compute.RouterBgpPeer{{Name: "onprem-primary"}},
+		Interfaces:        []*compute.RouterInterface{{Name: "onprem-vlan"}},
+		CreationTimestamp: time.Now().Add(-320 * 24 * time.Hour).Format(time.RFC3339),
+		Nats: []*compute.RouterNat{{
+			Name:                         "prod-egress",
+			Type:                         "PUBLIC",
+			NatIpAllocateOption:          "MANUAL_ONLY",
+			NatIps:                       []string{"https://www.googleapis.com/compute/v1/projects/sandbox-123/regions/us-central1/addresses/nat-egress-1"},
+			SourceSubnetworkIpRangesToNat: "LIST_OF_SUBNETWORKS",
+			Subnetworks: []*compute.RouterNatSubnetworkToNat{{
+				Name: "https://www.googleapis.com/compute/v1/projects/sandbox-123/regions/us-central1/subnetworks/prod-us-central1",
+			}},
+			MinPortsPerVm: 128,
+			LogConfig:     &compute.RouterNatLogConfig{Enable: true, Filter: "ERRORS_ONLY"},
+		}},
+	}
+}
+
+func testAddress() *compute.Address {
+	return &compute.Address{
+		Name:              "nat-egress-1",
+		Region:            "https://www.googleapis.com/compute/v1/projects/sandbox-123/regions/us-central1",
+		Address:           "34.72.1.20",
+		AddressType:       "EXTERNAL",
+		IpVersion:         "IPV4",
+		NetworkTier:       "PREMIUM",
+		Status:            "IN_USE",
+		Users:             []string{"https://www.googleapis.com/compute/v1/projects/sandbox-123/regions/us-central1/routers/prod-router"},
+		CreationTimestamp: time.Now().Add(-320 * 24 * time.Hour).Format(time.RFC3339),
+	}
+}
+
 func testFunction() *cloudfunctions.Function {
 	return &cloudfunctions.Function{
 		Name:        "projects/sandbox-123/locations/us-central1/functions/thumbnailer",

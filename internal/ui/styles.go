@@ -73,10 +73,12 @@ func statusStyle(status string) lipgloss.Style {
 	// HEALTHY is a load balancer backend passing its health check, which is the
 	// one word the backend health table exists to show.
 	case "RUNNING", "RUNNABLE", "ACTIVE", "READY", "ESTABLISHED", "ENABLED", "DONE",
-		"SUCCEEDED", "DRAINED", "UPDATED", "HEALTHY":
+		"SUCCEEDED", "DRAINED", "UPDATED", "HEALTHY", "STABLE", "IN_USE":
 		return goodStyle
 	case "PROVISIONING", "STAGING", "CREATING", "UPDATING", "STOPPING", "DELETING",
-		"REPAIRING", "SUSPENDING", "RECONCILING",
+		"REPAIRING", "SUSPENDING", "RECONCILING", "RECREATING", "VERIFYING",
+		"ABANDONING", "REFRESHING", "STARTING", "RESUMING", "RESTARTING",
+		"CREATING_WITHOUT_RETRIES", "CHANGING", "UPLOADING",
 		// Cloud SQL's in-flight and maintenance states.
 		"PENDING_CREATE", "PENDING_DELETE", "MAINTENANCE",
 		// A BigQuery job that has been admitted but is waiting on slots, and a
@@ -108,6 +110,9 @@ func statusStyle(status string) lipgloss.Style {
 		// full rate for storage nothing reads. Amber rather than red because it
 		// is a cost, not an outage — and because deleting one is irreversible.
 		"UNATTACHED",
+		// Reserved capacity and addresses that exist but are not fully consumed.
+		// They are cost/capacity findings rather than service failures.
+		"UNUSED", "PARTIAL", "RESERVED", "RESERVING",
 		// A Cloud Function mid-deploy, and a disk being rebuilt from a snapshot.
 		"DEPLOYING", "RESTORING",
 		// A KMS key that cannot rotate because rotation was never configured,
@@ -120,6 +125,8 @@ func statusStyle(status string) lipgloss.Style {
 		"PAUSED":
 		return warnStyle
 	case "ERROR", "FAILED", "TERMINATED", "STOPPED", "SUSPENDED", "UNHEALTHY", "DEGRADED",
+		// Compute routes rejected by their backend or dropped at a route limit.
+		"INACTIVE", "DROPPED",
 		// VPN tunnels that will never carry traffic without intervention.
 		"AUTHORIZATION_ERROR", "NEGOTIATION_FAILURE", "NETWORK_ERROR", "NO_INCOMING_PACKETS", "REJECTED",
 		// Interconnect attachments that are broken or never came up.

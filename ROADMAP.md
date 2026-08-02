@@ -30,6 +30,10 @@ is left below wants that shape rather than another tab — see
 |---|---|---|---|
 | Compute Engine instances | zonal | 1 (aggregated) | one `aggregatedList` call covers every zone |
 | Compute persistent disks | zonal + regional | 1 (aggregated) | one `aggregatedList`, the same trick the instances use. Top-level rather than a drill-down from the VM, and deliberately: the disks worth finding are the ones no VM uses, and those have no parent row to hang off — a per-instance listing is exactly the view that cannot show them. So the status column says `UNATTACHED` where the API says `READY`, and the row carries how long it has been true. "Unattached" invites the reply that it is about to be used; "unattached for 240 days" does not |
+| Compute disk snapshots | global + regional | 1 | one project-wide aggregated list; regional snapshot scope is still a GCP Preview. Top-level rather than a disk drill-down because snapshots are independently billed, can outlive a deleted source disk and can restore several new disks. A parent-only view would hide the orphaned snapshots the inventory exists to find |
+| Managed instance groups | zonal + regional | 1 (aggregated) | one sweep covers both scopes. The row carries target size, template, rollout mode and a derived `STABLE`/`CHANGING` state |
+| Instance templates | global + regional | 1 (aggregated) | machine type, disks, NICs and accelerators without a per-template `Get`; top-level because several groups and reservations can consume one, while an unused template has no parent |
+| Compute capacity reservations | zonal | 1 (aggregated) | specific reservations show machine shape, accelerators and used/total capacity. `UNUSED` and `PARTIAL` deliberately replace a generic `READY` so stranded reserved capacity is visible. This includes GPU-backed Compute reservations, not Cloud TPU's separate API |
 | GKE clusters | zonal + regional | 1 (aggregated) | `parent: projects/*/locations/-` covers every zone and region in one call, same as Compute; no fan-out despite being both zonal and regional |
 | Cloud SQL instances | global | 1 | one paginated `Instances.List`; the only lister whose partial failures arrive as `Warnings` in the response body rather than as an error, so unreachable regions are collected from there instead of through `fanOut` |
 | Cloud Storage buckets | global | 1 | the simplest lister here — one call, no fan-out, no aggregation trick needed |
@@ -48,6 +52,9 @@ is left below wants that shape rather than another tab — see
 | Cloud Functions | regional | 1 (aggregated) | the v2 API takes `locations/-` for the parent and sweeps every location in one paginated call, naming the ones that did not answer in `Unreachable` — the opposite of Cloud Run, in the same product family, which is why each lister says which answer it got. Both generations list together with a `GEN` column, because gen 2 is Cloud Run with a build attached and gen 1 is not: they scale, time out and bill differently, and "which generation is this" is the first question when one behaves unlike its neighbour. The trigger column separates HTTP functions, reachable by whoever IAM allows, from event-driven ones that only fire on their source |
 | VPC networks | global | 1 | one call |
 | Firewall rules | global | 1 | ordered by evaluation priority rather than name, because that is the only order a rule set can be reasoned about |
+| VPC routes | global | 1 | network, destination, priority and next hop; a route carrying an API warning is surfaced as `DEGRADED` rather than looking healthy |
+| Cloud Routers | regional | 1 (aggregated) | one sweep covers every region; the row shows both BGP shape and how many inline NAT configurations the router owns |
+| Reserved static IP addresses | global + regional | 1 (aggregated) | named Address resources only, so ephemeral VM addresses are intentionally absent. `RESERVED` versus `IN_USE` makes unused allocations visible |
 | Load balancers | global + regional | 2 | forwarding rules; the one kind needing two calls, as global and regional rules live in separate collections and missing the global one hides every external HTTP(S) load balancer |
 | Cloud DNS zones | global | 1 | paginated, via the generated REST client |
 | VPN tunnels | regional | 1 (aggregated) | `aggregatedList` sweeps every region server-side |
@@ -56,13 +63,14 @@ is left below wants that shape rather than another tab — see
 | Secret Manager secrets | global | 1 | **metadata only — never values.** One paginated call to `secrets.list`; `AccessSecretVersion` is never called, so no payload enters the process |
 | Service accounts | global | 1, then 1 per account | one paginated call for the accounts, then `keys.list` per account — bounded by `limits.service_account_key_lookups` (default 200), twelve at a time. N+1 is the only shape on offer, and it is worth paying: key age is the standing audit question, and putting it on the row is the difference between a table you scan and one you have to interrogate account by account. User-managed keys only; Google-managed ones rotate themselves and would put "2 keys" on every row |
 
-Fifteen listings hang underneath these, reached with `enter` on the row rather
+Seventeen listings hang underneath these, reached with `enter` on the row rather
 than a hotkey of their own. A row may hold more than one — `tab` moves between
 them the way it moves between kinds one level up:
 
 | Drill-down | Parent | Requests to open | Notes |
 |---|---|---|---|
 | A VM's attached disks | an instance | 0 — already fetched | free: `aggregatedList` already returns the attachments inline. These are the attachments rather than the disks — the size and source are here, the disk's own state and idle time live on the Disk resource, which is now its own kind. Auto-delete gets both a column and the row's status, because it is the one setting on an attachment that loses data when the VM goes |
+| Managed VM instances | a managed instance group | 1 | fetched only for the selected group, with pagination for both zonal and regional MIGs. The row keeps the instance's current action beside its runtime state and intended template/version, which is the context a flat VM list loses |
 | Bucket lifecycle rules | a bucket | 0 — already fetched | free — the buckets listing already carries them. Two questions a bucket row cannot touch: "why did my data disappear" is usually a Delete rule nobody remembered, and "why is nothing being archived" is usually a SetStorageClass rule that was never added or whose condition never matches. Delete is the only irreversible action and is the only one coloured. Rule order is kept rather than sorted, because GCS evaluates every matching rule and the written order is how the set is edited |
 | Dataproc jobs on a cluster | a cluster | 1 | one call, and *cheaper* than the parent kind rather than more expensive: `ListJobs` takes a `ClusterName` filter, so this is one region rather than a fan-out across every configured one. The axis you are already on when a cluster rather than a job is the thing behaving oddly. `limits.cluster_jobs` (default 200) |
 | GKE node pools | a cluster | 0 — already fetched | free: `clusters.list` already returns node pools inline. Node counts are multiplied out across the pool's zones, because a pool of 2 across three zones runs six VMs and reading the 2 as the total is how a cluster ends up mis-sized on paper |
@@ -70,6 +78,7 @@ them the way it moves between kinds one level up:
 | Cloud SQL users | an instance | 1 | one call. `tab` moves between this and the databases; a disabled account still appears in the list, which is exactly the row worth colouring — it looks like access that exists and is not |
 | Load balancer backend health | a forwarding rule | 4+ | the expensive one, and the argument for the whole mechanism: rule → target proxy → URL map → every backend service it routes to → `getHealth` per backend group. Four-plus round trips to answer for one row, which nobody would pay on every refresh of the load balancers table and everybody would pay once, on the rule they are actually looking at. `limits.backend_groups` (default 40) bounds *requests* rather than rows, so raising it costs latency |
 | Subnets | a VPC network | 1 (aggregated) | one `aggregatedList` covers every region server-side, then filtered to this network. Filtered on the last URL segment rather than the whole self-link: the two references come back from different calls and the API is not consistent about the host or api-version prefix it writes, so comparing full strings silently matches nothing and renders as a network with no subnets. Secondary ranges are shown named, because "which one is pods" is the question a GKE range is opened for |
+| Cloud NAT gateways | a Cloud Router | 0 — already fetched | free: NAT configurations are inline entries on the router, not independent Compute resources. The drill-down exposes public/private type, automatic/manual IP allocation, selected source ranges, minimum ports and logging without duplicating the router as another top-level row |
 | BigQuery tables | a dataset | 1 | one paginated call, `limits.bigquery_tables` (default 1000). No row counts or byte sizes — `tables.list` does not return them and a `Get` per table would be thousands of calls for a listing that is mostly scrolled past. The cost question it *can* answer without them is the one that bites: whether a partitioned table requires a filter, which is the difference between a query reading one day and one reading four years |
 | Cloud Run revisions | a service | 1 | one call, joined with the parent. The revisions come from the list; the traffic split is a field on the *service*, so answering "which revision is actually serving" takes both halves. A service row can say READY while the revision serving all its traffic is three deploys old, which is most of "I deployed but nothing changed" |
 | Subscriptions on a topic | a topic | 1 | one call, filtered — deliberately not `topics.subscriptions.list`, which returns names only and would need a `Get` each to fill a row. A topic with no subscriptions says so as a warning rather than rendering an empty table that reads as a failed call: anything published to it is discarded, and the topics table cannot show that |
@@ -82,7 +91,7 @@ Plus, across all kinds: a per-project dashboard with status rollups, a merged
 *All Resources* table, filtering, describe-as-YAML, Console/Airflow deep links,
 clipboard yank over OSC 52, and SSH to a running VM.
 
-Twenty-seven kinds is well past what the digits cover, so the hotkey sequence
+Thirty-four kinds is well past what the digits cover, so the hotkey sequence
 continues into letters — `1`-`9`, then `b c e f h i m n t u v w x z`, then shift
 for `A` through `Z`, skipping every letter already bound to an action. Each
 kind's key is printed beside it on the dashboard and in the tab strip, and
@@ -142,9 +151,10 @@ Everything here is a drill-down, and that is not a coincidence — see above.
 
 Plausible, lower priority, grouped by area.
 
-**Compute and serverless** — Batch jobs, instance groups and templates, GPU/TPU
-reservations, disk snapshots (a drill-down from the disk they were taken of, not
-a kind of their own).
+**Compute and serverless** — the Compute Engine inventory planned in this
+roadmap is shipped.
+Still open are Batch jobs and Cloud TPU queued resources/reservations, which are
+separate services rather than Compute Engine collections.
 
 **Data** — Cloud SQL and BigQuery are shipped, down to databases, users and
 tables. Still open:
@@ -152,8 +162,8 @@ Bigtable instances, Spanner instances and databases, Memorystore
 (Redis / Memcached), Firestore databases, Datastream streams, Data Fusion
 instances, Artifact Registry repositories, BigQuery reservations.
 
-**Networking** — the core is shipped: record sets, backend health and subnets
-included. Still open: routes, Cloud NAT and routers, reserved static IPs.
+**Networking** — the core is shipped, including record sets, backend health,
+subnets, routes, Cloud Routers, Cloud NAT and reserved static IPs.
 
 **Security and identity** — service accounts and KMS keys are shipped. Still
 open: Certificate Manager certificates, Binary Authorization policies, VPC

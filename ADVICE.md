@@ -2,7 +2,7 @@
 
 This review began against the five-kind MVP and was refreshed after the larger
 resource and drill-down expansion landed on `main`. The source now registers
-27 top-level kinds and 15 child listings. The architectural recommendations
+34 top-level kinds and 17 child listings. The architectural recommendations
 below still apply to the next major axis -- cross-project inventory and
 comparison -- while resolved implementation findings are called out separately.
 
@@ -39,6 +39,28 @@ axis belongs in the domain model first.
   vulnerability scanning, security documentation and an explicit roadmap.
 - The `Lister` and `ChildLister` interfaces separate project-wide inventory
   from resources that belong under one parent row.
+
+### Backend decision: keep the hybrid model
+
+Keep typed Google API clients as the inventory, detail and future mutation
+backend. Keep `gcloud` for authentication and terminal-native interactive
+workflows such as SSH and IAP tunnelling.
+
+A command typed by a person starts one `gcloud` process. The process count only
+becomes an architectural issue if the dashboard itself uses `gcloud` as its
+backend: loading many resource kinds would require one or more CLI invocations
+per kind, or strictly serial loading that makes refreshes slower. It would also
+replace typed responses with JSON parsing and make cancellation, partial
+results, pagination and consistent error handling harder. The existing hybrid
+boundary gets the strengths of both approaches without requiring g9s to
+reimplement interactive authentication or terminal behavior.
+
+The one temporary exception is the project-wide disk-snapshot sweep. Regional
+snapshot scope is still a GCP Preview and the stable generated Go client does
+not yet expose the aggregated method, so g9s uses the same authenticated Google
+transport with a small local response envelope. Replace that shim with the
+generated v1 method when it becomes available; it is not a reason to move the
+rest of the inventory to `gcloud` or hand-written HTTP.
 
 ### The architectural pressure point
 

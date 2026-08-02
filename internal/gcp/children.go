@@ -37,6 +37,7 @@ type ChildLister interface {
 func Children() []ChildLister {
 	return []ChildLister{
 		AttachedDiskLister{},
+		ManagedInstanceLister{},
 		BucketLifecycleLister{},
 		ClusterJobLister{},
 		NodePoolLister{},
@@ -47,6 +48,7 @@ func Children() []ChildLister {
 		CloudRunRevisionLister{},
 		CloudRunExecutionLister{},
 		SubnetLister{},
+		RouterNATLister{},
 		LoadBalancerHealthLister{},
 		DNSRecordLister{},
 		SecretVersionLister{},

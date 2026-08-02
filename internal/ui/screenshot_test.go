@@ -207,6 +207,9 @@ func resourcesShot() Model {
 	m.cache["disks"] = gcp.Result{
 		Resources: statusOnly(kindByID("disks"), map[string]int{"READY": 14, "UNATTACHED": 3}),
 	}
+	for id, res := range computeInventory() {
+		m.cache[id] = res
+	}
 	m.cache["functions"] = gcp.Result{
 		Resources: statusOnly(kindByID("functions"), map[string]int{"ACTIVE": 8, "DEPLOYING": 1}),
 	}
@@ -320,6 +323,9 @@ func dashboardShot() Model {
 	m.cache["disks"] = gcp.Result{
 		Resources: statusOnly(kindByID("disks"), map[string]int{"READY": 14, "UNATTACHED": 3}),
 	}
+	for id, res := range computeInventory() {
+		m.cache[id] = res
+	}
 	m.cache["functions"] = gcp.Result{
 		Resources: statusOnly(kindByID("functions"), map[string]int{"ACTIVE": 8, "DEPLOYING": 1}),
 	}
@@ -367,7 +373,7 @@ func drilldownShot() Model {
 		KindID:   "gke",
 		Row:      []string{"batch-cluster", "us-central1", "Standard", "31", "1.31.1-gke.1146000", "RUNNING", "204d"},
 	}
-	m.kindIdx = 1 // GKE Clusters
+	m.kindIdx = kindIndexByID("gke")
 	m.cache["gke"] = gcp.Result{Resources: []gcp.Resource{parent}}
 	m.drill = &drillState{
 		lister:     gcp.BindChild(gcp.NodePoolLister{}, parent),
@@ -409,7 +415,7 @@ func siblingsShot() Model {
 		KindID:   "sql",
 		Row:      []string{"orders-primary", "us-central1", "POSTGRES_15", "db-custom-4-15360", "REGIONAL", "RUNNABLE", "200d"},
 	}
-	m.kindIdx = 2 // Cloud SQL Instances
+	m.kindIdx = kindIndexByID("sql")
 	m.cache["sql"] = gcp.Result{Resources: []gcp.Resource{parent}}
 
 	siblings := gcp.ChildrenOf("sql")
@@ -479,6 +485,45 @@ func kindByID(id string) gcp.Kind {
 		}
 	}
 	panic("unknown kind " + id)
+}
+
+func kindIndexByID(id string) int {
+	for i, l := range gcp.Listers() {
+		if l.Kind().ID == id {
+			return i
+		}
+	}
+	panic("unknown kind " + id)
+}
+
+// computeInventory fills the new Compute Engine inventory rows in both the
+// resource and dashboard captures. Findings are deliberate: a changing MIG,
+// unused capacity, a broken next hop and reserved-but-unused addresses show
+// why these are operational tables rather than raw API dumps.
+func computeInventory() map[string]gcp.Result {
+	return map[string]gcp.Result{
+		"snapshots": {
+			Resources: statusOnly(kindByID("snapshots"), map[string]int{"READY": 8, "CREATING": 1}),
+		},
+		"migs": {
+			Resources: statusOnly(kindByID("migs"), map[string]int{"STABLE": 4, "CHANGING": 1}),
+		},
+		"templates": {
+			Resources: statusOnly(kindByID("templates"), map[string]int{"ACTIVE": 6}),
+		},
+		"reservations": {
+			Resources: statusOnly(kindByID("reservations"), map[string]int{"IN_USE": 2, "PARTIAL": 1, "UNUSED": 1}),
+		},
+		"routes": {
+			Resources: statusOnly(kindByID("routes"), map[string]int{"ACTIVE": 18, "DEGRADED": 1}),
+		},
+		"routers": {
+			Resources: statusOnly(kindByID("routers"), map[string]int{"ACTIVE": 3}),
+		},
+		"addresses": {
+			Resources: statusOnly(kindByID("addresses"), map[string]int{"IN_USE": 8, "RESERVED": 2}),
+		},
+	}
 }
 
 // projectsShot is the picker with every credential state visible at once,
