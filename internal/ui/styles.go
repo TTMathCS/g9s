@@ -73,7 +73,7 @@ func statusStyle(status string) lipgloss.Style {
 	// HEALTHY is a load balancer backend passing its health check, which is the
 	// one word the backend health table exists to show.
 	case "RUNNING", "RUNNABLE", "ACTIVE", "READY", "ESTABLISHED", "ENABLED", "DONE",
-		"SUCCEEDED", "DRAINED", "UPDATED", "HEALTHY", "STABLE", "IN_USE":
+		"SUCCEEDED", "DRAINED", "UPDATED", "HEALTHY", "STABLE", "IN_USE", "GRANTED":
 		return goodStyle
 	case "PROVISIONING", "STAGING", "CREATING", "UPDATING", "STOPPING", "DELETING",
 		"REPAIRING", "SUSPENDING", "RECONCILING", "RECREATING", "VERIFYING",
@@ -122,7 +122,10 @@ func statusStyle(status string) lipgloss.Style {
 		"ROTATION_OFF", "ROTATION_OVERDUE",
 		// A Cloud Scheduler job that is not running. Nothing errors and nothing
 		// alerts; the work just stops. That is why it is coloured at all.
-		"PAUSED":
+		"PAUSED",
+		// An IAM binding with a condition is a real grant, but only while its
+		// expression holds. Amber keeps it distinct from unconditional access.
+		"CONDITIONAL":
 		return warnStyle
 	case "ERROR", "FAILED", "TERMINATED", "STOPPED", "SUSPENDED", "UNHEALTHY", "DEGRADED",
 		// Compute routes rejected by their backend or dropped at a route limit.

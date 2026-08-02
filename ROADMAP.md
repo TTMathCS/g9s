@@ -63,7 +63,7 @@ is left below wants that shape rather than another tab — see
 | Secret Manager secrets | global | 1 | **metadata only — never values.** One paginated call to `secrets.list`; `AccessSecretVersion` is never called, so no payload enters the process |
 | Service accounts | global | 1, then 1 per account | one paginated call for the accounts, then `keys.list` per account — bounded by `limits.service_account_key_lookups` (default 200), twelve at a time. N+1 is the only shape on offer, and it is worth paying: key age is the standing audit question, and putting it on the row is the difference between a table you scan and one you have to interrogate account by account. User-managed keys only; Google-managed ones rotate themselves and would put "2 keys" on every row |
 
-Eighteen listings hang underneath these, reached with `enter` on the row rather
+Nineteen listings hang underneath these, reached with `enter` on the row rather
 than a hotkey of their own. A row may hold more than one — `tab` moves between
 them the way it moves between kinds one level up:
 
@@ -87,6 +87,7 @@ them the way it moves between kinds one level up:
 | Secret versions | a secret | 1 | **metadata only, exactly like the parent.** `versions.list` returns names, states and timestamps; `AccessSecretVersion` is not called here either, and the test that guarantees it now scans every file in the package rather than just `secrets.go` — the single-file scan could have been sidestepped by adding one, which is precisely what this drill-down did. What it adds: the secrets row shows the rotation *policy*, this shows whether rotation actually happened. A secret set to rotate every 30 days whose newest enabled version is eight months old looks perfectly healthy one level up |
 | Cloud Run job executions | a job | 1 | one call. The jobs row leads with the *last* execution's result, which answers "is this broken now" and nothing at all about "how long has it been broken" — one failure is an incident, the same failure every night for a week is a different conversation. The task tally separates one bad shard from a whole run collapsing |
 | Service account keys | an account | 0 — already fetched | free: the accounts listing fetched them to compute the oldest-key age. Oldest first — that is the row the table was opened to find |
+| Direct project roles | a service account | 1 | IAM policy is project-shaped rather than account-shaped, so one version-3 `getIamPolicy` is filtered locally to the selected `serviceAccount:` member. Conditional bindings remain separate rows and name their condition. The scope says `PROJECT` because folder and organization inheritance is not part of this call; presenting these as the account's complete effective access would be false |
 
 Plus, across all kinds: a per-project dashboard with status rollups, a merged
 *All Resources* table, filtering, describe-as-YAML, Console/Airflow deep links,
@@ -138,16 +139,6 @@ A drill-down is the right home for both.
 A forty-eighth top-level kind would silently lose its hotkey, so a test fails
 the build instead — the reminder to reach for a drill-down.
 
-## Next up
-
-The ones that would earn their place first, roughly in order.
-
-Everything here is a drill-down, and that is not a coincidence — see above.
-
-| Resource | Parent | Why it's near the top |
-|---|---|---|
-| Roles held by a service account | an account | one `getIamPolicy`, filtered to the member. "What can this thing actually do" is the other half of the key-age question, and nothing in the tool answers it yet |
-
 ## Candidates
 
 Plausible, lower priority, grouped by area.
@@ -166,9 +157,10 @@ instances, Artifact Registry repositories, BigQuery reservations.
 **Networking** — the core is shipped, including record sets, backend health,
 subnets, routes, Cloud Routers, Cloud NAT and reserved static IPs.
 
-**Security and identity** — service accounts and KMS keys are shipped. Still
-open: Certificate Manager certificates, Binary Authorization policies, VPC
-Service Controls perimeters, Org Policy constraints in effect. Project IAM
+**Security and identity** — service accounts, their direct project roles, and
+KMS keys are shipped. Still open: Certificate Manager certificates, Binary
+Authorization policies, VPC Service Controls perimeters, Org Policy constraints
+in effect. Project IAM
 policy bindings are the awkward one and the reason they are not done yet: a
 binding is a (role, member) pair, not a resource with a location and a status,
 so it fits `Resource` badly and would want a table shaped differently from

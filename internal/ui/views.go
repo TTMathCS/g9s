@@ -521,6 +521,8 @@ func credentialBadge(s auth.Status, known bool) string {
 		return goodStyle.Render("● " + s.Summary())
 	case auth.StateExpired:
 		return warnStyle.Render("● " + s.Summary())
+	case auth.StateWrongAccount:
+		return warnStyle.Render("● " + s.Summary())
 	case auth.StateMissing:
 		return mutedStyle.Render("○ " + s.Summary())
 	default:

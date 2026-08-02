@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/compute/apiv1/computepb"
+	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v1"
 	iam "google.golang.org/api/iam/v1"
 	sqladmin "google.golang.org/api/sqladmin/v1"
 	"google.golang.org/grpc/codes"
@@ -326,6 +327,9 @@ func TestResourceRowsMatchColumns(t *testing.T) {
 			testGKEClusterWithNodePools().GetNodePools()[0]),
 		"sakeys": serviceAccountKeyResource(testProject(),
 			serviceAccountResource(testProject(), testServiceAccount(), nil), testServiceAccountKey()),
+		"saroles": serviceAccountRoleResource(testProject(),
+			"serviceAccount:etl-runner@sandbox-123.iam.gserviceaccount.com",
+			&cloudresourcemanager.Binding{Role: "roles/storage.objectViewer"}),
 		"sqldbs":    sqlDatabaseResource(testProject(), testSQLInstance(), testSQLDatabase()),
 		"sqlusers":  sqlUserResource(testProject(), testSQLInstance(), testSQLUser()),
 		"records":   recordSetResource(testProject(), testDNSZone(), testRecordSet()),

@@ -268,7 +268,7 @@ func TestClientOptionsAreProjectScoped(t *testing.T) {
 
 func TestStatusSummaryDistinguishesStates(t *testing.T) {
 	seen := map[string]bool{}
-	for _, state := range []State{StateValid, StateExpired, StateMissing, StateUnknown} {
+	for _, state := range []State{StateValid, StateExpired, StateMissing, StateWrongAccount, StateUnknown} {
 		summary := Status{State: state}.Summary()
 		if summary == "" {
 			t.Errorf("state %v has an empty summary", state)
@@ -277,6 +277,45 @@ func TestStatusSummaryDistinguishesStates(t *testing.T) {
 			t.Errorf("state %v reuses summary %q", state, summary)
 		}
 		seen[summary] = true
+	}
+}
+
+func TestIdentityStateRejectsTheWrongConfiguredAccount(t *testing.T) {
+	if got := identityState("expected@example.com", "other@example.com"); got != StateWrongAccount {
+		t.Errorf("identityState = %v, want StateWrongAccount", got)
+	}
+	if (Status{State: StateWrongAccount}).Valid() {
+		t.Error("a live token for the wrong account must not authorize resource loading")
+	}
+
+	// Email addresses are case-insensitive, and an unconfigured expectation or
+	// an ADC format that cannot name its principal leaves nothing to compare.
+	for _, pair := range [][2]string{
+		{"ME@example.com", "me@example.com"},
+		{"", "me@example.com"},
+		{"me@example.com", ""},
+	} {
+		if got := identityState(pair[0], pair[1]); got != StateValid {
+			t.Errorf("identityState(%q, %q) = %v, want StateValid", pair[0], pair[1], got)
+		}
+	}
+}
+
+func TestStatusSummaryDisplaysTheActualIdentity(t *testing.T) {
+	valid := Status{State: StateValid, Account: "actual@example.com"}.Summary()
+	if !strings.Contains(valid, "actual@example.com") {
+		t.Errorf("valid summary hides actual identity: %q", valid)
+	}
+
+	mismatch := Status{
+		State:           StateWrongAccount,
+		Account:         "actual@example.com",
+		ExpectedAccount: "expected@example.com",
+	}.Summary()
+	for _, account := range []string{"actual@example.com", "expected@example.com"} {
+		if !strings.Contains(mismatch, account) {
+			t.Errorf("mismatch summary %q omits %q", mismatch, account)
+		}
 	}
 }
 

@@ -157,10 +157,10 @@ func TestFooterShowsTheWarningTextItself(t *testing.T) {
 func TestStatusStyleCoversTheNewKinds(t *testing.T) {
 	// Every status these listers can emit has to colour, or the row it matters
 	// most on is the one that renders as plain text.
-	good := []string{"READY", "SUCCEEDED", "ACTIVE", "DRAINED", "UPDATED", "HEALTHY", "ENABLED"}
+	good := []string{"READY", "SUCCEEDED", "ACTIVE", "DRAINED", "UPDATED", "HEALTHY", "ENABLED", "GRANTED"}
 	warn := []string{"PENDING", "RECONCILING", "DETACHED", "STALE_KEY", "DRAINING", "CANCELLING",
 		"UNATTACHED", "DEPLOYING", "RESTORING",
-		"ROTATION_OFF", "ROTATION_OVERDUE", "PAUSED"}
+		"ROTATION_OFF", "ROTATION_OVERDUE", "PAUSED", "CONDITIONAL"}
 	bad := []string{"FAILED", "RESOURCE_ERROR", "INGESTION_RESOURCE_ERROR", "CANCELLED", "EXPIRED", "UNHEALTHY", "DESTROYED", "DELETE", "UNAVAILABLE", "LAST_RUN_FAILED"}
 
 	for _, s := range good {

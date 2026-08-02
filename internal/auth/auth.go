@@ -95,6 +95,9 @@ const (
 	StateExpired
 	// StateValid means a token was minted successfully.
 	StateValid
+	// StateWrongAccount means the credential is live but belongs to a
+	// different identity from the account configured for this project.
+	StateWrongAccount
 )
 
 func (s State) String() string {
@@ -105,6 +108,8 @@ func (s State) String() string {
 		return "expired"
 	case StateValid:
 		return "ok"
+	case StateWrongAccount:
+		return "wrong account"
 	default:
 		return "unknown"
 	}
@@ -113,6 +118,9 @@ func (s State) String() string {
 // Status is the result of checking a project's credentials.
 type Status struct {
 	State State
+	// ExpectedAccount is the identity configured for this project, when one
+	// was specified. It is kept beside Account so a mismatch can name both.
+	ExpectedAccount string
 	// Account is the identity recorded in the credential file, when present.
 	Account string
 	// Expiry is when the current access token stops working. The refresh
@@ -129,23 +137,37 @@ func (s Status) Valid() bool { return s.State == StateValid }
 
 // Summary renders the status for a footer or picker row.
 func (s Status) Summary() string {
+	withAccount := func(summary string) string {
+		if s.Account == "" {
+			return summary
+		}
+		return summary + " · " + s.Account
+	}
 	switch s.State {
 	case StateValid:
 		if s.Expiry.IsZero() {
-			return "ok"
+			return withAccount("ok")
 		}
 		mins := int(time.Until(s.Expiry).Round(time.Minute).Minutes())
 		switch {
 		case mins < 0:
-			return "ok"
+			return withAccount("ok")
 		case mins < 60:
-			return fmt.Sprintf("ok (token %dm)", mins)
+			return withAccount(fmt.Sprintf("ok (token %dm)", mins))
 		default:
 			// "1h05m" reads better in a header than time.Duration's "1h5m0s".
-			return fmt.Sprintf("ok (token %dh%02dm)", mins/60, mins%60)
+			return withAccount(fmt.Sprintf("ok (token %dh%02dm)", mins/60, mins%60))
 		}
+	case StateWrongAccount:
+		if s.Account == "" {
+			return "wrong account — press l to re-login"
+		}
+		if s.ExpectedAccount == "" {
+			return "wrong account: " + s.Account
+		}
+		return fmt.Sprintf("wrong account: %s (want %s) — press l", s.Account, s.ExpectedAccount)
 	case StateExpired:
-		return "expired — press l to re-login"
+		return withAccount("expired — press l to re-login")
 	case StateMissing:
 		return "not logged in — press l"
 	default:
@@ -198,7 +220,7 @@ func (m *Manager) ClientOptions(p config.Project) []option.ClientOption {
 // expiry field. A refresh token that the IdP has invalidated looks perfectly
 // healthy on disk; the only honest test is to use it.
 func (m *Manager) Check(ctx context.Context, p config.Project) Status {
-	status := Status{CheckedAt: time.Now()}
+	status := Status{CheckedAt: time.Now(), ExpectedAccount: p.Account}
 
 	path := m.ADCPath(p)
 	raw, err := os.ReadFile(path)
@@ -231,9 +253,19 @@ func (m *Manager) Check(ctx context.Context, p config.Project) Status {
 		return status
 	}
 
-	status.State = StateValid
 	status.Expiry = token.Expiry
+	status.State = identityState(p.Account, status.Account)
 	return status
+}
+
+// identityState refuses a live credential for the wrong configured account.
+// If either side is unknown there is nothing honest to compare, so a token
+// that successfully minted remains valid.
+func identityState(expected, actual string) State {
+	if expected != "" && actual != "" && !strings.EqualFold(expected, actual) {
+		return StateWrongAccount
+	}
+	return StateValid
 }
 
 // LoopbackUsable reports whether the browser gcloud sends you to could reach a

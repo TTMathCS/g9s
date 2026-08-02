@@ -54,6 +54,7 @@ func Children() []ChildLister {
 		DNSRecordLister{},
 		SecretVersionLister{},
 		ServiceAccountKeyLister{},
+		ServiceAccountRoleLister{},
 	}
 }
 

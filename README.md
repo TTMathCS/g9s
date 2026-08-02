@@ -5,7 +5,7 @@ accounts, inspect resources, and navigate related resources without changing
 your global gcloud configuration.
 
 > **Current maturity:** read-only MVP. The source contains 34 top-level
-> resource kinds and 18 drill-down listings. SSH to a running VM is the only
+> resource kinds and 19 drill-down listings. SSH to a running VM is the only
 > interactive resource operation; mutating API actions are not implemented.
 
 ## At a glance
@@ -114,7 +114,7 @@ drill-down opened from a parent row.
 |  | ↳ Versions | Secret drill-down | 🔒 Metadata only | Names, states and timestamps; never secret values |
 |  | **IAM** → Service accounts | Top-level | 🟡 Implemented, bounded | Key age lookup for 200 accounts by default |
 |  | ↳ Keys | Account drill-down | 🔒 Metadata only | ID, origin, algorithm, age and expiry; never private key material |
-|  | ↳ Roles held by the account | Account drill-down | 🔜 Next | Not implemented |
+|  | ↳ Direct project roles | Account drill-down | ✅ Implemented | One version-3 project policy read, filtered to the account; conditions are shown and inherited folder/organization roles are explicitly outside the listing |
 |  | **IAM** → Project policy bindings | — | ⬜ Candidate | Needs a table shaped around role/member pairs |
 |  | **Cloud KMS** → Keys | Top-level | 🟡 Implemented, bounded | 100 key rings per location by default; never key material |
 |  | **Certificate Manager** → Certificates | — | ⬜ Candidate | Not implemented |
@@ -138,9 +138,9 @@ drill-down opened from a parent row.
 | Isolated credentials per project | ✅ Implemented | Does not mutate global gcloud state |
 | Per-project dashboard and **All Resources** view | ✅ Implemented | Status rollups plus a merged table |
 | Filtering, YAML detail, links, clipboard and SSH | ✅ Implemented | SSH is limited to running VMs |
-| Parent/child drill-downs with sibling tabs | ✅ Implemented | 18 child listings |
+| Parent/child drill-downs with sibling tabs | ✅ Implemented | 19 child listings |
 | Partial-result and row-cap warnings | ✅ Implemented | A bounded or incomplete result cannot look complete |
-| Expected account versus actual ADC identity | 🟡 Needs improvement | Actual identity is read but not displayed or enforced |
+| Expected account versus actual ADC identity | ✅ Implemented | The actual identity is displayed; a live token for a different configured account is refused |
 | Consistent HTTP/gRPC permission errors | 🟡 Needs improvement | REST 403 responses still need normalized wording |
 | Large OSC 52 clipboard payload handling | 🟡 Needs improvement | Terminal limits can make large YAML copies fail silently |
 | Prebuilt release pipeline | 🟡 Needs improvement | Workflow exists; first verified release is still pending |
