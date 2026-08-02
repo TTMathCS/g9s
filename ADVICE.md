@@ -2,7 +2,7 @@
 
 This review began against the five-kind MVP and was refreshed after the larger
 resource and drill-down expansion landed on `main`. The source now registers
-34 top-level kinds and 17 child listings. The architectural recommendations
+34 top-level kinds and 18 child listings. The architectural recommendations
 below still apply to the next major axis -- cross-project inventory and
 comparison -- while resolved implementation findings are called out separately.
 
@@ -39,6 +39,11 @@ axis belongs in the domain model first.
   vulnerability scanning, security documentation and an explicit roadmap.
 - The `Lister` and `ChildLister` interfaces separate project-wide inventory
   from resources that belong under one parent row.
+- The Storage Objects browser establishes a useful exception for query-shaped
+  data: one child listing can retain a path/glob plus an explicit continuation
+  token without turning billions of objects into dashboard inventory. Reuse
+  that paged-query boundary for similarly large namespaces; do not change
+  ordinary finite resource listers into partial pages by default.
 
 ### Backend decision: keep the hybrid model
 

@@ -51,8 +51,12 @@ type drillState struct {
 	// is open. A Cloud SQL instance holds databases and users, and neither is
 	// underneath the other — so tab moves between them here exactly as it moves
 	// between kinds on the table screen, and the trail shows them as tabs.
-	siblings   []gcp.ChildLister
-	siblingIdx int
+	siblings []gcp.ChildLister
+	// boundSiblings preserves listing-specific state while tabbing between
+	// siblings. Storage Objects is the first stateful child: its current prefix
+	// and glob must not reset merely because Lifecycle was inspected.
+	boundSiblings []gcp.Lister
+	siblingIdx    int
 	// parentKind is the tab the drill was opened from, named rather than
 	// indexed so the breadcrumb reads right even from the merged table.
 	parentKind gcp.Kind
@@ -138,8 +142,10 @@ func New(cfg *config.Config, mgr *auth.Manager) Model {
 
 	command := textinput.New()
 	command.Prompt = ":"
-	command.Placeholder = "a kind (vm gke sql gcs dataflow topics run sa vpc fw dns …) · all · projects · help · q"
-	command.CharLimit = 40
+	command.Placeholder = "kind · cd PATH · find GLOB · all · projects · help · q"
+	// Cloud Storage glob expressions can be up to 1,024 bytes. The gcp layer
+	// validates bytes; this rune limit merely keeps the input bounded.
+	command.CharLimit = 1024
 
 	return Model{
 		cfg:          cfg,
@@ -215,8 +221,10 @@ func (m Model) currentKind() gcp.Kind {
 // row is a key nobody trusts.
 func (m Model) childrenFor(r gcp.Resource) []gcp.ChildLister {
 	if m.drill != nil {
-		// One level. Nothing registered has grandchildren, and nesting without
-		// a reason to would only make esc ambiguous.
+		// Registered resource relationships stay one level deep. Storage folder
+		// navigation is query state inside its existing child listing, handled
+		// before this function; it does not manufacture a ChildLister for every
+		// arbitrary path component.
 		return nil
 	}
 	id := m.currentKind().ID
@@ -335,6 +343,15 @@ func (m Model) handleResources(msg resourcesMsg) (tea.Model, tea.Cmd) {
 
 	m.loading[msg.kind] = false
 	if msg.err != nil {
+		if msg.appendPage {
+			// A failed continuation does not invalidate the pages already on
+			// screen. Keep them usable and let the user retry instead of replacing
+			// a good table with a full-screen error.
+			return m, tea.Batch(
+				flash(fmt.Sprintf("load more %s: %v", msg.kind, msg.err), flashError),
+				checkAuth(m.auth, m.active),
+			)
+		}
 		m.loadErr[msg.kind] = msg.err
 		// Credentials dying mid-session is the expected failure with a
 		// federated IdP, so re-check rather than just showing an error.
@@ -345,7 +362,15 @@ func (m Model) handleResources(msg resourcesMsg) (tea.Model, tea.Cmd) {
 	}
 
 	delete(m.loadErr, msg.kind)
-	m.cache[msg.kind] = msg.result
+	if msg.appendPage {
+		current := m.cache[msg.kind]
+		current.Resources = append(current.Resources, msg.result.Resources...)
+		current.Warnings = appendUniqueWarnings(current.Warnings, msg.result.Warnings)
+		current.NextPageToken = msg.result.NextPageToken
+		m.cache[msg.kind] = current
+	} else {
+		m.cache[msg.kind] = msg.result
+	}
 	// The merged table grows as each kind lands, so its cursor needs clamping
 	// on every arrival, not just when the kind IDs match.
 	if msg.kind == m.currentKind().ID || m.onAllTab() {
@@ -375,13 +400,40 @@ func (m Model) handleLoginFinished(msg loginFinishedMsg) (tea.Model, tea.Cmd) {
 // invalidate discards every cached listing and supersedes every fetch still in
 // flight, so nothing fetched before this point can be presented as current.
 func (m *Model) invalidate() {
+	// Include child listings already seen in this session. They are not in
+	// m.listers, but an in-flight child fetch carries the old identity just as
+	// surely as a top-level one does.
+	for id := range m.refreshToken {
+		m.refreshToken[id]++
+	}
 	for _, l := range m.listers {
-		m.refreshToken[l.Kind().ID]++
+		id := l.Kind().ID
+		if _, seen := m.refreshToken[id]; !seen {
+			m.refreshToken[id]++
+		}
 	}
 	m.cache = map[string]gcp.Result{}
 	m.loadErr = map[string]error{}
 	m.loading = map[string]bool{}
 	m.hasDetail = false
+}
+
+func appendUniqueWarnings(existing, more []string) []string {
+	if len(more) == 0 {
+		return existing
+	}
+	seen := make(map[string]bool, len(existing)+len(more))
+	for _, warning := range existing {
+		seen[warning] = true
+	}
+	for _, warning := range more {
+		if seen[warning] {
+			continue
+		}
+		seen[warning] = true
+		existing = append(existing, warning)
+	}
+	return existing
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -508,6 +560,11 @@ func (m Model) homeScreen() screen {
 // runCommand executes a `:` command, k9s style: a kind name jumps straight to
 // its table, `all` to the merged view, `projects` back to the picker.
 func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
+	verb, argument := splitCommand(line)
+	if verb == "cd" || verb == "find" {
+		return m.runStorageObjectCommand(verb, argument)
+	}
+
 	switch line {
 	case "":
 		return m, nil
@@ -517,6 +574,7 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 	case "help":
 		return m.openHelp()
 	case "proj", "projects":
+		m.discardObjectBrowser()
 		m.drill = nil
 		m.screen = screenProjects
 		return m, nil
@@ -524,12 +582,47 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 
 	idx, ok := m.matchKind(line)
 	if !ok {
-		return m, flash(fmt.Sprintf("unknown command %q — a kind id or title prefix, all, projects, help or q", line), flashWarn)
+		return m, flash(fmt.Sprintf("unknown command %q — a kind id or title prefix, cd, find, all, projects, help or q", line), flashWarn)
 	}
 	if !m.hasActive {
 		return m, flash("select a project first", flashWarn)
 	}
 	return m.openTab(idx)
+}
+
+func splitCommand(line string) (string, string) {
+	line = strings.TrimSpace(line)
+	if split := strings.IndexAny(line, " \t"); split >= 0 {
+		return line[:split], strings.TrimSpace(line[split+1:])
+	}
+	return line, ""
+}
+
+func (m Model) runStorageObjectCommand(verb, argument string) (tea.Model, tea.Cmd) {
+	if m.screen != screenResources || m.drill == nil {
+		return m, flash(fmt.Sprintf(":%s is only available in Storage Objects", verb), flashWarn)
+	}
+	lister, ok := m.currentLister()
+	if !ok {
+		return m, flash(fmt.Sprintf(":%s is only available in Storage Objects", verb), flashWarn)
+	}
+	if _, objectBrowser := gcp.StorageObjectState(lister); !objectBrowser {
+		return m, flash(fmt.Sprintf(":%s is only available in Storage Objects", verb), flashWarn)
+	}
+
+	var (
+		next gcp.Lister
+		err  error
+	)
+	if verb == "cd" {
+		next, err = gcp.ChangeStorageObjectPath(lister, argument)
+	} else {
+		next, err = gcp.FindStorageObjects(lister, argument)
+	}
+	if err != nil {
+		return m, flash(err.Error(), flashWarn)
+	}
+	return m.replaceDrillLister(next)
 }
 
 // matchKind resolves a command word to a tab: exact kind ID, then a prefix of
@@ -744,6 +837,7 @@ func (m Model) openTab(idx int) (tea.Model, tea.Cmd) {
 	// Picking a kind is picking a kind, wherever you were. A drill-down left
 	// open underneath would make tab and the hotkeys land somewhere other than
 	// the table they name.
+	m.discardObjectBrowser()
 	m.drill = nil
 	m.kindIdx = idx
 	m.ovCursor = idx
@@ -761,9 +855,13 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "esc":
 		// Back up one level rather than all the way out. Inside a drill-down
-		// that level is the table it was opened from, not the dashboard —
-		// otherwise enter and esc are not each other's opposite.
+		// that normally means the table it was opened from. Storage Objects
+		// adds real path levels: clear a glob, then walk toward the bucket root,
+		// then leave the drill.
 		if m.drill != nil {
+			if next, moved := gcp.ParentStorageObjectPath(m.drill.lister); moved {
+				return m.replaceDrillLister(next)
+			}
 			return m.closeDrill(), nil
 		}
 		m.screen = screenOverview
@@ -771,6 +869,7 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "p":
+		m.discardObjectBrowser()
 		m.drill = nil
 		m.screen = screenProjects
 		return m, nil
@@ -819,6 +918,9 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		return m.loadCurrent()
 
+	case " ", "space":
+		return m.loadNextPage()
+
 	case "l":
 		return m.startLogin(false)
 
@@ -833,6 +935,11 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		r, ok := m.selectedResource()
 		if !ok {
 			return m, nil
+		}
+		if m.drill != nil {
+			if next, opened := gcp.OpenStorageObjectFolder(m.drill.lister, r); opened {
+				return m.replaceDrillLister(next)
+			}
 		}
 		if children := m.childrenFor(r); len(children) > 0 {
 			return m.openDrill(children, r)
@@ -927,13 +1034,25 @@ func (m Model) openDrill(siblings []gcp.ChildLister, parent gcp.Resource) (tea.M
 	if len(siblings) == 0 {
 		return m, nil
 	}
+	boundSiblings := make([]gcp.Lister, len(siblings))
+	for i, sibling := range siblings {
+		boundSiblings[i] = gcp.BindChild(sibling, parent)
+	}
 	m.drill = &drillState{
-		lister:       gcp.BindChild(siblings[0], parent),
-		parent:       parent,
-		siblings:     siblings,
-		parentKind:   m.currentKind(),
-		parentCursor: m.cursor,
-		parentFilter: m.filter.Value(),
+		lister:        boundSiblings[0],
+		parent:        parent,
+		siblings:      siblings,
+		boundSiblings: boundSiblings,
+		parentKind:    m.currentKind(),
+		parentCursor:  m.cursor,
+		parentFilter:  m.filter.Value(),
+	}
+	// Object paths are transient navigation state. Reopening a bucket starts
+	// at its root instead of showing whichever folder happened to be cached
+	// when the browser was last closed.
+	if _, objectBrowser := gcp.StorageObjectState(m.drill.lister); objectBrowser {
+		delete(m.cache, m.drill.lister.Kind().ID)
+		delete(m.loadErr, m.drill.lister.Kind().ID)
 	}
 	m.cursor = 0
 	m.filter.SetValue("")
@@ -953,7 +1072,11 @@ func (m Model) openSibling(idx int) (tea.Model, tea.Cmd) {
 
 	next := *m.drill
 	next.siblingIdx = idx
-	next.lister = gcp.BindChild(next.siblings[idx], next.parent)
+	if idx < len(next.boundSiblings) && next.boundSiblings[idx] != nil {
+		next.lister = next.boundSiblings[idx]
+	} else {
+		next.lister = gcp.BindChild(next.siblings[idx], next.parent)
+	}
 	m.drill = &next
 
 	// Same rule as switching kinds: cursor to the top, and the filter goes with
@@ -972,9 +1095,58 @@ func (m Model) closeDrill() Model {
 	}
 	m.cursor = m.drill.parentCursor
 	m.filter.SetValue(m.drill.parentFilter)
+	m.discardObjectBrowser()
 	m.drill = nil
 	m.clampCursor()
 	return m
+}
+
+// replaceDrillLister changes query state inside one child listing. It clears
+// the old page before loading so a breadcrumb for /new/path never sits above
+// rows fetched for /old/path.
+func (m Model) replaceDrillLister(next gcp.Lister) (tea.Model, tea.Cmd) {
+	if m.drill == nil || next == nil {
+		return m, nil
+	}
+	d := *m.drill
+	d.lister = next
+	if d.siblingIdx >= 0 && d.siblingIdx < len(d.boundSiblings) {
+		d.boundSiblings[d.siblingIdx] = next
+	}
+	m.drill = &d
+
+	id := next.Kind().ID
+	delete(m.cache, id)
+	delete(m.loadErr, id)
+	m.cursor = 0
+	m.filter.SetValue("")
+	m.filtering = false
+	m.filter.Blur()
+	return m.loadCurrent()
+}
+
+// discardObjectBrowser drops query-shaped cache entries and supersedes their
+// in-flight requests. A child cache key identifies bucket + kind, not prefix;
+// retaining it after leaving the drill would let a later root browser reuse
+// rows from a deeper path.
+func (m *Model) discardObjectBrowser() {
+	if m.drill == nil {
+		return
+	}
+	listers := m.drill.boundSiblings
+	if len(listers) == 0 {
+		listers = []gcp.Lister{m.drill.lister}
+	}
+	for _, lister := range listers {
+		if _, ok := gcp.StorageObjectState(lister); !ok {
+			continue
+		}
+		id := lister.Kind().ID
+		m.refreshToken[id]++
+		delete(m.cache, id)
+		delete(m.loadErr, id)
+		delete(m.loading, id)
+	}
 }
 
 func (m Model) startSSH() (tea.Model, tea.Cmd) {
@@ -1035,6 +1207,32 @@ func (m Model) startLoad(l gcp.Lister) tea.Cmd {
 	m.loading[id] = true
 	delete(m.loadErr, id)
 	return listResources(m.cfg, m.auth, m.active, l, m.refreshToken[id])
+}
+
+// loadNextPage appends one explicit continuation page. It is intentionally a
+// no-op for ordinary listings: those drain their APIs internally and have no
+// continuation token to expose.
+func (m Model) loadNextPage() (tea.Model, tea.Cmd) {
+	if !m.hasActive || !m.credentialsUsable() {
+		return m, nil
+	}
+	lister, ok := m.currentLister()
+	if !ok {
+		return m, nil
+	}
+	id := lister.Kind().ID
+	if m.loading[id] {
+		return m, nil
+	}
+	next, ok := gcp.ContinueStorageObjects(lister, m.cache[id].NextPageToken)
+	if !ok {
+		return m, nil
+	}
+
+	m.refreshToken[id]++
+	m.loading[id] = true
+	delete(m.loadErr, id)
+	return m, listResourcePage(m.cfg, m.auth, m.active, next, m.refreshToken[id], true)
 }
 
 // loadAll refreshes every kind concurrently.

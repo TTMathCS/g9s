@@ -38,6 +38,7 @@ func Children() []ChildLister {
 	return []ChildLister{
 		AttachedDiskLister{},
 		ManagedInstanceLister{},
+		StorageObjectLister{},
 		BucketLifecycleLister{},
 		ClusterJobLister{},
 		NodePoolLister{},

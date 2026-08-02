@@ -5,7 +5,7 @@ accounts, inspect resources, and navigate related resources without changing
 your global gcloud configuration.
 
 > **Current maturity:** read-only MVP. The source contains 34 top-level
-> resource kinds and 17 drill-down listings. SSH to a running VM is the only
+> resource kinds and 18 drill-down listings. SSH to a running VM is the only
 > interactive resource operation; mutating API actions are not implemented.
 
 ## At a glance
@@ -38,6 +38,8 @@ This is the source of truth for resource coverage.
 - ✅ **Implemented** — available now and complete for its documented scope.
 - 🟡 **Implemented, bounded** — available now, with a configurable default row
   or request limit. The TUI warns when the limit is reached.
+- ✅ **Implemented, paged** — available now, loading one bounded page at a
+  time with an explicit continuation action.
 - 🔒 **Implemented, metadata only** — available now, with sensitive values
   deliberately excluded.
 - 🔜 **Not implemented, next** — the next planned resource work.
@@ -67,9 +69,9 @@ drill-down opened from a parent row.
 |  | ↳ Executions | Job drill-down | ✅ Implemented | Full execution history for the selected job |
 | Containers | **Google Kubernetes Engine** → Clusters | Top-level | ✅ Implemented | Aggregated across zonal and regional clusters |
 |  | ↳ Node pools | Cluster drill-down | ✅ Implemented | Already present on the cluster response |
-| Storage | **Cloud Storage** → Buckets | Top-level | ✅ Implemented | Bucket inventory; objects are not fetched |
+| Storage | **Cloud Storage** → Buckets | Top-level | ✅ Implemented | Bucket inventory; objects are fetched only when one bucket is opened |
+|  | ↳ Objects and folders | Bucket drill-down | ✅ Implemented, paged | 500 rows per page by default; path navigation, prefix jumps and server-side glob search |
 |  | ↳ Lifecycle rules | Bucket drill-down | ✅ Implemented | Delete and storage-class transition rules |
-|  | ↳ Objects | — | 🚫 Not planned | Potentially billions of query-shaped rows; not a project inventory table |
 | Data and analytics | **BigQuery** → Datasets | Top-level | ✅ Implemented | Name, location, type and labels |
 |  | ↳ Tables | Dataset drill-down | 🟡 Implemented, bounded | 1,000 rows per dataset by default |
 |  | **BigQuery** → Jobs | Top-level | 🟡 Implemented, bounded | 500 rows by default inside the configured time window |
@@ -136,7 +138,7 @@ drill-down opened from a parent row.
 | Isolated credentials per project | ✅ Implemented | Does not mutate global gcloud state |
 | Per-project dashboard and **All Resources** view | ✅ Implemented | Status rollups plus a merged table |
 | Filtering, YAML detail, links, clipboard and SSH | ✅ Implemented | SSH is limited to running VMs |
-| Parent/child drill-downs with sibling tabs | ✅ Implemented | 17 child listings |
+| Parent/child drill-downs with sibling tabs | ✅ Implemented | 18 child listings |
 | Partial-result and row-cap warnings | ✅ Implemented | A bounded or incomplete result cannot look complete |
 | Expected account versus actual ADC identity | 🟡 Needs improvement | Actual identity is read but not displayed or enforced |
 | Consistent HTTP/gRPC permission errors | 🟡 Needs improvement | REST 403 responses still need normalized wording |
@@ -219,6 +221,7 @@ defaults:
   login_no_browser: false
   list_timeout: 90s
   bigquery_job_window: 24h
+  storage_objects_page_size: 500
 
 projects:
   - name: sandbox
@@ -238,6 +241,29 @@ Project settings override defaults. Dataproc and KMS always include `global`.
 Unknown YAML keys are errors. An existing ADC file can be selected with
 `credentials_file` when no interactive browser flow works. See
 [config.example.yaml](config.example.yaml) for the annotated configuration.
+
+### Storage object browsing
+
+Open a bucket and select its **Objects** drill-down. The initial page lists
+only the current path's immediate objects and folders; it never recursively
+downloads an entire bucket.
+
+| Key or command | Action |
+|---|---|
+| `enter` on a folder | Open that prefix |
+| `q` / `esc` | Clear a search, move to the parent path, then return to buckets |
+| `space` | Load the next page when the count has a `+` suffix |
+| `:cd logs/2026/` | Jump to a prefix relative to the current path |
+| `:cd /logs/` or `:cd gs://bucket/logs/` | Jump from the bucket root |
+| `:find **/*.json` | Server-side glob search below the current path |
+| `/` | Filter only the rows already loaded in the TUI |
+
+`storage_objects_page_size` defaults to 500 and accepts 1–1,000. It controls
+one TUI page, not the total number of rows available: continuation tokens remain
+available until the API reports the last page. The client may make another
+service request to fill one page when Cloud Storage returns a shorter response.
+Current object generations are shown by default; older versions and
+soft-deleted objects are not mixed into the ordinary browser.
 
 ### Row and request limits
 
@@ -274,8 +300,9 @@ defaults:
 | Displayed hotkey | Open that resource kind directly |
 | `0` / `a` | Open **All Resources** |
 | `tab` / `shift+tab`, `]` / `[` | Cycle kinds or sibling drill-downs |
-| `:` | Command mode; for example `:vm`, `:gke`, `:sa`, `:all`, `:projects`, `:q` |
+| `:` | Command mode; for example `:vm`, `:all`, or `:cd` / `:find` in Storage Objects |
 | `/` | Filter rows; `esc` clears |
+| `space` | Load the next Storage Objects page when available |
 | `r` | Refresh the current kind, all dashboard kinds, or selected credential |
 | `o` | Open Airflow for Composer; Cloud Console otherwise |
 | `y` | Copy the resource name; from detail view, copy YAML |
@@ -301,7 +328,7 @@ removed before rendering, and sensitive fields returned inside otherwise
 ordinary resources are redacted before YAML reaches the terminal or clipboard.
 See [SECURITY.md](SECURITY.md) for the full threat model.
 
-## Partial and bounded results
+## Partial, bounded and paged results
 
 When one region fails, g9s keeps successful rows and reports the failed scope:
 
@@ -314,6 +341,11 @@ When a configurable cap is reached, it is reported the same way:
 ```text
 ⚠ 1 warning: only the 500 most recent jobs are shown
 ```
+
+Storage Objects is paged rather than capped. A count such as `500+` means a
+continuation token is available; press `space` to append the next page. It is
+not shown as a warning because no scope failed and the next page remains
+directly reachable.
 
 Keep configured region lists accurate. A regional resource in a location that
 was never requested cannot be discovered.

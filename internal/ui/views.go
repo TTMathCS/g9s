@@ -109,11 +109,18 @@ func (m Model) drillCrumbView() string {
 		// Bound to the parent, so each sibling resolves to its own cache key
 		// and carries its own count — including one you tabbed away from,
 		// which is the whole reason to look back at it.
-		kind := gcp.BindChild(sibling, d.parent).Kind()
+		bound := gcp.BindChild(sibling, d.parent)
+		if i < len(d.boundSiblings) && d.boundSiblings[i] != nil {
+			bound = d.boundSiblings[i]
+		}
+		kind := bound.Kind()
 
 		label := kind.Title
 		if n, known := m.tabCount(kind); known {
 			label += fmt.Sprintf(" (%d)", n)
+			if m.cache[kind.ID].NextPageToken != "" {
+				label += "+"
+			}
 		}
 		if m.tabLoading(kind) {
 			label += " …"
@@ -127,8 +134,28 @@ func (m Model) drillCrumbView() string {
 	}
 
 	hint := "  esc back"
+	location := ""
+	if state, ok := gcp.StorageObjectState(d.lister); ok {
+		location = "gs://" + state.Bucket + "/" + state.Prefix
+		if state.MatchGlob != "" {
+			location += "  find " + strings.TrimPrefix(state.MatchGlob, state.Prefix)
+		}
+		if state.Prefix != "" || state.MatchGlob != "" {
+			hint = "  esc up"
+		}
+	}
 	if len(siblings) > 1 {
-		hint = "  tab switch · esc back"
+		hint = "  tab switch ·" + hint
+	}
+	if location != "" {
+		used := 0
+		for _, part := range parts {
+			used += lipgloss.Width(part)
+		}
+		available := m.width - used - lipgloss.Width(hint) - 2
+		if available >= 8 {
+			parts = append(parts, mutedStyle.Render("  "+truncate(location, available-2)))
+		}
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, append(parts, mutedStyle.Render(hint))...)
 }
@@ -709,7 +736,8 @@ func (m Model) helpContent() string {
 			{"q / esc", "back up one level"},
 			{"p", "back to the project list"},
 			{"/", "filter rows (cleared when you switch kinds)"},
-			{":", "command — :<kind> by id or title prefix, :all :projects :help :q"},
+			{":", "command — :<kind>, or :cd PATH / :find GLOB in Storage Objects"},
+			{"space", "load the next Storage Objects page when more rows are available"},
 		}},
 		{"Actions", []helpEntry{
 			{"d", "describe as YAML (enter does too, on a row with nothing under it)"},
@@ -794,7 +822,11 @@ func (m Model) withPosition(left string) string {
 	if n == 0 {
 		return left
 	}
-	pos := mutedStyle.Render(fmt.Sprintf("%d/%d", min(cursor+1, n), n))
+	total := fmt.Sprintf("%d", n)
+	if m.screen == screenResources && m.cache[m.currentKind().ID].NextPageToken != "" {
+		total += "+"
+	}
+	pos := mutedStyle.Render(fmt.Sprintf("%d/%s", min(cursor+1, n), total))
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(pos) - 1
 	if gap < 1 {
 		return left
@@ -836,6 +868,25 @@ func (m Model) keyHint() string {
 	case screenOverview:
 		return "kind keys: " + m.hotkeyLegend() + " · enter open · 0/a all resources · r refresh all · : cmd · ? help"
 	case screenResources:
+		if state, objects := gcp.StorageObjectState(m.drillLister()); objects {
+			more := ""
+			if m.loading[m.currentKind().ID] && m.hasData(m.currentKind().ID) {
+				more = "loading more… · "
+			} else if m.cache[m.currentKind().ID].NextPageToken != "" {
+				more = "space next page · "
+			}
+			open := "d describe"
+			if r, selected := m.selectedResource(); selected {
+				if _, folder := r.Raw.(*gcp.StorageObjectPrefix); folder {
+					open = "enter folder · d describe"
+				}
+			}
+			back := "esc back"
+			if state.Prefix != "" || state.MatchGlob != "" {
+				back = "esc up"
+			}
+			return more + open + " · :cd path · :find glob · / filter · " + back + " · ? help"
+		}
 		// The hint names enter only where enter does something d does not, so
 		// the drill-down is discoverable on exactly the tables that have one.
 		if m.drill == nil && m.selectedHasChild() {
@@ -849,6 +900,13 @@ func (m Model) keyHint() string {
 	default:
 		return "esc back"
 	}
+}
+
+func (m Model) drillLister() gcp.Lister {
+	if m.drill == nil {
+		return nil
+	}
+	return m.drill.lister
 }
 
 // wrap breaks text onto lines no longer than width. Used for API error strings,

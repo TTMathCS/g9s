@@ -48,7 +48,7 @@ var allKeys = []string{"0", "a"}
 var actionKeys = []string{
 	"a", "d", "g", "G", "j", "k", "l", "L", "o", "p", "q", "r", "s", "y",
 	"0", "/", ":", "?", "[", "]", "enter", "esc", "tab", "shift+tab",
-	"up", "down", "ctrl+c",
+	"up", "down", "space", "ctrl+c",
 }
 
 // noHotkey marks a kind the alphabet did not reach.

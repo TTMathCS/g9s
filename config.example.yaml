@@ -51,6 +51,11 @@ defaults:
   # are also capped at 500 rows, and say so when they hit it.
   bigquery_job_window: 24h
 
+  # Objects are fetched only after opening one bucket. This is the number of
+  # immediate objects/folders in one page, not a total cap: press space to load
+  # the next page. Cloud Storage recommends at most 1,000 per response.
+  storage_objects_page_size: 500
+
 # Ten projects is a normal working set. Order here is the order in the picker,
 # so put the ones you touch daily at the top.
 #

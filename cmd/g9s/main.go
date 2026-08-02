@@ -133,6 +133,9 @@ defaults:
   # truncated one; it is also capped at 500 rows, and says so when it hits it.
   bigquery_job_window: 24h
 
+  # Immediate objects/folders per Storage browser page. Press space for more.
+  storage_objects_page_size: 500
+
 projects:
   - name: sandbox
     project_id: my-sandbox-project

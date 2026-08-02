@@ -52,6 +52,10 @@ type Defaults struct {
 	// table can show, so the window is what makes the listing a complete
 	// answer rather than a truncated one.
 	BigQueryJobWindow Duration `yaml:"bigquery_job_window"`
+	// StorageObjectsPageSize is the number of object and folder rows shown in
+	// one UI page while browsing a bucket. It is not a total cap: the UI retains
+	// the continuation token and can load the next page.
+	StorageObjectsPageSize int `yaml:"storage_objects_page_size"`
 	// Limits raises or removes the per-kind row caps.
 	Limits Limits `yaml:"limits"`
 }
@@ -278,6 +282,17 @@ func (c *Config) BigQueryJobWindow() time.Duration {
 	return defaultBigQueryJobWindow
 }
 
+// StorageObjectsPageSize returns the human-sized page used by the object
+// browser. A nil or hand-built Config gets the same default as one loaded from
+// YAML; tests and embedded callers do not necessarily pass through
+// applyDefaults.
+func (c *Config) StorageObjectsPageSize() int {
+	if c != nil && c.Defaults.StorageObjectsPageSize > 0 {
+		return c.Defaults.StorageObjectsPageSize
+	}
+	return defaultStorageObjectsPageSize
+}
+
 // HasDataprocRegions reports whether any region setting applies to Dataproc
 // for this project. When false, DataprocRegions falls back to just "global",
 // and the lister says so rather than letting the narrow sweep look complete.
@@ -400,6 +415,11 @@ func checkPermissions(path string, info os.FileInfo) error {
 // still a complete answer rather than a capped one.
 const defaultBigQueryJobWindow = 24 * time.Hour
 
+// Cloud Storage recommends no more than 1,000 combined object and prefix rows
+// in one response. Half of that keeps an interactive page responsive while
+// making a bucket with ordinary directory sizes a compact first view.
+const defaultStorageObjectsPageSize = 500
+
 func (c *Config) applyDefaults() {
 	if c.Defaults.GcloudPath == "" {
 		c.Defaults.GcloudPath = "gcloud"
@@ -409,6 +429,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Defaults.BigQueryJobWindow == 0 {
 		c.Defaults.BigQueryJobWindow = Duration(defaultBigQueryJobWindow)
+	}
+	if c.Defaults.StorageObjectsPageSize == 0 {
+		c.Defaults.StorageObjectsPageSize = defaultStorageObjectsPageSize
 	}
 	if c.Defaults.CredentialDir == "" {
 		if home, err := os.UserHomeDir(); err == nil {
@@ -433,6 +456,10 @@ func (c *Config) validate() error {
 	}
 	if c.Defaults.BigQueryJobWindow <= 0 {
 		return fmt.Errorf("defaults.bigquery_job_window must be positive, got %s", c.Defaults.BigQueryJobWindow.Duration())
+	}
+	if c.Defaults.StorageObjectsPageSize <= 0 || c.Defaults.StorageObjectsPageSize > 1000 {
+		return fmt.Errorf("defaults.storage_objects_page_size must be between 1 and 1000, got %d",
+			c.Defaults.StorageObjectsPageSize)
 	}
 
 	seenName := map[string]bool{}

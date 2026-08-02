@@ -340,6 +340,8 @@ func TestResourceRowsMatchColumns(t *testing.T) {
 		"kms": cryptoKeyResource(testProject(), "us-central1",
 			"projects/sandbox-123/locations/us-central1/keyRings/app-secrets", testCryptoKey()),
 		"scheduler": schedulerJobResource(testProject(), "us-central1", testSchedulerJob()),
+		"objects": storageObjectResource(testProject(), testBucket().Name, "exports/2026/",
+			testStorageObject()),
 		"lifecycle": lifecycleRuleResource(testProject(), testBucket(), 0,
 			testBucket().Lifecycle.Rules[0]),
 		"clusterjobs": clusterJobResource(testProject(), "us-central1", testDataprocJob()),

@@ -73,6 +73,12 @@ type Result struct {
 	// Warnings describe scopes that failed. Shown in the status bar so a
 	// truncated list is never mistaken for an empty one.
 	Warnings []string
+	// NextPageToken is set only by listings that deliberately expose
+	// pagination to the UI. Most resource kinds drain every API page inside
+	// List and leave this empty; object browsers keep it so a large bucket can
+	// stop after one human-sized page without pretending the listing is
+	// complete.
+	NextPageToken string
 }
 
 // Lister fetches all resources of one kind for a project.

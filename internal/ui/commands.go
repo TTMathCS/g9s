@@ -34,9 +34,13 @@ type resourcesMsg struct {
 	project string
 	kind    string
 	// token guards against a slow refresh overwriting a newer one.
-	token  int
-	result gcp.Result
-	err    error
+	token int
+	// appendPage distinguishes "load more" from a refresh. A subsequent
+	// object page extends the rows already visible; every ordinary listing
+	// replaces its cached result.
+	appendPage bool
+	result     gcp.Result
+	err        error
 }
 
 type loginFinishedMsg struct {
@@ -72,6 +76,12 @@ func checkAuth(mgr *auth.Manager, p config.Project) tea.Cmd {
 
 // listResources fetches one resource kind for one project.
 func listResources(cfg *config.Config, mgr *auth.Manager, p config.Project, lister gcp.Lister, token int) tea.Cmd {
+	return listResourcePage(cfg, mgr, p, lister, token, false)
+}
+
+// listResourcePage is the shared fetch path for both a fresh listing and an
+// explicit continuation page.
+func listResourcePage(cfg *config.Config, mgr *auth.Manager, p config.Project, lister gcp.Lister, token int, appendPage bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), cfg.Defaults.ListTimeout.Duration())
 		defer cancel()
@@ -80,11 +90,12 @@ func listResources(cfg *config.Config, mgr *auth.Manager, p config.Project, list
 		// One place, so no lister has to remember and none can get it wrong.
 		gcp.StampKind(&result, lister.Kind().ID)
 		return resourcesMsg{
-			project: p.Name,
-			kind:    lister.Kind().ID,
-			token:   token,
-			result:  result,
-			err:     err,
+			project:    p.Name,
+			kind:       lister.Kind().ID,
+			token:      token,
+			appendPage: appendPage,
+			result:     result,
+			err:        err,
 		}
 	}
 }
