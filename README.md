@@ -1,657 +1,333 @@
-<h1 align="center">g9s</h1>
+# g9s
 
-<p align="center">
-  A k9s-style terminal UI for Google Cloud. Pick a project, browse what's running in it,<br>
-  act on it — without leaving the terminal or juggling <code>gcloud config set project</code>.
-</p>
+A k9s-style terminal console for Google Cloud. Switch between projects and
+accounts, inspect resources, and navigate related resources without changing
+your global gcloud configuration.
 
-<p align="center">
-  <a href="https://github.com/TTMathCS/g9s/releases/latest"><img alt="Download the latest version" src="https://img.shields.io/badge/%E2%AC%87%20DOWNLOAD-latest%20version-2ea44f?style=for-the-badge"></a>
-  &nbsp;
-  <a href="https://github.com/TTMathCS/g9s/releases"><img alt="All versions" src="https://img.shields.io/badge/%F0%9F%93%8B%20ALL%20VERSIONS-release%20history-0969da?style=for-the-badge"></a>
-</p>
+> **Current maturity:** read-only MVP. The source contains 27 top-level
+> resource kinds and 15 drill-down listings. SSH to a running VM is the only
+> interactive resource operation; mutating API actions are not implemented.
 
-<p align="center">
-  <a href="https://github.com/TTMathCS/g9s/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/TTMathCS/g9s?sort=semver&display_name=tag&label=latest&color=2ea44f"></a>
-  <a href="https://github.com/TTMathCS/g9s/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/TTMathCS/g9s/ci.yml?branch=main&label=CI"></a>
-  <a href="https://github.com/TTMathCS/g9s/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/TTMathCS/g9s/total?label=downloads"></a>
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
-</p>
+## At a glance
 
-Built for the case where you have several projects, each reached through a different account, and those accounts expire daily.
-
-## ⬇️ Download
-
-**Both buttons above go straight to GitHub's download pages** — the green one to the newest version, the blue one to the full list of every version ever released. Every merge to `main` publishes a new version automatically, so the latest is always current.
-
-No Go toolchain and nothing compiled on your machine. Direct per-platform links, which always resolve to the newest version:
-
-| Platform | Download |
-|---|---|
-| **macOS** — Apple Silicon (any M-series) | **[g9s_darwin_arm64.tar.gz](https://github.com/TTMathCS/g9s/releases/latest/download/g9s_darwin_arm64.tar.gz)** |
-| **macOS** — Intel | **[g9s_darwin_amd64.tar.gz](https://github.com/TTMathCS/g9s/releases/latest/download/g9s_darwin_amd64.tar.gz)** |
-| **Linux** — x86-64 | **[g9s_linux_amd64.tar.gz](https://github.com/TTMathCS/g9s/releases/latest/download/g9s_linux_amd64.tar.gz)** |
-| **Linux** — ARM64 | **[g9s_linux_arm64.tar.gz](https://github.com/TTMathCS/g9s/releases/latest/download/g9s_linux_arm64.tar.gz)** |
-| | [checksums.txt](https://github.com/TTMathCS/g9s/releases/latest/download/checksums.txt) |
-
-One-liner for Apple Silicon:
-
-```sh
-curl -L https://github.com/TTMathCS/g9s/releases/latest/download/g9s_darwin_arm64.tar.gz | tar xz --strip-components=1 && sudo mv g9s /usr/local/bin/ && g9s -version
+```text
+Projects  →  Project dashboard  →  Resource table  →  Child drill-down
+accounts      all kinds             one kind          node pools, tables,
+and login     and status            or all kinds      keys, health, etc.
 ```
 
-Then verify it and check what else you need: [checksum and provenance verification](#option-1-download-a-release-binary-no-go-toolchain), the [macOS Gatekeeper step](#option-1-download-a-release-binary-no-go-toolchain), or [building from source](#option-2-build-from-source) instead. **`gcloud` is required separately** — see [Requirements](#requirements).
+- **Projects** shows every configured project and its live credential state.
+- **Dashboard** loads all implemented kinds and summarizes counts, states and
+  partial failures.
+- **Resource table** provides filtering, YAML details, Console links, copy and
+  SSH where applicable.
+- **Drill-down** opens a resource's children in place. For example, a GKE
+  cluster opens its node pools and a Cloud SQL instance opens databases and
+  users.
 
-Four screens, in the order you move through them.
+![Per-project dashboard with resource counts and status summaries](docs/dashboard.png)
 
-**Projects.** You open here, and the thing you actually need to know is already on screen: which of your ten projects you can use right now. Green is good for another 38 minutes, amber expired overnight, hollow means this machine has never logged in. Press `l` on any row and gcloud takes the terminal to fix it.
+![A GKE node-pool drill-down opened from its parent cluster](docs/drilldown.png)
 
-![The g9s project picker: ten GCP projects listed with their project IDs and the live state of each one's credentials](docs/projects.png)
+See [docs/README.md](docs/README.md) for all generated screenshots.
 
-**Dashboard.** Selecting a project fans out across every resource kind at once and lands you here — what exists, how much of it, and what state it is in, before you drill into anything. A category whose listing came back partial says so on its own row, so a truncated list never reads as an empty one. `enter` opens the category under the cursor, or jump straight in with `1`/`2`/`3`.
+## Complete resource map
 
-![The g9s dashboard: each resource category with its count and a breakdown of resource states, plus a merged All Resources row](docs/dashboard.png)
+This is the source of truth for resource coverage.
 
-**Resources.** The table for one category, colour-coded by status. `a` swaps to *All Resources*, which merges every kind into one table keyed by kind, name, location and status — the flat "what is in this project" list. `esc` goes back up to the dashboard, `p` all the way out to the project list.
+- ✅ **Implemented** — available now and complete for its documented scope.
+- 🟡 **Implemented, bounded** — available now, with a configurable default row
+  or request limit. The TUI warns when the limit is reached.
+- 🔒 **Implemented, metadata only** — available now, with sensitive values
+  deliberately excluded.
+- 🔜 **Not implemented, next** — the next planned resource work.
+- ⬜ **Not implemented, candidate** — planned for consideration, with no
+  delivery commitment.
+- 🚫 **Not planned** — intentionally outside the product boundary.
 
-![The g9s resource table: nine VM instances in the prod-data project, with a warning in the status bar that one region was unavailable](docs/resources.png)
+**Surface** shows how the listing is reached: a top-level dashboard kind or a
+drill-down opened from a parent row.
 
-**Drill-down.** Some rows have a listing underneath them — a GKE cluster's node pools, a VPC's subnets, the backends behind a load balancer. `enter` opens it in place, with the child's own columns and a trail naming the row you came in on; `esc` puts you back where you were, cursor and filter included. `d` still describes, so a row with children is not a row you can no longer inspect. These cost no hotkey and no dashboard row, which is the point: a listing that only makes sense under its parent belongs under its parent.
+| Area | Service and resource hierarchy | Surface | Status | Coverage note |
+|---|---|---|---|---|
+| Compute and serverless | **Compute Engine** → VM instances | Top-level | ✅ Implemented | One aggregated call covers every zone |
+|  | ↳ Attached disks | VM drill-down | ✅ Implemented | Already present on the VM response; highlights auto-delete |
+|  | **Compute Engine** → Persistent disks | Top-level | ✅ Implemented | Includes unattached state and age |
+|  | ↳ Disk snapshots | Disk drill-down | ⬜ Candidate | Not implemented |
+|  | **Compute Engine** → Managed instance groups | — | ⬜ Candidate | Not implemented |
+|  | **Compute Engine** → Instance templates | — | ⬜ Candidate | Not implemented |
+|  | **Compute Engine** → GPU/TPU reservations | — | ⬜ Candidate | Not implemented |
+|  | **Batch** → Jobs | — | ⬜ Candidate | Not implemented |
+|  | **Cloud Functions** → Functions | Top-level | ✅ Implemented | Both generations; aggregated across locations |
+|  | **Cloud Run** → Services | Top-level | ✅ Implemented | Listed across configured regions |
+|  | ↳ Revisions | Service drill-down | ✅ Implemented | Includes traffic split from the parent service |
+|  | **Cloud Run** → Jobs | Top-level | ✅ Implemented | Includes the last execution result |
+|  | ↳ Executions | Job drill-down | ✅ Implemented | Full execution history for the selected job |
+| Containers | **Google Kubernetes Engine** → Clusters | Top-level | ✅ Implemented | Aggregated across zonal and regional clusters |
+|  | ↳ Node pools | Cluster drill-down | ✅ Implemented | Already present on the cluster response |
+| Storage | **Cloud Storage** → Buckets | Top-level | ✅ Implemented | Bucket inventory; objects are not fetched |
+|  | ↳ Lifecycle rules | Bucket drill-down | ✅ Implemented | Delete and storage-class transition rules |
+|  | ↳ Objects | — | 🚫 Not planned | Potentially billions of query-shaped rows; not a project inventory table |
+| Data and analytics | **BigQuery** → Datasets | Top-level | ✅ Implemented | Name, location, type and labels |
+|  | ↳ Tables | Dataset drill-down | 🟡 Implemented, bounded | 1,000 rows per dataset by default |
+|  | **BigQuery** → Jobs | Top-level | 🟡 Implemented, bounded | 500 rows by default inside the configured time window |
+|  | **BigQuery** → Reservations | — | ⬜ Candidate | Not implemented |
+|  | **Dataproc** → Clusters | Top-level | ✅ Implemented | Listed per configured region; `global` is always included |
+|  | ↳ Jobs on this cluster | Cluster drill-down | 🟡 Implemented, bounded | 200 rows by default |
+|  | **Dataproc** → Jobs | Top-level | 🟡 Implemented, bounded | 200 rows per configured region by default |
+|  | **Dataflow** → Jobs | Top-level | 🟡 Implemented, bounded | 500 rows by default; API aggregates locations |
+|  | **Cloud Composer** → Environments | Top-level | ✅ Implemented | Listed per configured location |
+|  | **Bigtable** → Instances | — | ⬜ Candidate | Not implemented |
+|  | **Spanner** → Instances | — | ⬜ Candidate | Not implemented |
+|  | ↳ Databases | Instance drill-down | ⬜ Candidate | Not implemented |
+|  | **Memorystore** → Redis instances | — | ⬜ Candidate | Not implemented |
+|  | **Memorystore** → Memcached instances | — | ⬜ Candidate | Not implemented |
+|  | **Firestore** → Databases | — | ⬜ Candidate | Not implemented |
+|  | **Datastream** → Streams | — | ⬜ Candidate | Not implemented |
+|  | **Data Fusion** → Instances | — | ⬜ Candidate | Not implemented |
+|  | **Artifact Registry** → Repositories | — | ⬜ Candidate | Not implemented |
+| Databases | **Cloud SQL** → Instances | Top-level | ✅ Implemented | Includes version, tier, HA and unreachable-region warnings |
+|  | ↳ Databases | Instance drill-down | ✅ Implemented | One of two sibling listings |
+|  | ↳ Users | Instance drill-down | ✅ Implemented | Includes disabled state; `tab` switches siblings |
+| Messaging | **Pub/Sub** → Topics | Top-level | ✅ Implemented | Includes ingestion-source state |
+|  | ↳ Subscriptions on this topic | Topic drill-down | ✅ Implemented | Warns when a topic has no subscriptions |
+|  | **Pub/Sub** → Subscriptions | Top-level | ✅ Implemented | Includes backlog from one Monitoring query |
+| Networking | **VPC** → Networks | Top-level | ✅ Implemented | Subnet mode, count and routing mode |
+|  | ↳ Subnets | Network drill-down | ✅ Implemented | Aggregated across regions; includes secondary ranges |
+|  | **VPC** → Firewall rules | Top-level | ✅ Implemented | Sorted by evaluation priority; disabled rules are flagged |
+|  | **VPC** → Routes | — | ⬜ Candidate | Not implemented |
+|  | **Cloud NAT** → Routers and NAT gateways | — | ⬜ Candidate | Not implemented |
+|  | **Cloud Load Balancing** → Forwarding rules | Top-level | ✅ Implemented | Covers global and regional forwarding rules |
+|  | ↳ Backend health | Rule drill-down | 🟡 Implemented, bounded | 40 backend groups by default; bounds API requests |
+|  | **Cloud DNS** → Managed zones | Top-level | ✅ Implemented | Global listing |
+|  | ↳ Record sets | Zone drill-down | 🟡 Implemented, bounded | 1,000 rows per zone by default |
+|  | **Cloud VPN** → VPN tunnels | Top-level | ✅ Implemented | Aggregated across regions with live tunnel status |
+|  | **Cloud Interconnect** → VLAN attachments | Top-level | ✅ Implemented | Aggregated across regions |
+|  | **Private Service Connect** → Service attachments | Top-level | ✅ Implemented | Producer side; consumer endpoints are forwarding rules |
+|  | **Compute networking** → Reserved static IPs | — | ⬜ Candidate | Not implemented |
+| Security and identity | **Secret Manager** → Secrets | Top-level | 🔒 Metadata only | Replication, rotation and expiry; never secret values |
+|  | ↳ Versions | Secret drill-down | 🔒 Metadata only | Names, states and timestamps; never secret values |
+|  | **IAM** → Service accounts | Top-level | 🟡 Implemented, bounded | Key age lookup for 200 accounts by default |
+|  | ↳ Keys | Account drill-down | 🔒 Metadata only | ID, origin, algorithm, age and expiry; never private key material |
+|  | ↳ Roles held by the account | Account drill-down | 🔜 Next | Not implemented |
+|  | **IAM** → Project policy bindings | — | ⬜ Candidate | Needs a table shaped around role/member pairs |
+|  | **Cloud KMS** → Keys | Top-level | 🟡 Implemented, bounded | 100 key rings per location by default; never key material |
+|  | **Certificate Manager** → Certificates | — | ⬜ Candidate | Not implemented |
+|  | **Binary Authorization** → Policies | — | ⬜ Candidate | Not implemented |
+|  | **VPC Service Controls** → Perimeters | — | ⬜ Candidate | Not implemented |
+|  | **Organization Policy** → Effective constraints | — | ⬜ Candidate | Not implemented |
+| Operations | **Cloud Scheduler** → Jobs | Top-level | ✅ Implemented | Includes paused state and last-attempt result |
+|  | **Cloud Monitoring** → Alert policies and firing state | — | ⬜ Candidate | Not implemented |
+|  | **Error Reporting** → Error groups | — | ⬜ Candidate | Not implemented |
+|  | **Cloud Tasks** → Queues | — | ⬜ Candidate | Not implemented |
+|  | **Cloud Build** → Build history | — | ⬜ Candidate | Not implemented |
+|  | **Cloud Logging** → Log entries | — | 🚫 Not planned | An unbounded query stream, not a finite resource inventory |
+| Cost and capacity | **Cloud Quotas** → Usage and limits | — | ⬜ Candidate | Nested quota metrics need a different presentation |
+|  | **Cloud Billing** → Current-month spend | — | ⬜ Candidate | Requires an accessible billing export |
 
-![The g9s drill-down: four node pools inside a GKE cluster, with their machine types, node counts, autoscaling bounds and upgrade policy](docs/drilldown.png)
+### Platform capabilities
 
-A row can hold more than one listing where more than one is the honest answer. A Cloud SQL instance has databases *and* users, neither underneath the other, so both appear in the trail and `tab` moves between them — the same key that moves between kinds one level up.
-
-![The g9s drill-down showing two listings under one row: Databases and Users tabs under a Cloud SQL instance, with the users table open and one disabled account](docs/siblings.png)
-
-<sub>All five screenshots are generated from the real rendering code — see <a href="docs/">docs/</a>. The projects, IDs and accounts in them are invented.</sub>
-
-## Roadmap
-
-What g9s covers today, and what it does not. Every row says whether its listing is complete, and if not, what is missing.
-
-### Resource kinds shipped
-
-Every kind here is built. **Status** says whether its listing is complete, and if not, exactly what is missing. Kinds that do not exist yet are in [Resource kinds not shipped](#resource-kinds-not-shipped).
-
-- **Scope** — whether you need `regions` configured to see it. A `regional` kind is only listed for the regions in your config, so a cluster in a region you never listed is invisible. `global` and `aggregated` kinds ignore your region list and show everything.
-- **Status** — **Complete** means the listing returns everything there is. Anything else names exactly what it does not return, and there are only two reasons:
-  - **"N rows by default"** — a row cap, and a setting you control. Raise it, lower it, or set `-1` for no cap at all, in [`defaults.limits`](#row-limits). A listing that hits its cap says so in the footer rather than passing itself off as the whole answer.
-  - **"never returns …"** — not a setting and not going to become one. Secret values and key material are never fetched; `gcloud secrets versions access` is audit-logged and is the right way to read a secret.
-
-| Kind | Scope | Status | Notes |
-|---|---|---|---|
-| Compute Engine instances | zonal | Complete | one `aggregatedList` covers every zone |
-| Compute persistent disks | zonal + regional | Complete | leads with the disks *nothing* is using and how long that has been true, which a per-VM listing structurally cannot show |
-| GKE clusters | zonal + regional | Complete | `parent: projects/*/locations/-` covers everything in one call |
-| Cloud SQL instances | global | Complete | unreachable regions arrive as response warnings, not errors |
-| Cloud Storage buckets | global | buckets only — objects are a separate resource, not a table | objects are a different resource with a different shape — a bucket can hold billions, so listing them is not a table |
-| BigQuery datasets | global | Complete | name, location, type and labels; anything more costs a `Get` per dataset |
-| BigQuery jobs | global | 500 rows by default | newest first, inside `defaults.bigquery_job_window` |
-| Dataproc clusters | regional | Complete | a client per region; `global` always swept |
-| Dataproc jobs | regional | 200 rows per region by default | every state, newest first — the API has no time filter |
-| Cloud Composer environments | location | Complete | one client, location in the request parent |
-| Dataflow jobs | regional | 500 rows by default | `jobs.aggregated` sweeps every regional endpoint server-side, so jobs outside your configured regions still show up |
-| Pub/Sub topics | global | Complete | a topic reports a state only once an ingestion source breaks |
-| Pub/Sub subscriptions | global | Complete | backlog comes from one Monitoring call covering every subscription at once |
-| Cloud Run services | regional | Complete | the v2 API takes no `-` wildcard for location |
-| Cloud Run jobs | regional | Complete | leads with the last execution's result, not the job's own condition |
-| Cloud Scheduler jobs | regional | Complete | PAUSED and a failing last attempt are the two ways a cron job stops working that a config-only table cannot tell apart |
-| Cloud Functions | regional | Complete | the v2 API *does* take `locations/-`, unlike Cloud Run's. Both generations, with a GEN column |
-| VPC networks | global | Complete | subnet mode, subnet count, routing mode |
-| Firewall rules | global | Complete | sorted by evaluation priority, not name; disabled rules flagged |
-| Load balancers | global + regional | Complete | global and regional forwarding rules live in separate collections |
-| Cloud DNS zones | global | Complete |  |
-| VPN tunnels | regional | Complete | real tunnel status — ESTABLISHED vs a handshake that never finished |
-| Interconnect attachments | regional | Complete | VLAN attachments, not circuits; admin-disabled beats a healthy-looking state |
-| PSC service attachments | regional | Complete | producer side; consumer endpoints are forwarding rules, already under load balancers |
-| Secret Manager secrets | global | **never returns secret values** | replication, rotation and expiry |
-| KMS keys | regional + global | **never returns key material**; 100 key rings per location by default | keys, not key rings. Leads with rotation: a symmetric key with rotation never configured reports ENABLED forever |
-| Service accounts | global | key ages for 200 accounts by default | oldest key age on the row rather than three clicks away |
-
-#### Opened from a row
-
-These have no tab and no dashboard row. Put the cursor on a row of the parent kind and press `enter`.
-
-| Listing | Opens from | Status | Notes |
-|---|---|---|---|
-| GKE node pools | a cluster | Complete | `clusters.list` already returned them |
-| Service account keys | an account | Complete | the accounts listing already fetched them |
-| A VM's attached disks | an instance | Complete | flags the one setting that destroys data when the VM goes |
-| Bucket lifecycle rules | a bucket | Complete | answers "why did my data disappear" and "why is nothing being archived" |
-| Subnets | a VPC | Complete | filtered to that network; secondary ranges named, since "which one is pods" is the question |
-| DNS record sets | a zone | 1000 rows by default | grouped by name so a name's A and AAAA sit together |
-| BigQuery tables | a dataset | 1000 rows by default | says whether a partitioned table *requires* a filter, the cost question a row count would not answer |
-| Cloud Run revisions | a service | Complete | joins the revisions list with the traffic split, which lives on the service and not on any revision |
-| Cloud Run job executions | a job | Complete | the history behind the last result — "failed once" vs "failing nightly" |
-| Subscriptions on a topic | a topic | Complete | a topic with none is publishing into nothing, which the topics table cannot show |
-| Secret versions | a secret | **never returns secret values** | the secrets row shows the rotation *policy*; this shows whether rotation happened |
-| Dataproc jobs on a cluster | a cluster | 200 rows by default | *cheaper* than the region-wide kind — `ListJobs` filters by cluster server-side |
-| Cloud SQL databases & users | an instance | Complete | `tab` between the two — the pair that made a row allowed more than one listing |
-| Load balancer backend health | a rule | 40 backend groups by default | walks rule → proxy → URL map → backend services → `getHealth` per group |
-
-### Resource kinds not shipped
-
-Resources only — platform features are the table after this one.
-
-| Area | Status | Why it is where it is |
+| Capability | Status | Current note |
 |---|---|---|
-| Compute/serverless — Batch, instance groups, GPU/TPU | Candidate | ordinary listers, just not written yet |
-| Data — Bigtable, Spanner, Memorystore, Firestore, Datastream, Artifact Registry | Candidate | ordinary listers, just not written yet |
-| Security — Certificate Manager, VPC-SC, Org Policy, Binary Authorization | Candidate | ordinary listers, just not written yet |
-| Operations — Monitoring alerts, Error Reporting, Cloud Build, Cloud Tasks | Candidate | ordinary listers, just not written yet |
-| Networking — routes, Cloud NAT and routers, reserved static IPs | Candidate | ordinary listers, just not written yet |
-| Project IAM bindings | Candidate | shape mismatch, not effort: a binding is a (role, member) pair, not a resource with a location and a status, so it fits the table badly |
-| Cost & quota | Candidate | spend needs a billing export many projects have never set up; quota comes back as nested consumer-quota metrics rather than resources |
-| Cloud Logging entries | Not planned | shape mismatch: log entries are an unbounded, query-driven stream with no location or status axis. Not a listing, and pretending otherwise would produce a table that lies about what it contains |
+| Project picker and live credential state | ✅ Implemented | Checks every configured project at startup |
+| Isolated credentials per project | ✅ Implemented | Does not mutate global gcloud state |
+| Per-project dashboard and **All Resources** view | ✅ Implemented | Status rollups plus a merged table |
+| Filtering, YAML detail, links, clipboard and SSH | ✅ Implemented | SSH is limited to running VMs |
+| Parent/child drill-downs with sibling tabs | ✅ Implemented | 15 child listings |
+| Partial-result and row-cap warnings | ✅ Implemented | A bounded or incomplete result cannot look complete |
+| Expected account versus actual ADC identity | 🟡 Needs improvement | Actual identity is read but not displayed or enforced |
+| Consistent HTTP/gRPC permission errors | 🟡 Needs improvement | REST 403 responses still need normalized wording |
+| Large OSC 52 clipboard payload handling | 🟡 Needs improvement | Terminal limits can make large YAML copies fail silently |
+| Prebuilt release pipeline | 🟡 Needs improvement | Workflow exists; first verified release is still pending |
+| Confirmed VM/Dataproc state actions | 🔜 Next | No mutating API action is implemented today |
+| Terraform managed/drifted/unmanaged overlay | 🔜 Next | Read state; do not replace Terraform |
+| Cross-project inventory for one kind | ⬜ Candidate | Requires context-aware identity and bounded concurrency |
+| Horizontal dev/uat/prod comparison | ⬜ Candidate | Builds on the cross-project inventory model |
+| Cloud Asset Inventory fast path | ⬜ Candidate | Optional; many organizations do not enable the API |
+| Saved filters and bookmarks | ⬜ Candidate | Not implemented |
+| CSV and JSON export | ⬜ Candidate | Not implemented |
+| `g9s doctor` preflight checks | ⬜ Candidate | Config, identity, API and permission diagnostics |
+| Writing infrastructure definitions | 🚫 Not planned | g9s is not a Terraform replacement |
+| Storing passwords or minting credentials itself | 🚫 Not planned | gcloud owns interactive authentication |
+| Displaying secret values or private key material | 🚫 Not planned | Metadata only |
 
-### Platform features
+See [ROADMAP.md](ROADMAP.md) for design rationale and request costs, and
+[ADVICE.md](ADVICE.md) for the cross-project architecture review.
 
-| Feature | Status | Notes |
-|---|---|---|
-| Per-project dashboard with status rollups | Shipped | |
-| Merged *All Resources* view across kinds | Shipped | |
-| Filter, describe-as-YAML, Console/Airflow links, OSC 52 yank, SSH | Shipped | |
-| Prebuilt release binaries (no Go toolchain needed) | Shipped | macOS + Linux, arm64 + amd64, with checksums and signed SLSA provenance — see [Install](#install) |
-| Mutating actions behind a confirmation | Next | VM / Dataproc power state first — no Terraform drift |
-| Terraform state overlay (managed / drifted / unmanaged) | Next | the single most useful thing on this list, and the most work |
-| Cloud Asset Inventory fast path | Candidate | optional — plenty of orgs don't enable the API |
-| Cross-project view (one kind, every project at once) | Candidate | the other axis from the dashboard's per-kind rollup |
-| Saved filters / bookmarks | Candidate | |
-| Export current table to CSV/JSON | Candidate | |
-| Writing infrastructure | Not planned | not a Terraform replacement |
-| Storing credentials | Not planned | `gcloud` owns that; g9s never touches a credential |
-| Displaying secret values | Not planned | names and versions only — use `gcloud secrets versions access`, which is audit-logged |
+## Requirements and installation
 
-**[ROADMAP.md](ROADMAP.md)** has the full picture with reasoning per item — why each is scoped the way it is, and why global/regional/zonal is what decides the cost of adding it.
+- **gcloud CLI** is required for login and SSH.
+- **Go 1.25+** is currently required to install g9s because the first verified
+  release binary has not been published.
 
-## Why this exists
-
-Cloud Asset Inventory makes "list everything in a project" a single API call. Without it — and plenty of orgs don't enable it — you fan out across a dozen service APIs, several of which are region-scoped, and you do it again for every project. `g9s` does that fan-out and puts the result in one keyboard-driven table.
-
-## Status
-
-MVP. Twenty-seven resource kinds across compute, data, messaging, networking, operations and identity, plus fifteen drill-downs — read-only plus SSH. The resource layer is behind a one-method interface, so adding a kind is one new file — see [Adding a resource kind](#adding-a-resource-kind).
-
-Navigation is three levels deep: projects → dashboard → a category's table, with `esc` walking back up. A new kind appears on the dashboard, in the tab bar and in *All Resources* automatically; there is nothing to register in the UI.
-
-Every kind has a one-press key, past the ninth included. The digits run out at nine, so the sequence carries on into letters — `1`–`9`, then `b c e f h i m n t u v w x z`, then shift, `A` through `Z` minus the two already bound. It skips every letter that is already an action, which is why the run starts at `b` and not at `a` (`a` is *All Resources*). Nothing to memorise: each kind's key is printed beside it on the dashboard and in the tab strip. `tab`/`shift+tab` and `:<kind>` still reach everything, and the tab strip scrolls to keep the active tab visible, marking hidden tabs with `‹`/`›`.
-
-Lowercase ran out at twenty-three — the whole unclaimed alphabet — so the run continues into shift rather than making the twenty-fourth kind a special case reachable only by typing. Forty-seven keys is a keyspace, not a target: a dashboard with forty rows is not a good dashboard, and anything that belongs to a parent row should still be a drill-down. `enter` on a GKE cluster opens its node pools, `enter` on a service account opens its keys, and a drill-down costs no key at all. What changed is that the keyspace no longer decides which kinds are allowed to exist. A test fails the build if a kind is ever added without a key, so running out again cannot go quiet.
-
-## Requirements
-
-**`gcloud` CLI — required, not optional.** g9s checks for it at startup and exits with `gcloud not found` rather than letting you discover the problem mid-session. It's needed because login and SSH are the two places a human is involved:
-
-- `l` runs `gcloud auth application-default login` to mint credentials
-- `s` runs `gcloud compute ssh`
-
-Everything else — the resource listing — talks to the GCP APIs directly and never shells out. See [Design notes](#design-notes) for why.
-
-**Go 1.25+ — only if you build from source.** Not needed if you [download a release binary](#option-1-download-a-release-binary-no-go-toolchain), which is self-contained. Go is never a runtime dependency.
-
-## Install
-
-Two options. The first needs no Go toolchain and pulls no dependencies onto your machine; the second builds from source.
-
-### Option 1: download a release binary (no Go toolchain)
-
-Every release attaches archives for macOS and Linux on both Apple Silicon/ARM and Intel/AMD64, plus a `checksums.txt`. Archive names carry no version, so `releases/latest/download/…` is a permanent URL — the version lives in the release tag, the directory inside the archive, and `g9s -version`.
-
-**Releases are automatic.** Every merge to `main` bumps the patch version and publishes it, but only after `gofmt`, `go vet`, `go test -race` and `govulncheck` have all passed — a red check publishes nothing. So the newest version is always the newest green commit. A commit message containing `[skip release]` builds without publishing, for changes not worth a version of their own.
-
-```sh
-# Pick your platform: darwin_arm64, darwin_amd64, linux_amd64, linux_arm64
-PLATFORM=darwin_arm64
-BASE=https://github.com/TTMathCS/g9s/releases/latest/download
-
-curl -LO "${BASE}/g9s_${PLATFORM}.tar.gz"
-curl -LO "${BASE}/checksums.txt"
-
-# Verify before extracting, not after
-shasum -a 256 -c checksums.txt --ignore-missing
-
-tar -xzf "g9s_${PLATFORM}.tar.gz" --strip-components=1
-sudo mv g9s /usr/local/bin/
-g9s -version
-```
-
-To pin a specific version instead of tracking the latest, swap `latest/download` for `download/v0.1.0` — see [all releases](https://github.com/TTMathCS/g9s/releases).
-
-**Verifying provenance, not just integrity.** The checksum only proves your download wasn't corrupted in transit — it says nothing about where the file came from. Each archive also carries a signed [SLSA build provenance](https://slsa.dev/) attestation tying it to this repository, the exact commit and the workflow run that produced it. If you have the [`gh` CLI](https://cli.github.com/):
-
-```sh
-gh attestation verify "g9s_${PLATFORM}.tar.gz" --repo TTMathCS/g9s
-```
-
-That is the check worth running. It fails if the archive was built anywhere other than this repo's CI.
-
-On macOS, Gatekeeper will complain the first time — the binaries are not Apple-notarised (that needs a paid Developer ID). Clear it with `xattr -d com.apple.quarantine /usr/local/bin/g9s`, or right-click → Open once. If you would rather not, build from source instead.
-
-### Option 2: build from source
-
-Needs Go 1.25+ and fetches roughly a hundred module dependencies. See [Setup on a new Mac](#setup-on-a-new-mac) below for the full toolchain walkthrough, or if you already have Go:
-
-```sh
-go install github.com/TTMathCS/g9s/cmd/g9s@latest
-```
-
-## Setup on a new Mac
-
-For building from source. Both paths work on Apple Silicon and Intel. Pick one.
-
-### With Homebrew
+With Homebrew on macOS:
 
 ```sh
 brew install go
-brew install --cask gcloud-cli      # the cask was renamed from google-cloud-sdk
-```
-
-The cask symlinks `gcloud` into your Homebrew prefix (`/opt/homebrew/bin` on Apple Silicon, `/usr/local/bin` on Intel), so it lands on your `PATH` with no further setup.
-
-If Homebrew itself isn't installed yet and you want it:
-
-```sh
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
-
-On Apple Silicon its installer prints two `eval` lines to add `/opt/homebrew/bin` to your `PATH` — run them, or `brew` won't be found in new shells.
-
-### Without Homebrew
-
-**Go** — download the macOS `.pkg` from [go.dev/dl](https://go.dev/dl/) (ARM64 for Apple Silicon, x86-64 for Intel) and run it. It installs to `/usr/local/go` and adds `/usr/local/go/bin` to your `PATH` via `/etc/paths.d/go`, which takes effect in new shells.
-
-**gcloud** — download and run Google's installer:
-
-```sh
-# Apple Silicon; for Intel swap darwin-arm for darwin-x86_64
-curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-darwin-arm.tar.gz
-tar -xf google-cloud-cli-darwin-arm.tar.gz
-./google-cloud-sdk/install.sh
-```
-
-`install.sh` offers to edit your shell profile to add gcloud to `PATH` — say yes, or you'll have to invoke it by full path. Extract it somewhere permanent (`~/google-cloud-sdk` is conventional); the install location *is* the installation, and moving it later breaks the profile entry.
-
-Skip `gcloud init`. It configures a default project in your global gcloud state, which g9s deliberately doesn't use — it sets `CLOUDSDK_CONFIG` per project instead. Running it is harmless, just pointless here.
-
-gcloud needs Python 3. macOS provides it with the Xcode Command Line Tools (`xcode-select --install`); if gcloud picks the wrong interpreter, point it at one with `CLOUDSDK_PYTHON=/path/to/python3`.
-
-### Then install g9s
-
-Two ways. Use the second if your network doesn't reach `proxy.golang.org`.
-
-**A — `go install`:**
-
-```sh
+brew install --cask gcloud-cli
 go install github.com/TTMathCS/g9s/cmd/g9s@latest
 ```
 
-This drops the binary in `$(go env GOPATH)/bin`, normally `~/go/bin` — **not** on your `PATH` by default on a fresh Mac. Add it:
+`go install` normally writes to `~/go/bin`. Add that directory to `PATH`
+if needed:
 
 ```sh
-echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
-exec zsh
+export PATH="$HOME/go/bin:$PATH"
 ```
 
-(macOS has used zsh as the default shell since Catalina. On bash, use `~/.bash_profile`.)
-
-**B — clone and build:**
+To build a clone:
 
 ```sh
 git clone https://github.com/TTMathCS/g9s.git
 cd g9s
-go build -o g9s ./cmd/g9s     # binary lands in the current directory
+go build -o g9s ./cmd/g9s
 ```
 
-Copy the binary onto your `PATH` yourself (`sudo mv g9s /usr/local/bin/`), or run it as `./g9s`.
-
-### Behind a corporate proxy
-
-Point `GOPROXY` at your internal Go registry. For Artifactory the `api/go` path segment is required:
-
-```sh
-go env -w GOPROXY="https://artifactory.example.com/artifactory/api/go/<go-repo>"
-go env -w GOSUMDB=off    # unless your registry proxies sum.golang.org
-```
-
-`go env -w` persists these to `~/.config/go/env`, so they survive new shells and don't need to live in your profile.
-
-Authenticate with `~/.netrc` — Go reads it natively, which keeps the token out of `GOPROXY` and out of your shell history:
-
-```
-machine artifactory.example.com
-login <username>
-password <api-key-or-access-token>
-```
-
-```sh
-chmod 600 ~/.netrc
-```
-
-With that in place both install methods work normally. If you use the JFrog CLI, `jf go-config` followed by `jf go build ./cmd/g9s` sets `GOPROXY` for you.
-
-**Which method to use.** Cloning does *not* remove the need for a module registry — `go build` still resolves ~30 dependencies, so a clone alone doesn't get you an offline build. Method B helps in the specific case where your registry serves common dependencies but won't resolve `github.com/TTMathCS/g9s` itself — a brand-new repo that isn't cached, or a registry with an approval allowlist. The clone sidesteps that one lookup; the dependencies still come from Artifactory.
-
-**Toolchain gotcha.** `go.mod` requires Go 1.25.0, and the default `GOTOOLCHAIN=auto` will try to download a matching toolchain *through `GOPROXY`* if your local Go is older. On a restricted network that fails with a confusing error. Install Go 1.25+ directly and it never comes up; `go env -w GOTOOLCHAIN=local` makes the attempt fail fast and loudly instead.
-
-### Verify
-
-```sh
-gcloud --version     # any recent version
-go version           # must be 1.25 or newer
-g9s -version         # prints "g9s dev" — the version is only stamped in tagged release builds
-```
-
-If `g9s` isn't found, the `PATH` line above is what's missing. If `g9s` starts and immediately prints `gcloud not found at "gcloud"`, gcloud isn't on the `PATH` of the shell you launched it from — open a new terminal, since profile edits don't apply retroactively.
+On a restricted network, point `GOPROXY` at your internal module registry.
+Cloning the source does not remove the need to fetch the modules in `go.mod`.
 
 ## Quick start
 
 ```sh
-g9s -init          # writes ~/.config/g9s/config.yaml
+g9s -init
 $EDITOR ~/.config/g9s/config.yaml
 g9s
 ```
 
-Start with a single project and add the rest once it works.
-
-On first launch every project shows `○ not logged in`. Select one, press `l`, and gcloud takes over the terminal to run the login. Once it's done you're dropped back into the table.
-
-Nothing needs to be logged in ahead of time, and you don't need to have run gcloud on this machine before — g9s keeps its credentials in its own directory and never reads or writes your global `~/.config/gcloud`. Moving to a new Mac therefore means logging in again; there's no credential state worth copying across, and copying it would defeat the isolation.
-
-### Staying current
-
-```sh
-go install github.com/TTMathCS/g9s/cmd/g9s@latest   # upgrade g9s
-brew upgrade --cask gcloud-cli                      # or: gcloud components update
-```
-
-Use `gcloud components update` for the non-Homebrew install. It doesn't work on the Homebrew cask — brew owns those files and gcloud will tell you so.
-
-## How authentication works
-
-This is the part worth understanding, because it's usually mis-modelled.
-
-**g9s never sees your password.** When you press `l`, it suspends itself and runs `gcloud auth application-default login` with the terminal handed over. gcloud opens your browser; your identity provider's login page — including the password from your PAM checkout and the MFA challenge — is handled entirely by the browser. g9s resumes once gcloud has written the credentials to disk.
-
-If your identity is federated (Entra ID, Okta, or similar), that browser redirect is what carries you to your IdP. There is no way to type an SSO password into a terminal and have Google accept it, and you should be suspicious of any tool that offers to.
-
-**Each project gets its own credential directory.** `g9s` sets `CLOUDSDK_CONFIG` to a per-project path under `credential_dir`, so:
-
-- logging into one project never disturbs another,
-- ten projects with ten different support accounts coexist without `gcloud config configurations` juggling,
-- nothing g9s does mutates your normal `~/.config/gcloud` state.
-
-**Expiry is detected by using the credentials, not by reading a timestamp.** A refresh token your IdP has invalidated looks perfectly healthy on disk. g9s mints a real access token to check, so an expired session shows up as `● expired — press l to re-login` rather than as a confusing API error ten seconds later. With a typical federated session policy you should expect to re-login roughly once a day.
-
-### When the terminal isn't on the machine with the browser
-
-Press `L` instead of `l`. That adds `--no-browser`, which prints a bootstrap command to run on a trusted machine that has both a browser and gcloud; you paste the resulting URL back. It's fiddlier than the local flow, so prefer running g9s on your workstation if you can.
-
-g9s picks that flow for you when it can tell the browser flow cannot work — an SSH session with no local display, where the redirect below would land on your laptop rather than on the machine gcloud is running on.
-
-**gcloud prints a command, not a link.** This is the one thing to get right:
-
-```
-gcloud auth application-default login --remote-bootstrap="https://accounts.google.com/o/oauth2/auth?..."
-```
-
-Run that **whole command** on the machine with the browser — it needs gcloud 372.0.0 or newer there. It opens the browser, you sign in, and it prints a `https://localhost:8085/?state=...&code=...` line that you paste back into g9s.
-
-Do **not** copy the URL out of `--remote-bootstrap=` and open it in a browser. On its own it has no `redirect_uri` — the gcloud on the other machine is what adds one, pointing at its own loopback — so Google answers:
-
-```
-Error 400: invalid_request
-Missing required parameter: redirect_uri
-```
-
-That looks like g9s produced a broken link. It didn't; the URL is half a request until gcloud completes it.
-
-### When nothing involving a browser works
-
-Both gcloud flows end at a loopback redirect — the browser one on this machine, `--no-browser` on whichever machine runs the bootstrap command. If your browser can't reach `localhost` anywhere, neither can complete, and no flag fixes that.
-
-Point g9s at credentials you already have instead:
-
-```yaml
-projects:
-  - name: ny-dev
-    project_id: my-dev-project
-    credentials_file: ~/.config/gcloud/application_default_credentials.json
-```
-
-That is usually the file your normal `gcloud auth application-default login` already wrote, which is why this often needs no new login at all. Set it under `defaults:` to apply to every project.
-
-g9s then only reads that file: `l` stops offering a login it cannot own and tells you to refresh the file yourself. The trade is deliberate — projects sharing one file share one identity, which is exactly the isolation the per-project directories exist to provide, so use it where you need it rather than everywhere.
-
-The manual equivalent, if you would rather keep the isolation, is to copy the file into place. Log in on whichever machine *does* work:
-
-```sh
-gcloud auth application-default login
-```
-
-then copy the file it writes (`~/.config/gcloud/application_default_credentials.json`) to the per-project path g9s reads:
-
-```
-<credential_dir>/<project-name>/application_default_credentials.json
-```
-
-g9s prints that exact path in the `--no-browser` notice, so you can copy it from there. Keep the file `0600`; g9s only ever reads it.
-
-### "I signed in, but g9s is still sitting on the URL"
-
-This is the one login failure that gives you nothing to go on, so it's worth understanding.
-
-`gcloud auth application-default login` starts a web server on `127.0.0.1:<port>` **on the machine running g9s**, then sends your browser to Google with `redirect_uri=http://localhost:<port>/`. Your sign-in and MFA happen at Google and succeed. The last step is your *browser* fetching that `localhost` URL to hand the authorization code back. gcloud waits until that request arrives — and from the browser's side everything already worked, so nothing on screen says otherwise.
-
-Two things stop the redirect arriving:
-
-- **A proxy.** If your browser is configured to send everything through an HTTP proxy, it sends `http://localhost:<port>/` there too, and the proxy can't route it back to your machine. Add `localhost,127.0.0.1,::1` to the browser's proxy bypass list (or `no_proxy`, for a browser that reads it). g9s warns about this before handing over when it sees a proxy in its own environment with no loopback exemption — but it's your browser's settings that decide.
-- **The browser is somewhere else.** Running g9s over SSH, the redirect reaches the laptop you're sitting at, not the host gcloud is on.
-
-Either way: `ctrl+c` to abort, then press `L`. Note that `ctrl+c` reaches g9s too, since gcloud runs in its process group — so you'll be back at a shell prompt and can restart g9s.
-
-**If this is your normal setup, stop pressing `L`:**
-
-```yaml
-defaults:
-  login_no_browser: true
-```
-
-`l` then behaves like `L` every time. That is the right answer behind a proxy you don't control: fighting the bypass list per browser, per profile, per machine is more work than the one extra paste the `--no-browser` flow costs, and it fails in a way that looks like nothing happening. g9s can see a proxy in its own environment, but not in your browser's settings, so it will not make this choice for you.
-
-To confirm it's the environment rather than g9s, run the same command by hand — it will hang in exactly the same place:
-
-```sh
-CLOUDSDK_CONFIG=~/.local/share/g9s/credentials/<project-name> gcloud auth application-default login
-```
+Start with one project. Select it and press `l`; g9s hands the terminal to
+`gcloud auth application-default login` and resumes when login completes.
+Press `L`, or set `defaults.login_no_browser: true`, when the browser cannot
+return to the terminal's loopback address.
 
 ## Configuration
 
-`~/.config/g9s/config.yaml`, or `$G9S_CONFIG`, or `-config <path>`.
+The default file is `~/.config/g9s/config.yaml`. Override it with
+`$G9S_CONFIG` or `g9s -config <path>`.
 
 ```yaml
 defaults:
-  # Swept for region-scoped resources unless a project overrides them.
-  # Keep this tight: every region is another API call on every refresh.
+  # Regional services only scan locations listed here.
   regions:
     - northamerica-northeast1
     - us-central1
 
   credential_dir: ~/.local/share/g9s/credentials
   gcloud_path: gcloud
-  list_timeout: 90s
-
-  # Always use gcloud's --no-browser flow for `l`. Set this behind a proxy —
-  # see "I signed in, but g9s is still sitting on the URL" below.
   login_no_browser: false
-
-  # Read credentials from a file you already have, instead of logging in.
-  # The way through when no browser flow can work at all — see below.
-  #credentials_file: ~/.config/gcloud/application_default_credentials.json
-
-  # How far back the BigQuery jobs table looks. Jobs are kept for six months,
-  # which is far more than a "what is running" table can show, so this window
-  # is what makes that listing a complete answer rather than a truncated one.
+  list_timeout: 90s
   bigquery_job_window: 24h
 
-  # Row caps. Every one of these is optional — omit the block entirely and you
-  # get the defaults below, which are what these numbers used to be when they
-  # were compiled in. See "Row limits".
-  #limits:
-  #  bigquery_jobs: 500                # the jobs table, inside the window above
-  #  dataflow_jobs: 500
-  #  dataproc_jobs_per_region: 200     # per region, so x your region count
-  #  cluster_jobs: 200                 # the per-cluster drill-down
-  #  bigquery_tables: 1000             # one dataset's tables
-  #  dns_record_sets: 1000             # one zone's records
-  #  backend_groups: 40                # bounds *requests*, not rows
-  #  service_account_key_lookups: 200  # one keys.list per account
-  #  kms_key_rings: 100                # one cryptoKeys.list per ring
-
 projects:
-  - name: sandbox                    # label in the picker; names the credential dir
+  - name: sandbox
     project_id: my-sandbox-project
     description: personal access, read-only
 
   - name: prod-data
     project_id: my-prod-data-project
-    account: svc-prod-support@example.com   # passed to gcloud --account
+    account: svc-prod-support@example.com
     regions:
-      - northamerica-northeast1             # overrides defaults.regions
+      - northamerica-northeast1
     composer_locations:
-      - us-central1                         # overrides both, for Composer only
+      - us-central1
 ```
 
-Region resolution runs most-specific-first: `projects[].composer_locations` → `projects[].regions` → `defaults.composer_locations` → `defaults.regions`. Dataproc works the same way via `dataproc_regions`, and always includes the `global` region, which is easy to forget and does hold clusters.
+Project settings override defaults. Dataproc and KMS always include `global`.
+Unknown YAML keys are errors. An existing ADC file can be selected with
+`credentials_file` when no interactive browser flow works. See
+[config.example.yaml](config.example.yaml) for the annotated configuration.
 
-Unknown keys are an error rather than a silent default, so a typo'd `regionz:` tells you instead of quietly scanning nothing.
+### Row and request limits
 
-### Row limits
-
-Nine listings stop at a row cap. The caps exist because a table nobody can scroll to the end of is no more useful than a truncated one, and because a few of them bound *requests* rather than rows — but the number was the tool's opinion, compiled in, and a project big enough to hit one was simply stuck. It is now a setting.
+Omitted or `0` uses the default. A positive number sets a custom cap; `-1`
+removes it. The footer warns whenever a listing reaches its cap.
 
 | Key | Default | Bounds |
-|---|---|---|
-| `bigquery_jobs` | 500 | rows, inside `bigquery_job_window` |
-| `dataflow_jobs` | 500 | rows |
-| `dataproc_jobs_per_region` | 200 | rows **per region** — the table holds this × your region count |
-| `cluster_jobs` | 200 | rows, in the per-cluster drill-down |
-| `bigquery_tables` | 1000 | rows, per dataset |
-| `dns_record_sets` | 1000 | rows, per zone |
-| `backend_groups` | 40 | **requests** — one `getHealth` per group, so raising it costs latency |
-| `service_account_key_lookups` | 200 | **requests** — one `keys.list` per account |
-| `kms_key_rings` | 100 | **requests** — one `cryptoKeys.list` per ring, per location |
-
-Three values, and the difference matters:
-
-- **omitted, or `0`** — the default above. An absent key and a mistyped one both decode to zero, which is exactly why zero cannot mean "unlimited".
-- **a positive number** — that cap. Lowering one is as reasonable as raising it: a slow link is a good reason to fetch fewer rows.
-- **`-1`** — no cap at all. This is a real choice with real consequences — a zone with 90,000 record sets will fetch all 90,000, and a `-1` on one of the three request-bound limits multiplies round trips rather than memory. It has to be asked for explicitly, which is why an empty field does not mean it.
+|---|---:|---|
+| `bigquery_jobs` | 500 | Rows inside `bigquery_job_window` |
+| `dataflow_jobs` | 500 | Rows |
+| `dataproc_jobs_per_region` | 200 | Rows per region |
+| `cluster_jobs` | 200 | Rows per cluster |
+| `bigquery_tables` | 1,000 | Rows per dataset |
+| `dns_record_sets` | 1,000 | Rows per zone |
+| `backend_groups` | 40 | Requests: one health call per group |
+| `service_account_key_lookups` | 200 | Requests: one key-list call per account |
+| `kms_key_rings` | 100 | Requests per location |
 
 ```yaml
 defaults:
   limits:
-    bigquery_jobs: 5000     # a busy warehouse
-    dns_record_sets: -1     # every record, however many there are
-    backend_groups: 10      # fewer round trips per drill-down
+    bigquery_jobs: 5000
+    dns_record_sets: -1
+    backend_groups: 10
 ```
-
-Two limits are **not** settings and will not become ones. Secret Manager and KMS return metadata only — never a secret value, never key material. `gcloud secrets versions access` exists, is audit-logged, and is the right way to read a secret; a TUI that renders one into a scrollback buffer is not. A test fails the build if either lister ever calls the API that would return one.
 
 ## Keys
 
-The bindings follow k9s muscle memory where the two tools overlap: `:` jumps by name, `d` describes, `s` opens a shell (here: SSH), `/` filters, and `q`/`esc` back out one level rather than quitting.
-
 | Key | Action |
 |---|---|
-| `↑`/`k`, `↓`/`j` | move cursor |
-| `g` / `G` | top / bottom |
-| `enter` | go in — dashboard: open the category · table: the row's own listing where it has one (node pools, records, backends, databases…), otherwise describe |
-| `d` | describe the selected resource (YAML, as `gcloud describe` shows it) — always, including on a row `enter` drills into |
-| `:` | command — `:vm` `:gke` `:sa` `:dataflow` `:topics` `:run` `:all` `:projects` `:q` (prefixes work: `:data`) |
-| `1`–`9`, then `b c e f h i m n t u v w x z` | jump straight to a resource kind — one key each, printed beside the kind on the dashboard and in the tab strip |
-| `0` / `a` | all resources — every kind in one table |
-| `tab` / `shift+tab` | cycle resource kinds — or, inside a drill-down offering more than one listing, cycle those |
-| `q` / `esc` | back up one level — drill-down to its table, table to dashboard, dashboard to projects |
-| `p` | back to the project list |
-| `/` | filter rows; `esc` clears |
-| `r` | refresh current kind — every kind when on the dashboard |
-| `o` | open — Airflow UI for Composer, Cloud Console otherwise |
-| `y` | copy name to clipboard (OSC 52, works over SSH) |
-| `s` | SSH to the selected running VM |
-| `l` / `L` | log in / log in without a local browser |
-| `?` | help |
-| `ctrl+c` / `:q` | quit — or `q` from the project list |
+| `↑`/`k`, `↓`/`j`, `g`/`G` | Move; jump to top or bottom |
+| `enter` | Open a dashboard kind or the selected row's drill-down; otherwise describe |
+| `d` | Always describe the selected resource as YAML |
+| Displayed hotkey | Open that resource kind directly |
+| `0` / `a` | Open **All Resources** |
+| `tab` / `shift+tab`, `]` / `[` | Cycle kinds or sibling drill-downs |
+| `:` | Command mode; for example `:vm`, `:gke`, `:sa`, `:all`, `:projects`, `:q` |
+| `/` | Filter rows; `esc` clears |
+| `r` | Refresh the current kind, all dashboard kinds, or selected credential |
+| `o` | Open Airflow for Composer; Cloud Console otherwise |
+| `y` | Copy the resource name; from detail view, copy YAML |
+| `s` | SSH to a selected running VM |
+| `l` / `L` | Login with or without a local browser |
+| `q` / `esc` | Back one level |
+| `p` | Return to projects |
+| `?` | Help |
+| `ctrl+c` / `:q` | Quit |
 
-## Partial results are shown as partial
+## Authentication and safety
 
-With a least-privilege account, some regions and some APIs will refuse you. A tool that discards the whole refresh because one of ten regions returned 403 is useless, and one that silently drops it is worse — an empty table reads as "nothing is running here."
+g9s never receives a password. During login, gcloud owns the terminal and the
+browser or identity provider handles password and MFA.
 
-So listers return whatever succeeded plus a warning per failed scope, and the footer says so:
+Each project uses its own `CLOUDSDK_CONFIG` directory, so switching projects
+does not change `~/.config/gcloud`. Credential expiry is checked with a live
+token exchange. Resource discovery uses typed Google clients; gcloud is used
+only for login and SSH.
 
-```
+All GCP API calls are currently read-only. API-supplied control characters are
+removed before rendering, and sensitive fields returned inside otherwise
+ordinary resources are redacted before YAML reaches the terminal or clipboard.
+See [SECURITY.md](SECURITY.md) for the full threat model.
+
+## Partial and bounded results
+
+When one region fails, g9s keeps successful rows and reports the failed scope:
+
+```text
 ⚠ 2 warnings: europe-west1: permission denied; us-east4: permission denied
 ```
 
-An unreachable scope is the common case but not the only one. A listing bounded on purpose reports itself the same way, because a bounded list that looks complete is the same failure:
+When a configurable cap is reached, it is reported the same way:
 
-```
-⚠ 1 warning: only the 500 most recent jobs are shown — narrow defaults.bigquery_job_window for a complete list
-```
-
-Errors that are *expected* rather than informative — the API simply isn't enabled in that region, or the region doesn't exist — are suppressed, or the footer would be permanently full of noise.
-
-## Adding a resource kind
-
-Implement `gcp.Lister` in a new file under `internal/gcp` and add it to `Listers()`:
-
-```go
-type Lister interface {
-	Kind() Kind
-	List(ctx context.Context, cfg *config.Config, p config.Project, opts []option.ClientOption) (Result, error)
-}
+```text
+⚠ 1 warning: only the 500 most recent jobs are shown
 ```
 
-Use `fanOut` for anything region-scoped; it handles the concurrency, the partial-failure collection and the stable ordering. `internal/gcp/dataproc.go` is the shortest example.
+Keep configured region lists accurate. A regional resource in a location that
+was never requested cannot be discovered.
 
-Two things the UI relies on, both covered by tests: your `Resource.Row` must have exactly as many cells as `Kind.Columns`, and there has to be a hotkey left for your kind. The key run in `internal/ui/hotkeys.go` holds forty-seven — `TestEveryKindStillHasAKey` fails the moment a kind falls off the end, rather than letting it become reachable only by typing a command. Before adding one, check it isn't really a [drill-down](#or-a-drill-down-which-needs-no-key): anything that belongs to a parent row reads better there and costs no key.
+## Development
 
-If the raw object your lister puts in `Resource.Raw` carries a secret — an API that returns a key, a password, a token — add its field name to `secretFields` in `internal/ui/commands.go`. The detail pane renders `Raw` in full, and `y` copies it.
+Top-level kinds implement `gcp.Lister` and register in `Listers()`.
+Resources belonging to one parent row implement `gcp.ChildLister` and
+register in `Children()`. The UI discovers both registries automatically.
 
-### Or a drill-down, which needs no key
-
-If what you are adding belongs to one parent row rather than to the project — a cluster's node pools, an account's keys, a zone's record sets — implement `gcp.ChildLister` instead and add it to `Children()`:
-
-```go
-type ChildLister interface {
-	Kind() Kind
-	ParentKind() string // the Kind.ID it hangs off
-	List(ctx context.Context, cfg *config.Config, p config.Project, parent Resource, opts []option.ClientOption) (Result, error)
-}
+```sh
+gofmt -w .
+go vet ./...
+go test -race ./...
+go build ./...
 ```
-
-`enter` on a matching row opens it. There is nothing to register in the UI and no hotkey to find — which is why this, and not a twenty-fourth tab, is the shape everything new should take from here.
-
-Register more than one against the same `ParentKind()` and `tab` moves between them inside the drill; the trail shows them side by side, each with its own count. Cloud SQL does this — an instance holds databases and users, and neither is beneath the other.
-
-Check `parent.Raw` before writing a call: the parent listing has often fetched the children already, and node pools and service account keys both come straight off it for free. When it has not, fetch — an expensive answer is a *reason* to make something a drill-down rather than a column, because it gets paid once on the row someone asked about instead of on every row of every refresh. Backend health walks four resources per forwarding rule on exactly that basis.
-
-## Design notes
-
-**Why not shell out to `gcloud ... --format=json`?** It's the fast way to build this and it handles auth for free, but each invocation is a ~1–2s Python cold start. Across a fan-out of a dozen regions the UI would feel dead. g9s uses gcloud only where a human is involved — login and SSH — and talks to the APIs directly everywhere else.
-
-**Why is Dataproc the awkward one?** Its endpoint is regional. A request for `us-central1` sent to the default endpoint returns *nothing* rather than an error, so each region needs its own client pointed at `<region>-dataproc.googleapis.com`. Composer is location-scoped through the request parent instead, so one client covers every location. Compute needs no fan-out at all — `aggregatedList` returns every zone in one call.
-
-**Why a quota project?** Application default credentials minted from a user account have no project of their own, and most APIs reject the call outright without one attached. g9s sets it on every client.
-
-## Security
-
-g9s never sees your password, never writes a credential, and issues no mutating API call — every request is a `List` or a `Get`. Credentials are isolated per project under a `0700` directory, and the config file is refused if anyone else can write it — or write the directory holding it — since `gcloud_path` decides which binary gets executed.
-
-Two things worth knowing about what reaches your terminal. Secrets that GCP returns inside otherwise ordinary objects — a VPN tunnel's IPsec pre-shared key, a GKE cluster's client private key — are redacted from the detail pane rather than printed into your scrollback and copied by `y`. And every API-supplied string is stripped of control characters before rendering, so a resource name cannot carry an escape sequence into a terminal that would act on it.
-
-**[SECURITY.md](SECURITY.md)** covers the threat model, what the tool can reach and run, the findings from the code reviews (with the paths examined and cleared), and the dependency posture. CI runs `govulncheck ./...` on every push.
 
 ## License
 
-MIT
+[MIT](LICENSE)
