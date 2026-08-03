@@ -193,10 +193,10 @@ func (a *AssistedLogin) Cancel() {
 // redirects, so a hostile paste cannot turn this into a request to anywhere
 // else. The worst a bad paste can do is knock on gcloud's own listener, which
 // rejects a wrong state token itself.
-func (a *AssistedLogin) Deliver(pasted string) error {
+func (a *AssistedLogin) Deliver(pasted string) (carriedCode bool, err error) {
 	s := strings.TrimSpace(pasted)
 	if s == "" {
-		return errors.New("paste the full address from the browser's address bar")
+		return false, errors.New("paste the full address from the browser's address bar")
 	}
 
 	// Anything that is not an absolute URL gets the same guidance, whether the
@@ -205,24 +205,32 @@ func (a *AssistedLogin) Deliver(pasted string) error {
 	// URL parser thought of their paste.
 	u, err := url.Parse(s)
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return errors.New("that is not an address — copy everything in the stuck tab's address bar, starting with http://localhost")
+		return false, errors.New("that is not an address — copy everything in the stuck tab's address bar, starting with http://localhost")
 	}
 
 	// The natural mistake, caught by name: pasting the sign-in link back
 	// instead of the address the browser ended at.
 	host := strings.ToLower(u.Hostname())
 	if strings.HasSuffix(host, "google.com") {
-		return errors.New("that is the sign-in link itself — paste the localhost address the browser shows AFTER signing in")
+		return false, errors.New("that is the sign-in link itself — paste the localhost address the browser shows AFTER signing in")
 	}
 	if u.Scheme != "http" || (host != "localhost" && host != "127.0.0.1" && host != "::1") {
-		return errors.New("the address to paste starts with http://localhost — copy the whole address bar from the stuck tab")
+		return false, errors.New("the address to paste starts with http://localhost — copy the whole address bar from the stuck tab")
 	}
-	if port := u.Port(); port != a.port {
-		return fmt.Errorf("gcloud is listening on port %s but this address points at port %s — copy the address from the tab from THIS login attempt", a.port, port)
+	switch port := u.Port(); {
+	case port == "":
+		// A URL with no port at all reads as a different mistake from one with
+		// the wrong port, and "points at port " with nothing after it is not a
+		// sentence.
+		return false, fmt.Errorf("that address has no port — gcloud is listening on %s, so the address should start http://localhost:%s/", a.port, a.port)
+	case port != a.port:
+		return false, fmt.Errorf("gcloud is listening on port %s but this address points at port %s — copy the address from the tab from THIS login attempt", a.port, port)
 	}
+
 	q := u.Query()
-	if q.Get("code") == "" && q.Get("error") == "" {
-		return errors.New("this address carries no authorization code — copy the FULL address, including everything after the ?")
+	carriedCode = q.Get("code") != ""
+	if !carriedCode && q.Get("error") == "" {
+		return false, errors.New("this address carries no authorization code — copy the FULL address, including everything after the ?")
 	}
 
 	// Pinned to the literal loopback IP: "localhost" is resolved by whatever
@@ -244,11 +252,11 @@ func (a *AssistedLogin) Deliver(pasted string) error {
 	}
 	resp, err := client.Get(target.String())
 	if err != nil {
-		return fmt.Errorf("could not hand the code to gcloud's listener: %v", err)
+		return false, fmt.Errorf("could not hand the code to gcloud's listener: %v", err)
 	}
 	defer resp.Body.Close()
 	io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
-	return nil
+	return carriedCode, nil
 }
 
 // authURLScanner watches gcloud's output for the authorization URL.

@@ -120,7 +120,7 @@ func TestDeliverRejectsEverythingButTheStuckTabsAddress(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := a.Deliver(tc.pasted)
+			_, err := a.Deliver(tc.pasted)
 			if err == nil {
 				t.Fatalf("Deliver(%q) succeeded; it must refuse to send this anywhere", tc.pasted)
 			}
@@ -148,8 +148,12 @@ func TestDeliverPerformsTheLoopbackRequestTheBrowserCouldNot(t *testing.T) {
 	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
 
 	pasted := fmt.Sprintf("http://localhost:%d/?state=fake-state&code=4/0AbCdEf", port)
-	if err := a.Deliver(pasted); err != nil {
+	carriedCode, err := a.Deliver(pasted)
+	if err != nil {
 		t.Fatalf("Deliver: %v", err)
+	}
+	if !carriedCode {
+		t.Error("a redirect carrying code= was not reported as carrying a code")
 	}
 
 	select {
@@ -232,8 +236,12 @@ func TestAssistedLoginEndToEnd(t *testing.T) {
 
 	// What the browser's address bar shows when the loopback fetch fails.
 	pasted := fmt.Sprintf("http://localhost:%s/?state=%s&code=4/0AfakeCode", a.port, state)
-	if err := a.Deliver(pasted); err != nil {
+	carriedCode, err := a.Deliver(pasted)
+	if err != nil {
 		t.Fatalf("Deliver: %v", err)
+	}
+	if !carriedCode {
+		t.Error("a redirect carrying code= was not reported as carrying a code")
 	}
 
 	select {
@@ -279,5 +287,49 @@ func TestAssistedLoginReportsAGcloudThatDiesEarly(t *testing.T) {
 	// The error carries gcloud's own words so the fallback path can diagnose.
 	if !strings.Contains(err.Error(), "something broke early") {
 		t.Errorf("error does not carry gcloud's output: %v", err)
+	}
+}
+
+// A browser that ends on ?error=... has a real answer to give — consent
+// declined, or an org policy refusing the client — and forwarding it is what
+// lets gcloud stop instead of waiting. But it is not a code, and reporting it
+// as one would tell the user their login is finishing while it is failing.
+func TestDeliverDistinguishesAnErrorRedirectFromACode(t *testing.T) {
+	received := make(chan struct{}, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		received <- struct{}{}
+	}))
+	defer srv.Close()
+
+	port := srv.Listener.Addr().(*net.TCPAddr).Port
+	a := stuckLogin(fmt.Sprint(port))
+
+	carriedCode, err := a.Deliver(fmt.Sprintf("http://localhost:%d/?error=access_denied", port))
+	if err != nil {
+		t.Fatalf("Deliver refused an error redirect: %v", err)
+	}
+	if carriedCode {
+		t.Error("an ?error= redirect was reported as carrying an authorization code")
+	}
+	select {
+	case <-received:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the error redirect was never forwarded, so gcloud would keep waiting")
+	}
+}
+
+// A missing port is a different mistake from a wrong one, and the message for
+// it must not read as a sentence with a hole in it.
+func TestDeliverNamesAMissingPortWithoutAGap(t *testing.T) {
+	a := stuckLogin("8085")
+	_, err := a.Deliver("http://localhost/?state=s&code=abc")
+	if err == nil {
+		t.Fatal("an address with no port was accepted")
+	}
+	if strings.Contains(err.Error(), "port  ") || strings.HasSuffix(err.Error(), "port ") {
+		t.Errorf("message has an empty port in it: %q", err)
+	}
+	if !strings.Contains(err.Error(), "8085") {
+		t.Errorf("message does not say which port to use: %q", err)
 	}
 }

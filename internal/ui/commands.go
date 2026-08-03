@@ -184,8 +184,19 @@ func awaitAssisted(login *auth.AssistedLogin) tea.Cmd {
 // reports the real outcome.
 func deliverCode(login *auth.AssistedLogin, pasted string) tea.Cmd {
 	return func() tea.Msg {
-		if err := login.Deliver(pasted); err != nil {
+		carriedCode, err := login.Deliver(pasted)
+		if err != nil {
 			return flashMsg{text: err.Error(), level: flashError}
+		}
+		if !carriedCode {
+			// The address carried an OAuth error rather than a code — consent
+			// declined, or an org policy refusing the client. Forwarding it is
+			// still right, because it is what lets gcloud stop instead of
+			// waiting; calling that "finishing the login" would not be.
+			return flashMsg{
+				text:  "the browser reported an error rather than a code — gcloud will stop; the reason is on that tab",
+				level: flashWarn,
+			}
 		}
 		return flashMsg{text: "code delivered — gcloud is finishing the login", level: flashInfo}
 	}

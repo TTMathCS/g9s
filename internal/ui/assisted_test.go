@@ -130,3 +130,41 @@ func TestStaleAssistedStartIsDroppedNotAdopted(t *testing.T) {
 		t.Errorf("screen = %v, a stale start must not move the screen", m.screen)
 	}
 }
+
+// The fallback has to be a flow that can finish. When the assisted start
+// fails on a host whose browser proxies localhost, handing over to the
+// ordinary browser flow returns the user to the original bug: the sign-in
+// succeeds, the redirect never arrives, and gcloud waits forever with no way
+// out but ctrl+c. The --no-browser flow needs another machine, but it ends.
+func TestFallbackAvoidsTheFlowThatHangsBehindAProxy(t *testing.T) {
+	cfg := &config.Config{Projects: []config.Project{{Name: "sandbox", ProjectID: "s-1"}}}
+	m := New(cfg, nil)
+	p := cfg.Projects[0]
+
+	t.Run("proxy that does not exempt loopback", func(t *testing.T) {
+		t.Setenv("HTTPS_PROXY", "http://proxy.corp:8080")
+		t.Setenv("https_proxy", "http://proxy.corp:8080")
+		t.Setenv("NO_PROXY", "")
+		t.Setenv("no_proxy", "")
+
+		if !auth.ProxyMayBlockLoopback() {
+			t.Fatal("setup: the proxy hint did not fire, so this proves nothing")
+		}
+		if !m.fallbackNoBrowser(p) {
+			t.Error("fell back to the browser flow on a host where its last step cannot complete")
+		}
+	})
+
+	t.Run("loopback exempted", func(t *testing.T) {
+		t.Setenv("HTTPS_PROXY", "http://proxy.corp:8080")
+		t.Setenv("https_proxy", "http://proxy.corp:8080")
+		t.Setenv("NO_PROXY", "localhost,127.0.0.1,::1")
+		t.Setenv("no_proxy", "localhost,127.0.0.1,::1")
+
+		// A proxy that exempts loopback breaks nothing, and forcing the
+		// --no-browser flow there would demand a second machine for no reason.
+		if m.fallbackNoBrowser(p) {
+			t.Error("forced the no-browser flow on a host whose loopback is exempt")
+		}
+	})
+}

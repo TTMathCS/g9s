@@ -427,10 +427,14 @@ func (m Model) handleAssistedLogin(msg assistedLoginMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		return m, tea.Batch(
-			flash("assisted login unavailable ("+truncate(msg.err.Error(), 80)+") — handing the terminal to gcloud", flashWarn),
-			login(m.auth, p, false),
-		)
+		noBrowser := m.fallbackNoBrowser(p)
+		notice := "assisted login unavailable (" + truncate(msg.err.Error(), 70) + ")"
+		if noBrowser {
+			notice += " — using the no-browser flow"
+		} else {
+			notice += " — handing the terminal to gcloud"
+		}
+		return m, tea.Batch(flash(notice, flashWarn), login(m.auth, p, noBrowser))
 	}
 
 	m.assisted = msg.login
@@ -927,6 +931,26 @@ func (m Model) handleLoginKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.loginInput, cmd = m.loginInput.Update(msg)
 	return m, cmd
+}
+
+// fallbackNoBrowser reports whether the terminal handover, used when the
+// assisted flow cannot start, should take the --no-browser path.
+//
+// Which handover matters more than it looks. The ordinary browser flow ends
+// with the browser fetching http://localhost on this machine, and on a host
+// where that request is proxied away it does not fail — it waits, forever,
+// having already signed in. Falling back to it on exactly the machines the
+// assisted flow exists for would return the user to the original bug with no
+// way out but ctrl+c. So where there is reason to believe loopback will not
+// come back, hand over to --no-browser instead: it needs another machine, but
+// it ends.
+//
+// The proxy hint is only consulted here, not in loginNoBrowser. A proxied
+// loopback is no obstacle to the assisted flow — routing around it is what
+// that flow is for — so it must not push the ordinary path off the browser
+// flow it handles perfectly well.
+func (m Model) fallbackNoBrowser(p config.Project) bool {
+	return m.loginNoBrowser(p) || auth.ProxyMayBlockLoopback()
 }
 
 // loginNoBrowser reports whether a login for this project takes the
