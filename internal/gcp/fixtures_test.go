@@ -8,6 +8,7 @@ import (
 	"cloud.google.com/go/dataproc/v2/apiv1/dataprocpb"
 	"cloud.google.com/go/orchestration/airflow/service/apiv1/servicepb"
 	"cloud.google.com/go/storage"
+	artifactregistry "google.golang.org/api/artifactregistry/v1"
 	bigquery "google.golang.org/api/bigquery/v2"
 	cloudfunctions "google.golang.org/api/cloudfunctions/v2"
 	cloudkms "google.golang.org/api/cloudkms/v1"
@@ -17,8 +18,10 @@ import (
 	dns "google.golang.org/api/dns/v1"
 	iam "google.golang.org/api/iam/v1"
 	pubsub "google.golang.org/api/pubsub/v1"
+	redis "google.golang.org/api/redis/v1"
 	run "google.golang.org/api/run/v2"
 	secretmanager "google.golang.org/api/secretmanager/v1"
+	spanner "google.golang.org/api/spanner/v1"
 	sqladmin "google.golang.org/api/sqladmin/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -653,10 +656,10 @@ func testRouter() *compute.Router {
 		Interfaces:        []*compute.RouterInterface{{Name: "onprem-vlan"}},
 		CreationTimestamp: time.Now().Add(-320 * 24 * time.Hour).Format(time.RFC3339),
 		Nats: []*compute.RouterNat{{
-			Name:                         "prod-egress",
-			Type:                         "PUBLIC",
-			NatIpAllocateOption:          "MANUAL_ONLY",
-			NatIps:                       []string{"https://www.googleapis.com/compute/v1/projects/sandbox-123/regions/us-central1/addresses/nat-egress-1"},
+			Name:                          "prod-egress",
+			Type:                          "PUBLIC",
+			NatIpAllocateOption:           "MANUAL_ONLY",
+			NatIps:                        []string{"https://www.googleapis.com/compute/v1/projects/sandbox-123/regions/us-central1/addresses/nat-egress-1"},
 			SourceSubnetworkIpRangesToNat: "LIST_OF_SUBNETWORKS",
 			Subnetworks: []*compute.RouterNatSubnetworkToNat{{
 				Name: "https://www.googleapis.com/compute/v1/projects/sandbox-123/regions/us-central1/subnetworks/prod-us-central1",
@@ -726,5 +729,56 @@ func testSchedulerJob() *cloudscheduler.Job {
 			Uri:        "https://api.internal.example.com/jobs/rollup",
 			HttpMethod: "POST",
 		},
+	}
+}
+
+// testRepository has no cleanup policy, which is the finding this kind exists
+// to surface: a registry nothing prunes grows until someone reads the bill.
+func testRepository() *artifactregistry.Repository {
+	return &artifactregistry.Repository{
+		Name:       "projects/sandbox-123/locations/us-central1/repositories/service-images",
+		Format:     "DOCKER",
+		Mode:       "STANDARD_REPOSITORY",
+		SizeBytes:  412 * 1024 * 1024 * 1024,
+		CreateTime: time.Now().Add(-500 * 24 * time.Hour).Format(time.RFC3339),
+		UpdateTime: time.Now().Add(-30 * time.Hour).Format(time.RFC3339),
+	}
+}
+
+// testRedisInstance is standard-tier with AUTH on — the healthy case, so a test
+// asserting a finding has to build one rather than inherit it.
+func testRedisInstance() *redis.Instance {
+	return &redis.Instance{
+		Name:         "projects/sandbox-123/locations/us-central1/instances/session-cache",
+		Tier:         "STANDARD_HA",
+		MemorySizeGb: 16,
+		RedisVersion: "REDIS_7_0",
+		AuthEnabled:  true,
+		State:        "READY",
+		Host:         "10.0.0.3",
+	}
+}
+
+// testSpannerInstance is sized in processing units rather than nodes, which is
+// the half of the capacity problem that reads as a tiny instance.
+func testSpannerInstance() *spanner.Instance {
+	return &spanner.Instance{
+		Name:            "projects/sandbox-123/instances/orders-prod",
+		Config:          "projects/sandbox-123/instanceConfigs/regional-us-central1",
+		ProcessingUnits: 3000,
+		Edition:         "ENTERPRISE",
+		State:           "READY",
+	}
+}
+
+// testSpannerDatabase has drop protection off, which is the default and the
+// finding.
+func testSpannerDatabase() *spanner.Database {
+	return &spanner.Database{
+		Name:                   "projects/sandbox-123/instances/orders-prod/databases/orders",
+		State:                  "READY",
+		DatabaseDialect:        "GOOGLE_STANDARD_SQL",
+		VersionRetentionPeriod: "1h",
+		EnableDropProtection:   false,
 	}
 }

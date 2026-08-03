@@ -138,7 +138,7 @@ func TestStorageObjectLoadMoreAppendsAndKeepsContinuation(t *testing.T) {
 		token:      token,
 		appendPage: true,
 		result: gcp.Result{
-			Resources:    []gcp.Resource{{Name: "third.txt", Row: []string{"third.txt", "object", "1B", "STANDARD", "1m", "2"}}},
+			Resources:     []gcp.Resource{{Name: "third.txt", Row: []string{"third.txt", "object", "1B", "STANDARD", "1m", "2"}}},
 			NextPageToken: "page-3",
 		},
 	})

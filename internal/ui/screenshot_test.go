@@ -198,6 +198,15 @@ func resourcesShot() Model {
 	m.cache["gcs"] = gcp.Result{
 		Resources: statusOnly(kindByID("gcs"), map[string]int{"ACTIVE": 5}),
 	}
+	m.cache["spanner"] = gcp.Result{
+		Resources: statusOnly(kindByID("spanner"), map[string]int{"READY": 2}),
+	}
+	m.cache["redis"] = gcp.Result{
+		Resources: statusOnly(kindByID("redis"), map[string]int{"READY": 3, "NO_REPLICA": 1}),
+	}
+	m.cache["artifacts"] = gcp.Result{
+		Resources: statusOnly(kindByID("artifacts"), map[string]int{"ACTIVE": 4, "NO_CLEANUP": 2}),
+	}
 	m.cache["kms"] = gcp.Result{
 		Resources: statusOnly(kindByID("kms"), map[string]int{"ENABLED": 9, "ROTATION_OFF": 2}),
 	}
@@ -313,6 +322,15 @@ func dashboardShot() Model {
 	}
 	m.cache["gcs"] = gcp.Result{
 		Resources: statusOnly(kindByID("gcs"), map[string]int{"ACTIVE": 5}),
+	}
+	m.cache["spanner"] = gcp.Result{
+		Resources: statusOnly(kindByID("spanner"), map[string]int{"READY": 2}),
+	}
+	m.cache["redis"] = gcp.Result{
+		Resources: statusOnly(kindByID("redis"), map[string]int{"READY": 3, "NO_REPLICA": 1}),
+	}
+	m.cache["artifacts"] = gcp.Result{
+		Resources: statusOnly(kindByID("artifacts"), map[string]int{"ACTIVE": 4, "NO_CLEANUP": 2}),
 	}
 	m.cache["kms"] = gcp.Result{
 		Resources: statusOnly(kindByID("kms"), map[string]int{"ENABLED": 9, "ROTATION_OFF": 2}),

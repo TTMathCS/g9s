@@ -4,8 +4,8 @@ A k9s-style terminal console for Google Cloud. Switch between projects and
 accounts, inspect resources, and navigate related resources without changing
 your global gcloud configuration.
 
-> **Current maturity:** read-only MVP. The source contains 34 top-level
-> resource kinds and 19 drill-down listings. SSH to a running VM is the only
+> **Current maturity:** read-only MVP. The source contains 37 top-level
+> resource kinds and 20 drill-down listings. SSH to a running VM is the only
 > interactive resource operation; mutating API actions are not implemented.
 
 ## At a glance
@@ -82,14 +82,14 @@ drill-down opened from a parent row.
 |  | **Dataflow** → Jobs | Top-level | 🟡 Implemented, bounded | 500 rows by default; API aggregates locations |
 |  | **Cloud Composer** → Environments | Top-level | ✅ Implemented | Listed per configured location |
 |  | **Bigtable** → Instances | — | ⬜ Candidate | Not implemented |
-|  | **Spanner** → Instances | — | ⬜ Candidate | Not implemented |
-|  | ↳ Databases | Instance drill-down | ⬜ Candidate | Not implemented |
-|  | **Memorystore** → Redis instances | — | ⬜ Candidate | Not implemented |
+|  | **Spanner** → Instances | Top-level | ✅ Implemented | One global call. Capacity normalised to processing units with the node equivalent, so an instance sized in nodes and one sized in PU are comparable |
+|  | ↳ Databases | Instance drill-down | ✅ Implemented | Leads with drop protection, which is off by default and is the only guard against a one-command deletion |
+|  | **Memorystore** → Redis instances | Top-level | ✅ Implemented | One call; the API aggregates every region. Flags basic tier (single node, no failover) and AUTH left off |
 |  | **Memorystore** → Memcached instances | — | ⬜ Candidate | Not implemented |
 |  | **Firestore** → Databases | — | ⬜ Candidate | Not implemented |
 |  | **Datastream** → Streams | — | ⬜ Candidate | Not implemented |
 |  | **Data Fusion** → Instances | — | ⬜ Candidate | Not implemented |
-|  | **Artifact Registry** → Repositories | — | ⬜ Candidate | Not implemented |
+|  | **Artifact Registry** → Repositories | Top-level | ✅ Implemented | Listed per configured region. Size and cleanup policy on the row, because a registry nothing prunes grows until someone reads the bill |
 | Databases | **Cloud SQL** → Instances | Top-level | ✅ Implemented | Includes version, tier, HA and unreachable-region warnings |
 |  | ↳ Databases | Instance drill-down | ✅ Implemented | One of two sibling listings |
 |  | ↳ Users | Instance drill-down | ✅ Implemented | Includes disabled state; `tab` switches siblings |

@@ -134,6 +134,15 @@ func TestHotkeyIsShownBesideEveryKind(t *testing.T) {
 	m := hotkeyModel(t)
 	m.screen = screenOverview
 
+	// Tall enough that every row renders at once. The dashboard scrolls, so a
+	// fixed height silently turns this into "the first N kinds have keys" — it
+	// did exactly that once the kind count passed the window size, and the row
+	// it hid was All Resources, the last one. Derived from the kind count so
+	// the next kind added cannot reintroduce it.
+	for m.bodyHeight() < len(m.tabs()) {
+		m.height += 8
+	}
+
 	dashboard := m.overviewView()
 	for i, kind := range m.tabs() {
 		want := m.tabKey(i) + " " + kind.Title

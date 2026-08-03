@@ -166,7 +166,7 @@ type snapshotAggregatedList struct {
 
 type snapshotScopedList struct {
 	Snapshots []*compute.Snapshot `json:"snapshots"`
-	Warning   *computeWarning      `json:"warning"`
+	Warning   *computeWarning     `json:"warning"`
 }
 
 type computeWarning struct {

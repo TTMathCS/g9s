@@ -125,7 +125,20 @@ func statusStyle(status string) lipgloss.Style {
 		"PAUSED",
 		// An IAM binding with a condition is a real grant, but only while its
 		// expression holds. Amber keeps it distinct from unconditional access.
-		"CONDITIONAL":
+		"CONDITIONAL",
+		// An Artifact Registry repository nothing prunes, or one whose cleanup
+		// policy is configured, reads as configured, and deletes nothing. Every
+		// CI build pushes an image, and the bill grows where nobody looks.
+		"NO_CLEANUP", "CLEANUP_DRY_RUN",
+		// A basic-tier Memorystore instance: one node, no replica, no failover.
+		// Working exactly as designed, and a surprise to whoever put state in it.
+		"NO_REPLICA",
+		// Memorystore with AUTH off. Reachable only inside the VPC, which is
+		// why it gets left off — and why it trusts every workload on it.
+		"NO_AUTH",
+		// A Spanner database with drop protection off: the default, and the
+		// only thing standing between it and a one-command deletion.
+		"NO_DROP_PROTECTION":
 		return warnStyle
 	case "ERROR", "FAILED", "TERMINATED", "STOPPED", "SUSPENDED", "UNHEALTHY", "DEGRADED",
 		// Compute routes rejected by their backend or dropped at a route limit.
