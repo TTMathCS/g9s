@@ -23,12 +23,25 @@ func (m Model) bodyHeight() int {
 	return h
 }
 
+// The smallest terminal the tables can say anything useful in. Below this the
+// column widths collapse past the point where a row carries information, and
+// the composed view runs wider and taller than the screen — which on the
+// alternate screen does not clip, it scrolls, leaving a display that stays
+// corrupted after the terminal grows back.
+const (
+	minWidth  = 40
+	minHeight = 10
+)
+
 func (m Model) View() string {
 	if m.quitting {
 		return ""
 	}
 	if m.width == 0 {
 		return "starting…"
+	}
+	if m.width < minWidth || m.height < minHeight {
+		return m.tooSmallView()
 	}
 
 	var body string
@@ -47,7 +60,59 @@ func (m Model) View() string {
 		body = m.loginView()
 	}
 
-	return strings.Join([]string{m.headerView(), body, m.footerView()}, "\n")
+	return clampHeight(strings.Join([]string{m.headerView(), body, m.footerView()}, "\n"), m.height)
+}
+
+// tooSmallView is what a terminal below the usable minimum gets.
+//
+// Saying so plainly beats rendering a mangled table: this state is almost
+// always transient — a tmux divider being dragged, a window mid-resize — and
+// the useful thing is for it to be obviously a size problem and to disappear
+// the moment the terminal grows. The message is built line by line against the
+// real width because the one screen that must never overflow is the screen
+// about overflowing.
+func (m Model) tooSmallView() string {
+	lines := []string{
+		"terminal too small",
+		fmt.Sprintf("need %dx%d", minWidth, minHeight),
+		fmt.Sprintf("have %dx%d", m.width, m.height),
+	}
+
+	var kept []string
+	for _, line := range lines {
+		if len(kept) >= m.height {
+			break
+		}
+		if lipgloss.Width(line) > m.width {
+			// Plain text, so a rune slice is a safe cut here in a way it would
+			// not be on a styled line.
+			runes := []rune(line)
+			if m.width <= 0 {
+				continue
+			}
+			line = string(runes[:min(len(runes), m.width)])
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
+}
+
+// clampHeight drops any lines past what the terminal can show.
+//
+// A backstop rather than the main mechanism: each view sizes its own body to
+// bodyHeight, and this catches the cases where something extra — a banner, a
+// wrapped warning — pushes the total past the screen. Overflow on the
+// alternate screen scrolls rather than clips, so the cost of missing one is a
+// display that stays wrong after the cause is gone.
+func clampHeight(view string, height int) string {
+	if height <= 0 {
+		return view
+	}
+	lines := strings.Split(view, "\n")
+	if len(lines) <= height {
+		return view
+	}
+	return strings.Join(lines[:height], "\n")
 }
 
 // --- header ---
@@ -160,6 +225,39 @@ func (m Model) drillCrumbView() string {
 		}
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, append(parts, mutedStyle.Render(hint))...)
+}
+
+// noProjectsView is what a config with no projects gets instead of an empty
+// table.
+//
+// Everything here answers a question the blank version left open: which file
+// did g9s read, what does it expect to find in it, and what does a working
+// entry look like. Naming the path matters most — between $G9S_CONFIG, -config
+// and the default, someone editing the wrong file can spend a long time being
+// certain they edited the right one.
+func (m Model) noProjectsView() string {
+	var b strings.Builder
+
+	b.WriteString("\n")
+	b.WriteString(warnStyle.Render("  No projects configured.") + "\n\n")
+
+	if path := m.cfg.Path(); path != "" {
+		b.WriteString(mutedStyle.Render(truncate("  g9s read "+path, m.width)) + "\n")
+		b.WriteString(mutedStyle.Render("  and found no `projects:` entries in it.") + "\n\n")
+	}
+
+	b.WriteString("  Add at least one project, then start g9s again:\n\n")
+	for _, line := range []string{
+		"projects:",
+		"  - name: sandbox",
+		"    project_id: your-real-gcp-project-id",
+	} {
+		b.WriteString(mutedStyle.Render("    "+line) + "\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("  `g9s doctor` checks the file without starting the UI.") + "\n")
+
+	return b.String()
 }
 
 func (m Model) tabsView() string {
@@ -475,7 +573,33 @@ func (m Model) warningsFor(kind gcp.Kind) []gcp.Warning {
 // --- projects ---
 
 func (m Model) projectsView() string {
+	// A picker with nothing in it used to render a column header over blank
+	// space: no message, no file name, no hint. Someone who mistyped a key in
+	// their config could not tell whether g9s had read the right file, read
+	// the wrong one, or read nothing at all.
+	if len(m.cfg.Projects) == 0 {
+		return m.noProjectsView()
+	}
+
 	var b strings.Builder
+
+	// An unedited config is the other shape of "not set up yet", and the more
+	// misleading one: it looks like a working setup right up until the first
+	// login fails against a project that does not exist, with an error from
+	// Google about permissions that sends people looking in the wrong place.
+	banner := 0
+	if m.cfg.AllPlaceholders() {
+		b.WriteString(warnStyle.Render(
+			truncate("  This is still the starter config — the projects below are examples, not yours.", m.width)) + "\n")
+		banner++
+		if path := m.cfg.Path(); path != "" {
+			b.WriteString(mutedStyle.Render(
+				truncate("  Edit "+path+" and set project_id for each.", m.width)) + "\n")
+			banner++
+		}
+		b.WriteString("\n")
+		banner++
+	}
 
 	nameWidth := 0
 	for _, p := range m.cfg.Projects {
@@ -488,7 +612,11 @@ func (m Model) projectsView() string {
 	b.WriteString(headerRowStyle.Render(
 		"  "+pad("PROJECT", nameWidth)+"  "+pad("PROJECT ID", idWidth)+"  "+"CREDENTIALS") + "\n")
 
-	rows := m.bodyHeight()
+	// The banner comes out of the rows budget rather than being added to it,
+	// or the body grows past the terminal and pushes the footer off the
+	// bottom — which is how a warning about the config ends up hiding the keys
+	// that fix it.
+	rows := max(1, m.bodyHeight()-banner)
 	start, end := listWindow(m.projCursor, len(m.cfg.Projects), rows)
 
 	for i := start; i < end; i++ {
@@ -871,6 +999,14 @@ func (m Model) flashStyle() lipgloss.Style {
 func (m Model) keyHint() string {
 	switch m.screen {
 	case screenProjects:
+		// Offering "enter select · l login" with nothing to select or log into
+		// is an affordance that does nothing, and a key that does nothing
+		// reads as a broken tool rather than an empty config. With no projects
+		// every key but these is already a no-op, so the hint lists exactly
+		// what still works.
+		if len(m.cfg.Projects) == 0 {
+			return "? help · q quit — then edit the config and start g9s again"
+		}
 		return "enter select · l login · r re-check · : cmd · ? help · q quit"
 	case screenOverview:
 		return "kind keys: " + m.hotkeyLegend() + " · enter open · 0/a all resources · r refresh all · : cmd · ? help"

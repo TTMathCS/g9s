@@ -18,6 +18,20 @@ import (
 type Config struct {
 	Defaults Defaults  `yaml:"defaults"`
 	Projects []Project `yaml:"projects"`
+
+	// path is the file this was loaded from, so the UI can name it. Unexported
+	// and not a YAML field: it describes where the document came from, which is
+	// not something the document gets to declare about itself.
+	path string
+}
+
+// Path is the file this config was loaded from, empty if it was not loaded
+// from one.
+func (c *Config) Path() string {
+	if c == nil {
+		return ""
+	}
+	return c.path
 }
 
 // Defaults supply values for any project that does not override them.
@@ -379,6 +393,10 @@ func Load(path string) (*Config, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid config %s: %w", path, err)
 	}
+	// Kept so the UI can name the file it is describing. A message telling
+	// someone their config has no projects is close to useless if they have to
+	// guess which of $G9S_CONFIG, -config and the default was in effect.
+	cfg.path = path
 	return &cfg, nil
 }
 
@@ -498,6 +516,43 @@ func (c *Config) validate() error {
 		// "nothing is running here".
 	}
 	return nil
+}
+
+// PlaceholderProjectIDs are the project IDs `g9s -init` writes.
+//
+// They exist here rather than only in the template so the two cannot drift:
+// the UI needs to recognise an unedited config, and recognising it by a string
+// copied into another file is how that check quietly stops working.
+var PlaceholderProjectIDs = []string{"my-sandbox-project", "my-prod-data-project"}
+
+// IsPlaceholder reports whether a project is one `g9s -init` wrote and nobody
+// has edited yet.
+//
+// Worth detecting because an unedited config looks exactly like a working one
+// until the first login, which then fails against a project that does not
+// exist — and the error comes back from Google talking about permissions,
+// which sends people looking in entirely the wrong place.
+func IsPlaceholder(p Project) bool {
+	for _, id := range PlaceholderProjectIDs {
+		if p.ProjectID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// AllPlaceholders reports whether every configured project is still a
+// placeholder, which means the config has not been edited at all.
+func (c *Config) AllPlaceholders() bool {
+	if len(c.Projects) == 0 {
+		return false
+	}
+	for _, p := range c.Projects {
+		if !IsPlaceholder(p) {
+			return false
+		}
+	}
+	return true
 }
 
 // Project looks up a project by name.

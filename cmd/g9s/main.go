@@ -40,6 +40,7 @@ func run() error {
 		doDoctor    = flag.Bool("doctor", false, "check config, gcloud, credentials and identity, then exit")
 		offline     = flag.Bool("offline", false, "with -doctor, skip the checks that make network calls")
 	)
+	flag.Usage = usage
 	flag.Parse()
 
 	if *showVersion {
@@ -68,12 +69,12 @@ func run() error {
 		if errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("no config at %s — run `g9s -init` to create one", path)
 		}
-		return err
+		return diagnosable(err)
 	}
 
 	mgr, err := auth.NewManager(cfg)
 	if err != nil {
-		return err
+		return diagnosable(err)
 	}
 	// Login and SSH both shell out to gcloud, so a missing binary is worth
 	// catching before the user hits it mid-session — unless every project reads
@@ -81,13 +82,71 @@ func run() error {
 	// to start would block the one setup that works without gcloud.
 	if mgr.ManagesAnyCredentials(cfg) {
 		if err := mgr.Available(); err != nil {
-			return err
+			return diagnosable(err)
 		}
 	}
 
 	program := tea.NewProgram(ui.New(cfg, mgr), tea.WithAltScreen())
 	_, err = program.Run()
 	return err
+}
+
+// usage replaces Go's default flag listing.
+//
+// The default prints the flags and nothing else: not what g9s is, not that a
+// config has to exist first, not that `doctor` is the thing to run when
+// something is wrong. Help is what people reach for immediately after an
+// error, so it is the second-best chance to answer the question that error
+// raised — and for a tool whose first run needs a config file that does not
+// exist yet, a bare flag list answers none of it.
+func usage() {
+	out := flag.CommandLine.Output()
+	fmt.Fprint(out, `g9s — a read-only terminal console for Google Cloud.
+
+Browse resources across your GCP projects without changing your gcloud
+configuration. Every call is a list or a get; g9s never modifies anything.
+
+USAGE
+  g9s [flags]              start the console
+  g9s doctor [-offline]    check the setup and exit, without starting the UI
+  g9s -init                write a starter config, then edit it
+  g9s -version             print the version
+
+GETTING STARTED
+  1. g9s -init                     writes ~/.config/g9s/config.yaml
+  2. edit that file                replace the example project_id values
+  3. g9s doctor                    confirms gcloud, config and credentials
+  4. g9s                           select a project, press l to log in
+
+  gcloud must already be installed; g9s runs it for login and SSH.
+
+WHEN SOMETHING IS WRONG
+  g9s doctor            reports every problem it finds, each with a remedy
+  g9s doctor -offline   the same, without the checks that leave the machine
+
+  Sign-in that hangs, or an error naming redirect_uri, is usually a proxy in
+  front of localhost. g9s doctor says so, and the login screen can finish the
+  login from the address your browser got stuck on.
+
+FLAGS
+`)
+	flag.PrintDefaults()
+	fmt.Fprint(out, `
+DOCUMENTATION
+  https://github.com/TTMathCS/g9s
+`)
+}
+
+// diagnosable appends the one command that turns a refusal to start into a
+// list of what is wrong.
+//
+// Startup failures are the ones with the least context around them: there is
+// no UI yet, the message is a single line on a terminal that is about to sit
+// there, and "gcloud not found" on its own tells someone what happened but
+// nothing about what to do — while `g9s doctor` has a remedy for that exact
+// finding and for everything else it would have hit next.
+func diagnosable(err error) error {
+	return fmt.Errorf("%w\n\nRun `g9s doctor` to check the whole setup and get a remedy for each problem", err)
 }
 
 // valueFlags are the flags that consume the argument after them, so a
