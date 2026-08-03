@@ -12,7 +12,7 @@ import (
 // exist. Anchored on the prose around the numbers rather than on the numbers
 // themselves, so it keeps matching as they change.
 var maturityCounts = regexp.MustCompile(
-	`contains (\d+) top-level\s*\n?>?\s*resource kinds and (\d+) drill-down listings`)
+	`(\d+) top-level\s*\n?>?\s*resource kinds and (\d+)\s*\n?>?\s*drill-down listings`)
 
 // TestREADMEKindCountsMatchTheCode pins two numbers a reader takes at face
 // value and nothing else checks. They are written by hand, they were already

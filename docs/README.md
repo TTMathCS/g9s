@@ -1,14 +1,15 @@
 # Screenshots
 
-`projects.png`, `dashboard.png`, `resources.png`, `drilldown.png` and
-`siblings.png` in the README are generated,
-not captured by hand. The generator lives in
+`projects.png`, `dashboard.png`, `resources.png`, `drilldown.png`,
+`siblings.png`, `login.png`, `detail.png` and `doctor.png` in the README are
+generated, not captured by hand. The generator lives in
 [`internal/ui/screenshot_test.go`](../internal/ui/screenshot_test.go) behind a
 `screenshot` build tag, so it never affects a normal build or test run.
 
 They drive the same unexported `Model` the binary does and call the real
-`View()`. That is the point: a layout change shows up in the next regenerated
-image instead of quietly turning the README into a lie.
+`View()` — except `doctor.png`, which renders a hand-built report through the
+real `doctor.Write`. That is the point either way: a layout change shows up in
+the next regenerated image instead of quietly turning the README into a lie.
 
 Everything shown is invented — the projects, project IDs, service accounts, IPs
 and instance names. No real infrastructure appears in any of them.
@@ -21,7 +22,7 @@ Three steps: render the views to ANSI, turn that into SVG, rasterize the SVG.
 go test -tags screenshot -run TestGenerateScreenshots ./internal/ui
 
 go install github.com/charmbracelet/freeze@latest
-for n in projects dashboard resources drilldown siblings; do
+for n in projects dashboard resources drilldown siblings login detail doctor; do
   freeze --language ansi --output docs/$n.svg \
     --background "#1a1b26" --padding 32 --margin 0 --border.radius 10 \
     --border.width 1 --border.color "#2f3145" --font.size 7 --line-height 1.35 \
@@ -71,7 +72,7 @@ const LINE_HEIGHT = 7 * 1.35; // --font.size x --line-height
 
 (async () => {
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
-  for (const name of ['projects', 'dashboard', 'resources', 'drilldown', 'siblings']) {
+  for (const name of ['projects', 'dashboard', 'resources', 'drilldown', 'siblings', 'login', 'detail', 'doctor']) {
     const svg = fs.readFileSync(`docs/${name}.svg`, 'utf8');
     const [, w, h] = svg.match(/<svg width="([\d.]+)" height="([\d.]+)"/);
 

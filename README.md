@@ -1,12 +1,100 @@
 # g9s
 
+[![Latest release](https://img.shields.io/github/v/release/TTMathCS/g9s?label=download&color=2ea44f&style=for-the-badge)](https://github.com/TTMathCS/g9s/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/TTMathCS/g9s/ci.yml?branch=main&style=for-the-badge)](https://github.com/TTMathCS/g9s/actions/workflows/ci.yml)
+[![All versions](https://img.shields.io/github/downloads/TTMathCS/g9s/total?label=downloads&style=for-the-badge)](https://github.com/TTMathCS/g9s/releases)
+
 A k9s-style terminal console for Google Cloud. Switch between projects and
 accounts, inspect resources, and navigate related resources without changing
 your global gcloud configuration.
 
-> **Current maturity:** read-only MVP. The source contains 43 top-level
-> resource kinds and 21 drill-down listings. SSH to a running VM is the only
-> interactive resource operation; mutating API actions are not implemented.
+> **Current maturity:** read-only. 43 top-level resource kinds and 21
+> drill-down listings. SSH to a running VM is the only interactive resource
+> operation; mutating API actions are not implemented.
+
+## ⬇️ Download
+
+**Nothing to compile and no Go toolchain on your machine.** Every merge is
+tested, vulnerability-scanned, cross-compiled and published automatically, and
+these links always point at the newest release:
+
+| Your machine | Direct download |
+|---|---|
+| **macOS** — Apple Silicon (M-series) | [**g9s_darwin_arm64.tar.gz**](https://github.com/TTMathCS/g9s/releases/latest/download/g9s_darwin_arm64.tar.gz) |
+| **macOS** — Intel | [**g9s_darwin_amd64.tar.gz**](https://github.com/TTMathCS/g9s/releases/latest/download/g9s_darwin_amd64.tar.gz) |
+| **Linux** — x86-64 | [**g9s_linux_amd64.tar.gz**](https://github.com/TTMathCS/g9s/releases/latest/download/g9s_linux_amd64.tar.gz) |
+| **Linux** — arm64 | [**g9s_linux_arm64.tar.gz**](https://github.com/TTMathCS/g9s/releases/latest/download/g9s_linux_arm64.tar.gz) |
+
+**[Version history and release notes →](https://github.com/TTMathCS/g9s/releases)**
+— every release keeps its binaries, so any earlier version stays downloadable.
+
+Unpack and run:
+
+```sh
+tar -xzf g9s_darwin_arm64.tar.gz
+./g9s -version
+```
+
+On macOS the first run of an unsigned binary is blocked ("the developer cannot
+be verified"). Clear the quarantine flag once:
+
+```sh
+xattr -d com.apple.quarantine ./g9s
+```
+
+Every release also carries `checksums.txt` and a signed [SLSA build
+provenance](https://github.com/TTMathCS/g9s/attestations) attestation proving
+each archive was built by CI from this repository:
+
+```sh
+gh attestation verify g9s_darwin_arm64.tar.gz --repo TTMathCS/g9s
+```
+
+## What it looks like
+
+Every image is generated from the real UI code with invented data — see
+[docs/README.md](docs/README.md) for how, and for the full set.
+
+**The project picker**, with the live credential state of all ten configured
+projects — who is logged in, as which account, and for how much longer:
+
+![Project picker with per-project credential state](docs/projects.png)
+
+**The per-project dashboard**: every resource category, its count and status
+rollup, and partial-failure warnings that cannot be mistaken for a clean
+result:
+
+![Per-project dashboard with resource counts and status summaries](docs/dashboard.png)
+
+**A resource table** — filtering, YAML describe, Console links, clipboard and
+SSH, with the tab strip showing counts per kind and the footer carrying a
+permission warning for an unreachable region:
+
+![VM instance table with a partial-result warning](docs/resources.png)
+
+**Describe (`d`)** decodes any row to YAML, with secret-bearing fields
+redacted before they reach the terminal:
+
+![YAML describe pane for a VM instance](docs/detail.png)
+
+**Drill-downs** open a row's children in place — a GKE cluster's node pools
+here — and a parent with several listings shows them as sibling tabs, like a
+Cloud SQL instance's databases and users:
+
+![A GKE node-pool drill-down opened from its parent cluster](docs/drilldown.png)
+
+![Cloud SQL sibling drill-downs: databases and users side by side](docs/siblings.png)
+
+**Assisted login** keeps the corporate-proxy sign-in alive: when the browser
+gets stuck on `localhost refused to connect`, pasting that tab's address back
+finishes the login — no waiting on a terminal that will never move:
+
+![Assisted login screen with the paste rescue](docs/login.png)
+
+**`g9s doctor`** checks the whole setup from the command line and says what to
+fix — including the proxy configuration that would break the browser login:
+
+![g9s doctor output with findings and remedies](docs/doctor.png)
 
 ## At a glance
 
@@ -24,12 +112,6 @@ and login     and status            or all kinds      keys, health, etc.
 - **Drill-down** opens a resource's children in place. For example, a GKE
   cluster opens its node pools and a Cloud SQL instance opens databases and
   users.
-
-![Per-project dashboard with resource counts and status summaries](docs/dashboard.png)
-
-![A GKE node-pool drill-down opened from its parent cluster](docs/drilldown.png)
-
-See [docs/README.md](docs/README.md) for all generated screenshots.
 
 ## Complete resource map
 
@@ -139,7 +221,7 @@ drill-down opened from a parent row.
 | Isolated credentials per project | ✅ Implemented | Does not mutate global gcloud state |
 | Per-project dashboard and **All Resources** view | ✅ Implemented | Status rollups plus a merged table |
 | Filtering, YAML detail, links, clipboard and SSH | ✅ Implemented | SSH is limited to running VMs |
-| Parent/child drill-downs with sibling tabs | ✅ Implemented | 19 child listings |
+| Parent/child drill-downs with sibling tabs | ✅ Implemented | 21 child listings |
 | Partial-result and row-cap warnings | ✅ Implemented | A bounded or incomplete result cannot look complete |
 | Expected account versus actual ADC identity | ✅ Implemented | The actual identity is displayed; a live token for a different configured account is refused |
 | Assisted login for proxied corporate browsers | ✅ Implemented | Paste the stuck localhost redirect; g9s delivers it past the proxy |
@@ -153,7 +235,7 @@ drill-down opened from a parent row.
 | Cloud Asset Inventory fast path | ⬜ Candidate | Optional; many organizations do not enable the API |
 | Saved filters and bookmarks | ⬜ Candidate | Not implemented |
 | CSV and JSON export | ⬜ Candidate | Not implemented |
-| `g9s doctor` preflight checks | ✅ Shipped | Config, gcloud, proxy/loopback, credential permissions, live identity |
+| `g9s doctor` preflight checks | ✅ Implemented | Config, gcloud, proxy/loopback, credential permissions, live identity |
 | Writing infrastructure definitions | 🚫 Not planned | g9s is not a Terraform replacement |
 | Storing passwords or minting credentials itself | 🚫 Not planned | gcloud owns interactive authentication |
 | Displaying secret values or private key material | 🚫 Not planned | Metadata only |
@@ -163,26 +245,18 @@ See [ROADMAP.md](ROADMAP.md) for design rationale and request costs, and
 
 ## Requirements and installation
 
-- **gcloud CLI** is required for login and SSH.
-- **Go 1.25+** is currently required to install g9s because the first verified
-  release binary has not been published.
-
-With Homebrew on macOS:
-
-```sh
-brew install go
-brew install --cask gcloud-cli
-go install github.com/TTMathCS/g9s/cmd/g9s@latest
-```
-
-`go install` normally writes to `~/go/bin`. Add that directory to `PATH`
-if needed:
+The **prebuilt binary from the [⬇️ Download](#g9s) table at the top is the
+intended install** — nothing compiles, tests or fetches modules on your
+machine. The
+only other requirement is the **gcloud CLI**, which g9s shells out to for
+login and SSH (372.0.0+ for the `--no-browser` flow):
 
 ```sh
-export PATH="$HOME/go/bin:$PATH"
+brew install --cask gcloud-cli   # macOS with Homebrew; or use Google's installer
 ```
 
-To build a clone:
+Building from source is the alternative when you would rather compile than
+download, and needs Go 1.25+:
 
 ```sh
 git clone https://github.com/TTMathCS/g9s.git
@@ -190,8 +264,10 @@ cd g9s
 go build -o g9s ./cmd/g9s
 ```
 
-On a restricted network, point `GOPROXY` at your internal module registry.
-Cloning the source does not remove the need to fetch the modules in `go.mod`.
+or `go install github.com/TTMathCS/g9s/cmd/g9s@latest` (binaries land in
+`~/go/bin`). On a restricted network, point `GOPROXY` at your internal module
+registry (for example an Artifactory Go repository); cloning the source does
+not remove the need to fetch the modules in `go.mod`.
 
 ## Quick start
 

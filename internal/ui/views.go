@@ -941,9 +941,16 @@ func (m Model) loginView() string {
 
 	m.loginInput.Width = width - 8
 	b.WriteString("     " + m.loginInput.View() + "\n\n")
-	b.WriteString(mutedStyle.Render("     The address looks like http://localhost:8085/?state=…&code=… — g9s hands\n"))
-	b.WriteString(mutedStyle.Render("     it to gcloud on this machine, bypassing the proxy. The code in it is\n"))
-	b.WriteString(mutedStyle.Render("     single-use and useless outside this login.") + "\n")
+	// One Render call per line: a newline inside a lipgloss render turns the
+	// string into a block and pads every line to the widest, which shows up as
+	// text drifting rightwards.
+	for _, line := range []string{
+		"     The address looks like http://localhost:8085/?state=…&code=… — g9s hands",
+		"     it to gcloud on this machine, bypassing the proxy. The code in it is",
+		"     single-use and useless outside this login.",
+	} {
+		b.WriteString(mutedStyle.Render(line) + "\n")
+	}
 	return b.String()
 }
 

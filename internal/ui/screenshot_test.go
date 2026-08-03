@@ -24,6 +24,7 @@ import (
 
 	"github.com/TTMathCS/g9s/internal/auth"
 	"github.com/TTMathCS/g9s/internal/config"
+	"github.com/TTMathCS/g9s/internal/doctor"
 	"github.com/TTMathCS/g9s/internal/gcp"
 )
 
@@ -49,17 +50,20 @@ func TestGenerateScreenshots(t *testing.T) {
 	}
 
 	for _, shot := range []struct {
-		name  string
-		model Model
+		name   string
+		render func() string
 	}{
-		{"projects", projectsShot()},
-		{"dashboard", dashboardShot()},
-		{"resources", resourcesShot()},
-		{"drilldown", drilldownShot()},
-		{"siblings", siblingsShot()},
+		{"projects", projectsShot().View},
+		{"dashboard", dashboardShot().View},
+		{"resources", resourcesShot().View},
+		{"drilldown", drilldownShot().View},
+		{"siblings", siblingsShot().View},
+		{"login", loginShot().View},
+		{"detail", detailShot().View},
+		{"doctor", doctorShot},
 	} {
 		path := filepath.Join(outDir, shot.name+".ansi")
-		if err := os.WriteFile(path, []byte(padToWidth(shot.model.View())), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(padToWidth(shot.render())), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		t.Logf("wrote %s", path)
@@ -578,6 +582,88 @@ func computeInventory() map[string]gcp.Result {
 			Resources: statusOnly(kindByID("addresses"), map[string]int{"IN_USE": 8, "RESERVED": 2}),
 		},
 	}
+}
+
+// loginShot is the assisted login mid-rescue: the sign-in link on screen and
+// the stuck tab's address already pasted into the box. This is the corporate
+// moment the feature exists for, and the screen carries its own instructions —
+// which is exactly what a screenshot should show.
+func loginShot() Model {
+	m := baseShot(24)
+	m.screen = screenLogin
+	m.loginProject = "prod-data"
+	m.loginReturn = screenProjects
+	m.assisted = auth.StubAssistedLogin("prod-data",
+		"https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com&redirect_uri=http%3A%2F%2Flocalhost%3A8085%2F&scope=openid+email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform&state=Zk93bXhw&access_type=offline&code_challenge=M4kX0aGq&code_challenge_method=S256",
+		"8085")
+	m.loginInput.Focus()
+	m.loginInput.SetValue("http://localhost:8085/?state=Zk93bXhw&code=4/0AeanS0aXkPl2mF8s6H1qgQ")
+	return m
+}
+
+// detailShot is the describe pane: the same row as the resource table, decoded
+// to YAML. The fixture is a VM small enough to fit the frame whole.
+func detailShot() Model {
+	m := baseShot(16 + chromeHeight)
+	m.active = m.cfg.Projects[0]
+	m.hasActive = true
+	m.authStatus[m.active.Name] = auth.Status{State: auth.StateValid, Expiry: time.Now().Add(38 * time.Minute)}
+
+	r := gcp.Resource{
+		Name:     "etl-worker-01",
+		Location: "us-central1-a",
+		Status:   "RUNNING",
+		KindID:   "vm",
+		Raw: map[string]any{
+			"name":        "etl-worker-01",
+			"zone":        "us-central1-a",
+			"machineType": "n2-standard-8",
+			"status":      "RUNNING",
+			"networkInterfaces": []any{map[string]any{
+				"network":   "projects/acme-dataeng-prod-4471/global/networks/data-vpc",
+				"networkIP": "10.0.0.12",
+			}},
+			"labels":            map[string]any{"team": "dataeng", "managed-by": "terraform"},
+			"scheduling":        map[string]any{"automaticRestart": true, "provisioningModel": "STANDARD"},
+			"creationTimestamp": "2026-07-20T09:14:02.000-04:00",
+		},
+	}
+	m.detail.Width = m.width - 4
+	m.detail.Height = m.bodyHeight()
+	m.detail.SetContent(renderDetail(r))
+	m.detailRes, m.hasDetail = r, true
+	m.screen = screenDetail
+	return m
+}
+
+// doctorShot is not a TUI screen at all — it is `g9s doctor` output, which is
+// the first thing support asks a new user to run. The report is built by hand
+// so the shot is deterministic and shows the corporate findings: a proxy that
+// will break the browser login, and projects in the states a real first day
+// has them in.
+func doctorShot() string {
+	report := &doctor.Report{}
+	report.Findings = []doctor.Finding{
+		{Level: doctor.LevelOK, Check: "config file", Detail: "/Users/dana/.config/g9s/config.yaml — 10 project(s)"},
+		{Level: doctor.LevelOK, Check: "gcloud", Detail: "/opt/homebrew/share/google-cloud-sdk/bin/gcloud"},
+		{Level: doctor.LevelOK, Check: "gcloud version", Detail: "531.0.0"},
+		{Level: doctor.LevelWarn, Check: "browser login", Detail: "a proxy is configured here and does not exempt loopback",
+			Remedy: "Sign-in will appear to work and then hang: the last step is the browser fetching http://localhost:<port>/ on this machine. Exempt localhost,127.0.0.1,::1 in the BROWSER's proxy settings, or use the paste rescue on the login screen."},
+		{Level: doctor.LevelOK, Check: "platform", Detail: "darwin/arm64"},
+		{Level: doctor.LevelOK, Check: "project prod-data", Detail: "credentials valid as svc-dataeng-prod@example.com (token 41m0s)"},
+		{Level: doctor.LevelFail, Check: "project prod-ml", Detail: "credentials are for dana@example.com but the config expects svc-mlplat-prod@example.com",
+			Remedy: "Log in again as the expected account, or correct `account:` for this project."},
+		{Level: doctor.LevelWarn, Check: "project audit-logs", Detail: "not logged in",
+			Remedy: "Start g9s, select audit-logs and press l."},
+		{Level: doctor.LevelWarn, Check: "project sandbox", Detail: "credentials will not mint a token",
+			Remedy: "This is the normal daily state with a federated IdP. Press l in g9s to log in again."},
+	}
+
+	var b strings.Builder
+	b.WriteString("$ g9s doctor\n")
+	b.WriteString("g9s v0.1.20 — checking /Users/dana/.config/g9s/config.yaml\n\n")
+	doctor.Write(&b, report)
+	return b.String()
 }
 
 // projectsShot is the picker with every credential state visible at once,

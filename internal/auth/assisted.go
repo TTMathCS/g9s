@@ -119,6 +119,21 @@ func (m *Manager) StartAssistedLogin(p config.Project) (*AssistedLogin, error) {
 	}
 }
 
+// StubAssistedLogin builds an AssistedLogin that can only render: it carries a
+// URL and port but runs no process. It exists for fixtures — the login screen
+// in the generated README screenshots, and UI tests that need the screen
+// populated without a gcloud. Deliver on a stub knocks on whatever the port
+// says, so fixtures should use a port nothing listens on.
+func StubAssistedLogin(project, rawURL, port string) *AssistedLogin {
+	return &AssistedLogin{
+		project: project,
+		url:     rawURL,
+		port:    port,
+		tail:    NewTailBuffer(1 << 10),
+		done:    make(chan struct{}),
+	}
+}
+
 // Project names the project this login is for.
 func (a *AssistedLogin) Project() string { return a.project }
 
