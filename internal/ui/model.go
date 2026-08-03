@@ -154,7 +154,7 @@ func New(cfg *config.Config, mgr *auth.Manager) Model {
 
 	command := textinput.New()
 	command.Prompt = ":"
-	command.Placeholder = "kind · cd PATH · find GLOB · all · projects · help · q"
+	command.Placeholder = "kind · export csv|json · cd PATH · find GLOB · all · projects · help · q"
 	// Cloud Storage glob expressions can be up to 1,024 bytes. The gcp layer
 	// validates bytes; this rune limit merely keeps the input bounded.
 	command.CharLimit = 1024
@@ -660,6 +660,9 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 	if verb == "cd" || verb == "find" {
 		return m.runStorageObjectCommand(verb, argument)
 	}
+	if verb == "export" {
+		return m.runExport(argument)
+	}
 
 	switch line {
 	case "":
@@ -678,7 +681,7 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 
 	idx, ok := m.matchKind(line)
 	if !ok {
-		return m, flash(fmt.Sprintf("unknown command %q — a kind id or title prefix, cd, find, all, projects, help or q", line), flashWarn)
+		return m, flash(fmt.Sprintf("unknown command %q — a kind id or title prefix, export, cd, find, all, projects, help or q", line), flashWarn)
 	}
 	if !m.hasActive {
 		return m, flash("select a project first", flashWarn)

@@ -869,7 +869,7 @@ func (m Model) helpContent() string {
 			{"q / esc", "back up one level"},
 			{"p", "back to the project list"},
 			{"/", "filter rows (cleared when you switch kinds)"},
-			{":", "command — :<kind>, or :cd PATH / :find GLOB in Storage Objects"},
+			{":", "command — :<kind>, :export csv|json, or :cd PATH / :find GLOB in Storage Objects"},
 			{"space", "load the next Storage Objects page when more rows are available"},
 		}},
 		{"Actions", []helpEntry{

@@ -236,7 +236,7 @@ drill-down opened from a parent row.
 | Horizontal dev/uat/prod comparison | ⬜ Candidate | Builds on the cross-project inventory model |
 | Cloud Asset Inventory fast path | ⬜ Candidate | Optional; many organizations do not enable the API |
 | Saved filters and bookmarks | ⬜ Candidate | Not implemented |
-| CSV and JSON export | ⬜ Candidate | Not implemented |
+| CSV and JSON export | ✅ Implemented | `:export csv` / `:export json` writes the visible table; JSON records whether the listing was complete |
 | `g9s doctor` preflight checks | ✅ Implemented | Config, gcloud, proxy/loopback, credential permissions, live identity |
 | Writing infrastructure definitions | 🚫 Not planned | g9s is not a Terraform replacement |
 | Storing passwords or minting credentials itself | 🚫 Not planned | gcloud owns interactive authentication |
@@ -351,6 +351,24 @@ service request to fill one page when Cloud Storage returns a shorter response.
 Current object generations are shown by default; older versions and
 soft-deleted objects are not mixed into the ordinary browser.
 
+### Export
+
+`:export csv` or `:export json` writes the table currently on screen to a file
+in the working directory and reports the path. What lands in the file is what
+is displayed: the visible columns, the rows left after the active filter, in
+the order shown.
+
+JSON also records where the rows came from and, crucially, whether the listing
+was **complete** — a count taken from a table that was missing two regions is a
+lower bound, and a file pasted into a ticket has no footer to say so. The CSV
+carries the rows alone so it opens cleanly in a spreadsheet; if the listing was
+incomplete the confirmation says so at export time.
+
+Raw API objects are deliberately not exported. Those carry the fields the
+detail pane redacts — a VPN tunnel's pre-shared key, a cluster's client key —
+and a file on disk is a worse place for them than a terminal. For one
+resource's full detail, use `d` then `y`.
+
 ### Clipboard size
 
 `y` copies over the OSC 52 terminal escape, which needs no clipboard binary and
@@ -398,7 +416,7 @@ defaults:
 | Displayed hotkey | Open that resource kind directly |
 | `0` / `a` | Open **All Resources** |
 | `tab` / `shift+tab`, `]` / `[` | Cycle kinds or sibling drill-downs |
-| `:` | Command mode; for example `:vm`, `:all`, or `:cd` / `:find` in Storage Objects |
+| `:` | Command mode; for example `:vm`, `:all`, `:export csv`, or `:cd` / `:find` in Storage Objects |
 | `/` | Filter rows; `esc` clears |
 | `space` | Load the next Storage Objects page when available |
 | `r` | Refresh the current kind, all dashboard kinds, or selected credential |
