@@ -923,6 +923,10 @@ func TestCommandModeKindMatchingByPrefix(t *testing.T) {
 		{"vm", "vm"},
 		{"gke", "gke"},
 		{"gcs", "gcs"},
+		// Five kinds now start with "data" — dataproc, dataprocjobs, dataflow,
+		// datastream, datafusion — so this expectation is load-bearing on display
+		// order rather than on the word. It failed the moment the new data kinds
+		// were registered ahead of Dataproc; the fix was the ordering, not this.
 		{"data", "dataproc"},
 		{"comp", "composer"},
 		{"storage", "gcs"}, // title prefix

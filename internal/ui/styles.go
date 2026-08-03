@@ -148,7 +148,14 @@ func statusStyle(status string) lipgloss.Style {
 		"NO_DELETE_PROTECTION", "NO_PITR",
 		// A Memcached instance whose own state is READY while some of its nodes
 		// are not serving. The instance row says everything is fine.
-		"NODES_DOWN":
+		"NODES_DOWN",
+		// A Data Fusion instance on the Developer edition: no SLA, and not meant
+		// to carry production pipelines, while reporting the same RUNNING as an
+		// Enterprise instance costing far more.
+		"DEVELOPER_EDITION",
+		// A BigQuery reservation holding baseline slots it refuses to lend. The
+		// capacity is billed continuously and unavailable to anything else.
+		"IDLE_SLOTS_RESERVED":
 		return warnStyle
 	case "ERROR", "FAILED", "TERMINATED", "STOPPED", "SUSPENDED", "UNHEALTHY", "DEGRADED",
 		// Compute routes rejected by their backend or dropped at a route limit.
