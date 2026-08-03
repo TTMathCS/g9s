@@ -99,10 +99,10 @@ func (ServiceAccountLister) List(ctx context.Context, cfg *config.Config, p conf
 // account whose keys cannot be read is far more common than a broken project —
 // iam.serviceAccountKeys.list is a separate permission from the one that let
 // you list the accounts in the first place.
-func accountKeys(ctx context.Context, svc *iam.Service, accounts []*iam.ServiceAccount, maxKeyLookups int) (map[string][]*iam.ServiceAccountKey, []string) {
-	var warnings []string
+func accountKeys(ctx context.Context, svc *iam.Service, accounts []*iam.ServiceAccount, maxKeyLookups int) (map[string][]*iam.ServiceAccountKey, []Warning) {
+	var warnings []Warning
 	if len(accounts) > maxKeyLookups {
-		warnings = append(warnings, fmt.Sprintf(
+		warnings = append(warnings, cappedWarning(
 			"key ages read for the first %d of %d accounts — the rest show ? rather than a number nobody checked",
 			maxKeyLookups, len(accounts)))
 		accounts = accounts[:maxKeyLookups]
@@ -149,7 +149,7 @@ func accountKeys(ctx context.Context, svc *iam.Service, accounts []*iam.ServiceA
 	wg.Wait()
 
 	if denied > 0 {
-		warnings = append(warnings, fmt.Sprintf(
+		warnings = append(warnings, partialWarning("",
 			"keys could not be read for %d of %d accounts — needs iam.serviceAccountKeys.list",
 			denied, len(accounts)))
 	}

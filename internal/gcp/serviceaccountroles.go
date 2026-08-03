@@ -59,9 +59,8 @@ func (ServiceAccountRoleLister) List(ctx context.Context, _ *config.Config, p co
 	member := "serviceAccount:" + detail.Account.Email
 	result := projectRoleResources(p, member, policy)
 	if len(result.Resources) == 0 {
-		result.Warnings = []string{
-			"no direct project roles — access inherited from folders or the organisation is outside this listing",
-		}
+		result.Warnings = []Warning{narrowedWarning(
+			"no direct project roles — access inherited from folders or the organisation is outside this listing")}
 	}
 	return result, nil
 }

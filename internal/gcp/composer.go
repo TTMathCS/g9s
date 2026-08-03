@@ -41,9 +41,7 @@ func (ComposerLister) List(ctx context.Context, cfg *config.Config, p config.Pro
 	if len(locations) == 0 {
 		// Nothing was looked at, and an empty table must not pretend
 		// otherwise.
-		return Result{Warnings: []string{
-			"no locations configured — set projects[].regions or defaults.regions",
-		}}, nil
+		return Result{Warnings: []Warning{narrowedWarning("no locations configured — set projects[].regions or defaults.regions")}}, nil
 	}
 
 	client, err := service.NewEnvironmentsClient(ctx, opts...)

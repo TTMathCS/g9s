@@ -500,11 +500,14 @@ func (m *Model) invalidate() {
 	m.hasDetail = false
 }
 
-func appendUniqueWarnings(existing, more []string) []string {
+func appendUniqueWarnings(existing, more []gcp.Warning) []gcp.Warning {
 	if len(more) == 0 {
 		return existing
 	}
-	seen := make(map[string]bool, len(existing)+len(more))
+	// Compared by value rather than by rendered text: two warnings that read
+	// the same but classify differently are two different facts, and the one
+	// that survives the merge should not depend on which page arrived first.
+	seen := make(map[gcp.Warning]bool, len(existing)+len(more))
 	for _, warning := range existing {
 		seen[warning] = true
 	}

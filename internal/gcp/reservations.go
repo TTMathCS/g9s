@@ -46,14 +46,14 @@ func (ReservationLister) List(ctx context.Context, _ *config.Config, p config.Pr
 		Pages(ctx, func(page *compute.ReservationAggregatedList) error {
 			appendComputeUnreachables(&result, page.Unreachables)
 			if page.Warning != nil {
-				if warning := computeScopeWarning("all scopes", page.Warning.Code, page.Warning.Message); warning != "" {
+				if warning, ok := computeScopeWarning("all scopes", page.Warning.Code, page.Warning.Message); ok {
 					result.Warnings = append(result.Warnings, warning)
 				}
 			}
 			for scopeRef, scoped := range page.Items {
 				zone := lastSegment(scopeRef)
 				if scoped.Warning != nil {
-					if warning := computeScopeWarning(zone, scoped.Warning.Code, scoped.Warning.Message); warning != "" {
+					if warning, ok := computeScopeWarning(zone, scoped.Warning.Code, scoped.Warning.Message); ok {
 						result.Warnings = append(result.Warnings, warning)
 					}
 				}

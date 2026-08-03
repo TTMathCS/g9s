@@ -56,7 +56,7 @@ func (BucketLifecycleLister) List(_ context.Context, _ *config.Config, p config.
 		// current storage class forever, which is a cost decision whether or
 		// not anyone made it deliberately.
 		result.Warnings = append(result.Warnings,
-			"no lifecycle rules — nothing in this bucket is ever deleted or downgraded automatically")
+			narrowedWarning("no lifecycle rules — nothing in this bucket is ever deleted or downgraded automatically"))
 	}
 
 	// Rule order, not sorted: GCS evaluates every matching rule, and the order

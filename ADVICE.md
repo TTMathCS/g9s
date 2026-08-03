@@ -163,16 +163,18 @@ command broadcasting; expose typed, resource-appropriate actions instead.
 
 Remaining:
 
-- Make listing completeness and failures structured rather than relying on
-  warning strings. This is required to aggregate results honestly across
-  projects, and is the largest piece of work left before a cross-project view
-  is worth attempting.
 - Smoke-test against dedicated dev/uat projects with expired credentials,
   missing APIs, partial IAM access, empty projects and slow regional responses.
   This one needs real projects and cannot be done from the repository.
 
 Done:
 
+- ~~Make listing completeness and failures structured rather than relying on
+  warning strings.~~ `gcp.Warning` carries a scope, a reason and a detail;
+  `Result.Complete()` answers whether a listing is the whole picture and
+  `Result.Incomplete(reason)` separates a permission to request from a setting
+  to raise. Displayed text is derived from the type, so there is one source of
+  truth rather than a sentence and a fact that can disagree.
 - ~~Compare the configured account with the account read from the ADC file.~~
   A live token minted for an unexpected identity is refused, and the actual
   identity is shown in the header.

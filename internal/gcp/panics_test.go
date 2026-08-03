@@ -38,13 +38,13 @@ func TestFanOutSurvivesAPanickingLeg(t *testing.T) {
 	if len(result.Warnings) != 1 {
 		t.Fatalf("got %d warnings, want 1: %v", len(result.Warnings), result.Warnings)
 	}
-	if !strings.Contains(result.Warnings[0], "boom") {
+	if !strings.Contains(result.Warnings[0].String(), "boom") {
 		t.Errorf("warning = %q, want it to name the scope that failed", result.Warnings[0])
 	}
 	// "internal error" rather than a bare panic value: this is a g9s bug, not
 	// something the user can fix by changing a permission, and the wording is
 	// what tells them the difference.
-	if !strings.Contains(result.Warnings[0], "internal error") {
+	if !strings.Contains(result.Warnings[0].String(), "internal error") {
 		t.Errorf("warning = %q, want it to read as an internal error", result.Warnings[0])
 	}
 }

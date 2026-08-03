@@ -95,8 +95,11 @@ func kmsKeysIn(ctx context.Context, svc *cloudkms.Service, p config.Project, loc
 		return out, nil
 	}
 	if len(rings) > maxKeyRings {
-		out.Warnings = append(out.Warnings, fmt.Sprintf(
-			"%s: keys read for the first %d of %d key rings", location, maxKeyRings, len(rings)))
+		out.Warnings = append(out.Warnings, Warning{
+			Scope:  location,
+			Reason: ReasonCapped,
+			Detail: fmt.Sprintf("keys read for the first %d of %d key rings", maxKeyRings, len(rings)),
+		})
 		rings = rings[:maxKeyRings]
 	}
 
@@ -142,9 +145,9 @@ func kmsKeysIn(ctx context.Context, svc *cloudkms.Service, p config.Project, loc
 	wg.Wait()
 
 	if denied > 0 {
-		out.Warnings = append(out.Warnings, fmt.Sprintf(
-			"%s: keys could not be read for %d of %d key rings — needs cloudkms.cryptoKeys.list",
-			location, denied, len(rings)))
+		out.Warnings = append(out.Warnings, partialWarning(location,
+			"keys could not be read for %d of %d key rings — needs cloudkms.cryptoKeys.list",
+			denied, len(rings)))
 	}
 	return out, nil
 }

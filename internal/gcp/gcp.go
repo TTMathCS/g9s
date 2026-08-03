@@ -75,9 +75,13 @@ func StampKind(result *Result, kindID string) {
 // Result is a possibly-partial listing.
 type Result struct {
 	Resources []Resource
-	// Warnings describe scopes that failed. Shown in the status bar so a
-	// truncated list is never mistaken for an empty one.
-	Warnings []string
+	// Warnings describe every way this listing falls short of the whole
+	// picture — scopes that failed, caps that stopped it, sub-items that could
+	// not be read. Shown in the status bar so a truncated list is never
+	// mistaken for an empty one, and typed so that a caller aggregating across
+	// projects can tell a missing permission from a row limit without reading
+	// the sentence. See warning.go.
+	Warnings []Warning
 	// NextPageToken is set only by listings that deliberately expose
 	// pagination to the UI. Most resource kinds drain every API page inside
 	// List and leave this empty; object browsers keep it so a large bucket can
@@ -185,7 +189,7 @@ func fanOut(ctx context.Context, locations []string, fn func(ctx context.Context
 			result.Resources = append(result.Resources, partial.Resources...)
 			result.Warnings = append(result.Warnings, partial.Warnings...)
 			if err != nil {
-				if w := describeFailure(loc, err); w != "" {
+				if w, ok := describeFailure(loc, err); ok {
 					result.Warnings = append(result.Warnings, w)
 				}
 			}
@@ -194,7 +198,7 @@ func fanOut(ctx context.Context, locations []string, fn func(ctx context.Context
 	wg.Wait()
 
 	sortResources(result.Resources)
-	sort.Strings(result.Warnings)
+	sortWarnings(result.Warnings)
 	return result
 }
 
@@ -225,10 +229,16 @@ func safely(scope string, fn func() error) (err error) {
 		// after the crash this is preventing. The stack goes to the debug file
 		// when one is configured, and nowhere otherwise.
 		writeCrashLog(scope, r, debug.Stack())
-		err = fmt.Errorf("internal error reading %s: %v", scope, r)
+		err = internalError{detail: fmt.Sprintf("internal error: %v", r)}
 	}()
 	return fn()
 }
+
+// internalError marks a recovered panic, so describeFailure can classify it as
+// a g9s bug rather than sorting it in with the failures a user can act on.
+type internalError struct{ detail string }
+
+func (e internalError) Error() string { return e.detail }
 
 // debugLogEnv names the file to append panic stacks to. Unset means no file is
 // written and no stack is kept.
@@ -262,8 +272,15 @@ func writeCrashLog(scope string, recovered any, stack []byte) {
 // on every refresh — that is the normal state for most regions in most
 // projects. Permission denied is worth showing exactly once per scope, since
 // it is the difference between "nothing there" and "you cannot see it".
-func describeFailure(scope string, err error) string {
-	// REST first. Roughly half the listers reach services with no gRPC surface
+func describeFailure(scope string, err error) (Warning, bool) {
+	// A recovered panic is a g9s bug and says so, rather than being sorted
+	// into one of the categories the user could act on.
+	var internal internalError
+	if errors.As(err, &internal) {
+		return scopeWarning(scope, ReasonInternal, internal.detail), true
+	}
+
+	// REST next. Roughly half the listers reach services with no gRPC surface
 	// — Cloud SQL, DNS, IAM, Resource Manager, Storage — and those return an
 	// *googleapi.Error that carries no gRPC code at all. Without this branch a
 	// 403 fell through to the raw-message case and reached the user as a
@@ -272,31 +289,31 @@ func describeFailure(scope string, err error) string {
 	var apiErr *googleapi.Error
 	if errors.As(err, &apiErr) {
 		if warning, handled := restReason(scope, apiErr); handled {
-			return warning
+			return warning, warning != Warning{}
 		}
-		return fmt.Sprintf("%s: %s", scope, clip(apiErr.Message, 120))
+		return scopeWarning(scope, ReasonUnknown, clip(apiErr.Message, 120)), true
 	}
 
 	switch grpcCode(err) {
 	case codes.NotFound:
-		return ""
+		return Warning{}, false
 	case codes.PermissionDenied:
-		return fmt.Sprintf("%s: permission denied", scope)
+		return scopeWarning(scope, ReasonDenied, "permission denied"), true
 	case codes.Unauthenticated:
-		return fmt.Sprintf("%s: not authenticated", scope)
+		return scopeWarning(scope, ReasonUnauthenticated, "not authenticated"), true
 	case codes.FailedPrecondition:
 		// Usually "API not enabled for this project".
 		if strings.Contains(strings.ToLower(err.Error()), "not been used") ||
 			strings.Contains(strings.ToLower(err.Error()), "disabled") {
-			return ""
+			return Warning{}, false
 		}
 	}
 
 	msg := err.Error()
 	if strings.Contains(msg, "SERVICE_DISABLED") || strings.Contains(msg, "accessNotConfigured") {
-		return ""
+		return Warning{}, false
 	}
-	return fmt.Sprintf("%s: %s", scope, clip(msg, 120))
+	return scopeWarning(scope, ReasonUnknown, clip(msg, 120)), true
 }
 
 // restReason maps an HTTP error to the same vocabulary the gRPC branch uses.
@@ -311,28 +328,28 @@ func describeFailure(scope string, err error) string {
 // and reporting it would put a line on every refresh forever. They are told
 // apart by the reason field rather than by the message, which is prose and
 // changes.
-func restReason(scope string, err *googleapi.Error) (warning string, handled bool) {
+func restReason(scope string, err *googleapi.Error) (warning Warning, handled bool) {
 	for _, item := range err.Errors {
 		switch item.Reason {
 		case "accessNotConfigured", "SERVICE_DISABLED":
-			return "", true
+			return Warning{}, true
 		}
 	}
 	if strings.Contains(err.Message, "SERVICE_DISABLED") ||
 		strings.Contains(err.Message, "has not been used in project") ||
 		strings.Contains(err.Message, "accessNotConfigured") {
-		return "", true
+		return Warning{}, true
 	}
 
 	switch err.Code {
 	case http.StatusNotFound:
-		return "", true
+		return Warning{}, true
 	case http.StatusForbidden:
-		return fmt.Sprintf("%s: permission denied", scope), true
+		return scopeWarning(scope, ReasonDenied, "permission denied"), true
 	case http.StatusUnauthorized:
-		return fmt.Sprintf("%s: not authenticated", scope), true
+		return scopeWarning(scope, ReasonUnauthenticated, "not authenticated"), true
 	}
-	return "", false
+	return Warning{}, false
 }
 
 // clip shortens s to at most max runes, marking the cut with an ellipsis.
@@ -426,22 +443,6 @@ func mergeResults(dst *Result, src Result) {
 // A paginated listing repeats the same "region unreachable" warning on every
 // page, which the footer would otherwise report as five unavailable scopes when
 // only one region actually failed.
-func dedupeSortWarnings(r *Result) {
-	if len(r.Warnings) == 0 {
-		return
-	}
-	seen := make(map[string]bool, len(r.Warnings))
-	unique := make([]string, 0, len(r.Warnings))
-	for _, w := range r.Warnings {
-		if seen[w] {
-			continue
-		}
-		seen[w] = true
-		unique = append(unique, w)
-	}
-	sort.Strings(unique)
-	r.Warnings = unique
-}
 
 // sortResources gives the table a stable order: location, then name.
 func sortResources(resources []Resource) {

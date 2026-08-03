@@ -43,12 +43,12 @@ func TestWarningsStayValidUTF8(t *testing.T) {
 	// The end-to-end version: both places that shorten an API message have to
 	// survive a non-ASCII one, because both feed straight into the status bar.
 	long := errors.New(strings.Repeat("é", 500))
-	if got := describeFailure("us-central1", long); !utf8.ValidString(got) {
+	if got, _ := describeFailure("us-central1", long); !utf8.ValidString(got.String()) {
 		t.Errorf("describeFailure produced invalid UTF-8: %q", got)
 	}
 
 	w := &sqladmin.ApiWarning{Region: "us-east4", Message: strings.Repeat("é", 500)}
-	if got := sqlWarning(w); !utf8.ValidString(got) {
+	if got, _ := sqlWarning(w); !utf8.ValidString(got.String()) {
 		t.Errorf("sqlWarning produced invalid UTF-8: %q", got)
 	}
 }

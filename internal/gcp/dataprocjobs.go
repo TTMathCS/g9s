@@ -70,9 +70,13 @@ func (DataprocJobLister) List(ctx context.Context, cfg *config.Config, p config.
 				// The API documents no ordering, so this is honestly the first
 				// N it returned rather than the newest N. Saying which would be
 				// a promise the API does not make.
-				out.Warnings = append(out.Warnings, fmt.Sprintf(
-					"%s: stopped after %d jobs — the region has more history than this table shows",
-					region, maxDataprocJobsPerRegion))
+				out.Warnings = append(out.Warnings, Warning{
+					Scope:  region,
+					Reason: ReasonCapped,
+					Detail: fmt.Sprintf(
+						"stopped after %d jobs — the region has more history than this table shows",
+						maxDataprocJobsPerRegion),
+				})
 				break
 			}
 
@@ -89,8 +93,8 @@ func (DataprocJobLister) List(ctx context.Context, cfg *config.Config, p config.
 	})
 
 	if !cfg.HasDataprocRegions(p) {
-		result.Warnings = append(result.Warnings,
-			"only the global region was swept — set projects[].regions or defaults.regions to cover regional jobs")
+		result.Warnings = append(result.Warnings, narrowedWarning(
+			"only the global region was swept — set projects[].regions or defaults.regions to cover regional jobs"))
 	}
 
 	sortDataprocJobsByRecency(result.Resources)

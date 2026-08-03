@@ -192,7 +192,7 @@ func (BigQueryJobLister) List(ctx context.Context, cfg *config.Config, p config.
 		// Naming the setting rather than restating the window: shortDuration
 		// renders the 24h default as "1d", which reads like a typo in a
 		// sentence, and the setting is what the reader has to change anyway.
-		result.Warnings = append(result.Warnings, fmt.Sprintf(
+		result.Warnings = append(result.Warnings, cappedWarning(
 			"only the %d most recent jobs are shown — narrow defaults.bigquery_job_window for a complete list",
 			maxJobs))
 	}

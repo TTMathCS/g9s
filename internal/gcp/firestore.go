@@ -59,7 +59,7 @@ func (FirestoreLister) List(ctx context.Context, _ *config.Config, p config.Proj
 		}
 	}
 	for _, loc := range resp.Unreachable {
-		if w := describeFailure(loc, fmt.Errorf("location unreachable")); w != "" {
+		if w, ok := describeFailure(loc, fmt.Errorf("location unreachable")); ok {
 			result.Warnings = append(result.Warnings, w)
 		}
 	}

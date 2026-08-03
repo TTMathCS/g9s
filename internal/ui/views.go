@@ -461,11 +461,11 @@ func warningCount(n int) string {
 }
 
 // warningsFor returns the partial-listing warnings attached to a tab.
-func (m Model) warningsFor(kind gcp.Kind) []string {
+func (m Model) warningsFor(kind gcp.Kind) []gcp.Warning {
 	if kind.ID != allKind.ID {
 		return m.cache[kind.ID].Warnings
 	}
-	var out []string
+	var out []gcp.Warning
 	for _, l := range m.listers {
 		out = append(out, m.cache[l.Kind().ID].Warnings...)
 	}
@@ -803,7 +803,8 @@ func (m Model) footerView() string {
 	// Warnings earn the footer over the key hints: a partial listing that
 	// looks complete is the one failure mode worth being loud about.
 	if warnings := m.currentWarnings(); len(warnings) > 0 {
-		text := fmt.Sprintf("⚠ %s: %s", warningCount(len(warnings)), strings.Join(warnings, "; "))
+		text := fmt.Sprintf("⚠ %s: %s", warningCount(len(warnings)),
+			strings.Join(gcp.WarningStrings(warnings), "; "))
 		return m.withPosition(warnStyle.Render(truncate(text, m.width-8)))
 	}
 
@@ -840,7 +841,7 @@ func (m Model) withPosition(left string) string {
 	return left + strings.Repeat(" ", gap) + pos
 }
 
-func (m Model) currentWarnings() []string {
+func (m Model) currentWarnings() []gcp.Warning {
 	if !m.hasActive {
 		return nil
 	}

@@ -42,7 +42,7 @@ func (RouteLister) List(ctx context.Context, _ *config.Config, p config.Project,
 	var result Result
 	err = svc.Routes.List(p.ProjectID).Context(ctx).Pages(ctx, func(page *compute.RouteList) error {
 		if page.Warning != nil {
-			if warning := computeScopeWarning("global", page.Warning.Code, page.Warning.Message); warning != "" {
+			if warning, ok := computeScopeWarning("global", page.Warning.Code, page.Warning.Message); ok {
 				result.Warnings = append(result.Warnings, warning)
 			}
 		}

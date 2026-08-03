@@ -386,7 +386,7 @@ func TestViewRendersFooterStates(t *testing.T) {
 	m.width, m.height = 80, 24
 	m.screen = screenResources
 
-	m.cache[m.currentKind().ID] = gcp.Result{Warnings: []string{"us-east1: permission denied"}}
+	m.cache[m.currentKind().ID] = gcp.Result{Warnings: []gcp.Warning{gcp.Warning{Scope: "us-east1", Reason: gcp.ReasonDenied, Detail: "permission denied"}}}
 	if !strings.Contains(m.View(), "permission denied") {
 		t.Error("warning should reach the footer")
 	}
@@ -442,7 +442,7 @@ func populatedModel(t *testing.T) Model {
 	}}
 	m.cache["dataproc"] = gcp.Result{
 		Resources: []gcp.Resource{{Name: "etl", Location: "us-central1", Status: "RUNNING", Row: []string{"etl", "us-central1", "RUNNING", "4", "12d"}}},
-		Warnings:  []string{"us-east4: permission denied"},
+		Warnings:  []gcp.Warning{gcp.Warning{Scope: "us-east4", Reason: gcp.ReasonDenied, Detail: "permission denied"}},
 	}
 	m.cache["composer"] = gcp.Result{Resources: []gcp.Resource{
 		{Name: "airflow", Location: "us-central1", Status: "RUNNING", Row: []string{"airflow", "us-central1", "RUNNING", "2.7.3", "88d"}},

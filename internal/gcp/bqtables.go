@@ -89,7 +89,7 @@ func (BigQueryTableLister) List(ctx context.Context, cfg *config.Config, p confi
 	}
 
 	if capped {
-		result.Warnings = append(result.Warnings, fmt.Sprintf(
+		result.Warnings = append(result.Warnings, cappedWarning(
 			"first %d tables only — the dataset holds more than this table shows", maxTables))
 	}
 

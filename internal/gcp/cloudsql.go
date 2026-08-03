@@ -51,7 +51,7 @@ func (CloudSQLLister) List(ctx context.Context, _ *config.Config, p config.Proje
 		// A region Cloud SQL could not reach arrives here rather than as an
 		// error, so the listing looks complete unless these are surfaced.
 		for _, w := range page.Warnings {
-			if msg := sqlWarning(w); msg != "" {
+			if msg, ok := sqlWarning(w); ok {
 				result.Warnings = append(result.Warnings, msg)
 			}
 		}
@@ -71,9 +71,9 @@ func (CloudSQLLister) List(ctx context.Context, _ *config.Config, p config.Proje
 
 // sqlWarning renders an API warning, preferring the region it names so the
 // message matches the "<scope>: <reason>" shape the other listers produce.
-func sqlWarning(w *sqladmin.ApiWarning) string {
+func sqlWarning(w *sqladmin.ApiWarning) (Warning, bool) {
 	if w == nil {
-		return ""
+		return Warning{}, false
 	}
 	scope := w.Region
 	if scope == "" {
@@ -84,9 +84,15 @@ func sqlWarning(w *sqladmin.ApiWarning) string {
 		detail = w.Code
 	}
 	if detail == "" {
-		return ""
+		return Warning{}, false
 	}
-	return fmt.Sprintf("%s: %s", scope, clip(detail, 100))
+	// The API reports an unreachable region this way rather than as an error,
+	// so the code is what distinguishes it from anything else it might say.
+	reason := ReasonUnknown
+	if w.Code == "REGION_UNREACHABLE" {
+		reason = ReasonUnreachable
+	}
+	return scopeWarning(scope, reason, clip(detail, 100)), true
 }
 
 func sqlInstanceResource(p config.Project, inst *sqladmin.DatabaseInstance) Resource {

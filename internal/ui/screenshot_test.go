@@ -160,7 +160,7 @@ func resourcesShot() Model {
 
 	m.cache[m.currentKind().ID] = gcp.Result{
 		Resources: resources,
-		Warnings:  []string{"us-east4: permission denied"},
+		Warnings:  []gcp.Warning{gcp.Warning{Scope: "us-east4", Reason: gcp.ReasonDenied, Detail: "permission denied"}},
 	}
 	// The other kinds are cached too, so the tab bar shows a count per tab and
 	// the All Resources total is the sum rather than just the VM count.
@@ -304,7 +304,7 @@ func dashboardShot() Model {
 
 	m.cache["vm"] = gcp.Result{
 		Resources: statusOnly(kindByID("vm"), map[string]int{"RUNNING": 6, "STAGING": 1, "TERMINATED": 2}),
-		Warnings:  []string{"us-east4: permission denied"},
+		Warnings:  []gcp.Warning{gcp.Warning{Scope: "us-east4", Reason: gcp.ReasonDenied, Detail: "permission denied"}},
 	}
 	m.cache["gke"] = gcp.Result{
 		Resources: statusOnly(kindByID("gke"), map[string]int{"RUNNING": 2}),
@@ -319,7 +319,7 @@ func dashboardShot() Model {
 	// region does, which is the second warning on this shot.
 	m.cache["bqjobs"] = gcp.Result{
 		Resources: statusOnly(kindByID("bqjobs"), map[string]int{"DONE": 38, "RUNNING": 2, "FAILED": 1}),
-		Warnings:  []string{"only the 500 most recent jobs are shown"},
+		Warnings:  []gcp.Warning{gcp.Warning{Reason: gcp.ReasonCapped, Detail: "only the 500 most recent jobs are shown"}},
 	}
 	m.cache["vpc"] = gcp.Result{
 		Resources: statusOnly(kindByID("vpc"), map[string]int{"ACTIVE": 3}),

@@ -145,8 +145,8 @@ func (PubSubSubscriptionLister) List(ctx context.Context, _ *config.Config, p co
 	}
 
 	// Best effort: a failure here costs the backlog column, not the table.
-	backlog, warning := subscriptionBacklog(ctx, p, opts)
-	if warning != "" {
+	backlog, warning, hasWarning := subscriptionBacklog(ctx, p, opts)
+	if hasWarning {
 		result.Warnings = append(result.Warnings, warning)
 	}
 
@@ -224,10 +224,10 @@ func subscriptionDelivery(s *pubsub.Subscription) string {
 //
 // Returns a warning rather than an error: Monitoring not being enabled is a
 // perfectly ordinary state for a project, and it must not cost the table.
-func subscriptionBacklog(ctx context.Context, p config.Project, opts []option.ClientOption) (map[string]int64, string) {
+func subscriptionBacklog(ctx context.Context, p config.Project, opts []option.ClientOption) (map[string]int64, Warning, bool) {
 	svc, err := monitoring.NewService(ctx, opts...)
 	if err != nil {
-		return nil, "backlog unavailable: " + clip(err.Error(), 90)
+		return nil, scopeWarning("backlog", ReasonUnknown, "unavailable: "+clip(err.Error(), 90)), true
 	}
 
 	now := time.Now()
@@ -256,12 +256,12 @@ func subscriptionBacklog(ctx context.Context, p config.Project, opts []option.Cl
 	if err != nil {
 		// Suppressed the same way a disabled service is elsewhere: this is
 		// an extra, and a project without Monitoring is not misconfigured.
-		if w := describeFailure("backlog", err); w != "" {
-			return backlog, w
+		if w, ok := describeFailure("backlog", err); ok {
+			return backlog, w, true
 		}
-		return backlog, ""
+		return backlog, Warning{}, false
 	}
-	return backlog, ""
+	return backlog, Warning{}, false
 }
 
 // latestInt64 takes the most recent point of a series. Points come back newest

@@ -69,7 +69,7 @@ func (DataFusionLister) List(ctx context.Context, _ *config.Config, p config.Pro
 	}
 
 	for _, loc := range sortedKeys(unreachable) {
-		if w := describeFailure(lastSegment(loc), fmt.Errorf("location unreachable")); w != "" {
+		if w, ok := describeFailure(lastSegment(loc), fmt.Errorf("location unreachable")); ok {
 			result.Warnings = append(result.Warnings, w)
 		}
 	}

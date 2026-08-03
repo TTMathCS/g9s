@@ -73,7 +73,7 @@ func (BigtableClusterLister) List(ctx context.Context, _ *config.Config, p confi
 	}
 
 	for _, loc := range sortedKeys(failed) {
-		if w := describeFailure(lastSegment(loc), fmt.Errorf("location unreachable")); w != "" {
+		if w, ok := describeFailure(lastSegment(loc), fmt.Errorf("location unreachable")); ok {
 			result.Warnings = append(result.Warnings, w)
 		}
 	}

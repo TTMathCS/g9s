@@ -56,7 +56,7 @@ func (GKELister) List(ctx context.Context, _ *config.Config, p config.Project, o
 	// ListClusters also reports locations it could not reach, same partial
 	// listing story as a fanOut leg — surface it the same way.
 	for _, missing := range resp.GetMissingZones() {
-		if w := describeFailure(missing, fmt.Errorf("location unreachable")); w != "" {
+		if w, ok := describeFailure(missing, fmt.Errorf("location unreachable")); ok {
 			result.Warnings = append(result.Warnings, w)
 		}
 	}

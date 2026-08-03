@@ -70,10 +70,10 @@ func (TopicSubscriptionLister) List(ctx context.Context, _ *config.Config, p con
 
 	// Same best-effort backlog as the project-wide table: a failure costs the
 	// column, not the listing.
-	backlog, warning := subscriptionBacklog(ctx, p, opts)
+	backlog, warning, hasWarning := subscriptionBacklog(ctx, p, opts)
 
 	var result Result
-	if warning != "" {
+	if hasWarning {
 		result.Warnings = append(result.Warnings, warning)
 	}
 	for _, s := range subs {
@@ -85,7 +85,7 @@ func (TopicSubscriptionLister) List(ctx context.Context, _ *config.Config, p con
 		// explanation reads as a failed call rather than as a topic nobody
 		// is reading.
 		result.Warnings = append(result.Warnings,
-			"no subscriptions on this topic — anything published to it is discarded")
+			narrowedWarning("no subscriptions on this topic — anything published to it is discarded"))
 	}
 
 	sortResources(result.Resources)

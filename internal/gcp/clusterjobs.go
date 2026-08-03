@@ -83,7 +83,7 @@ func (ClusterJobLister) List(ctx context.Context, cfg *config.Config, p config.P
 		if len(result.Resources) >= maxClusterJobs {
 			// The API documents no ordering, so this is honestly the first N it
 			// returned rather than the newest N.
-			result.Warnings = append(result.Warnings, fmt.Sprintf(
+			result.Warnings = append(result.Warnings, cappedWarning(
 				"stopped after %d jobs — this cluster has more history than the table shows",
 				maxClusterJobs))
 			break

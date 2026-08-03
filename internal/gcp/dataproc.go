@@ -70,8 +70,8 @@ func (DataprocLister) List(ctx context.Context, cfg *config.Config, p config.Pro
 	if !cfg.HasDataprocRegions(p) {
 		// Only the implicit global sweep ran; regional clusters were never
 		// looked for, and that has to be visible.
-		result.Warnings = append(result.Warnings,
-			"only the global region was swept — set projects[].regions or defaults.regions to cover regional clusters")
+		result.Warnings = append(result.Warnings, narrowedWarning(
+			"only the global region was swept — set projects[].regions or defaults.regions to cover regional clusters"))
 	}
 	return result, nil
 }

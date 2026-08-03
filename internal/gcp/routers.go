@@ -46,14 +46,14 @@ func (RouterLister) List(ctx context.Context, _ *config.Config, p config.Project
 		Pages(ctx, func(page *compute.RouterAggregatedList) error {
 			appendComputeUnreachables(&result, page.Unreachables)
 			if page.Warning != nil {
-				if warning := computeScopeWarning("all scopes", page.Warning.Code, page.Warning.Message); warning != "" {
+				if warning, ok := computeScopeWarning("all scopes", page.Warning.Code, page.Warning.Message); ok {
 					result.Warnings = append(result.Warnings, warning)
 				}
 			}
 			for scopeRef, scoped := range page.Items {
 				region := lastSegment(scopeRef)
 				if scoped.Warning != nil {
-					if warning := computeScopeWarning(region, scoped.Warning.Code, scoped.Warning.Message); warning != "" {
+					if warning, ok := computeScopeWarning(region, scoped.Warning.Code, scoped.Warning.Message); ok {
 						result.Warnings = append(result.Warnings, warning)
 					}
 				}

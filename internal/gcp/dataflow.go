@@ -84,7 +84,7 @@ func (DataflowLister) List(ctx context.Context, cfg *config.Config, p config.Pro
 	}
 
 	for _, name := range sortedKeys(failed) {
-		if w := describeFailure(name, fmt.Errorf("regional endpoint did not respond")); w != "" {
+		if w, ok := describeFailure(name, fmt.Errorf("regional endpoint did not respond")); ok {
 			result.Warnings = append(result.Warnings, w)
 		}
 	}
@@ -92,7 +92,7 @@ func (DataflowLister) List(ctx context.Context, cfg *config.Config, p config.Pro
 		// The API documents no ordering for the ALL filter, so this is honestly
 		// the first N it returned rather than the newest N. Claiming otherwise
 		// would be a promise the API does not make.
-		result.Warnings = append(result.Warnings, fmt.Sprintf(
+		result.Warnings = append(result.Warnings, cappedWarning(
 			"stopped after %d jobs — the project has more history than this table shows",
 			maxDataflowJobs))
 	}

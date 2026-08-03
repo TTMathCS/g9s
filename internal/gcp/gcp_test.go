@@ -32,7 +32,7 @@ func TestDescribeFailureSuppressesExpectedErrors(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := describeFailure("us-central1", tc.err); got != "" {
+			if got, ok := describeFailure("us-central1", tc.err); ok {
 				t.Errorf("describeFailure = %q, want it suppressed", got)
 			}
 		})
@@ -41,26 +41,32 @@ func TestDescribeFailureSuppressesExpectedErrors(t *testing.T) {
 
 func TestDescribeFailureReportsRealProblems(t *testing.T) {
 	tests := []struct {
-		name string
-		err  error
-		want string
+		name   string
+		err    error
+		want   string
+		reason Reason
 	}{
-		{"permission denied", status.Error(codes.PermissionDenied, "nope"), "permission denied"},
-		{"unauthenticated", status.Error(codes.Unauthenticated, "nope"), "not authenticated"},
-		{"unknown", errors.New("connection reset by peer"), "connection reset"},
+		{"permission denied", status.Error(codes.PermissionDenied, "nope"), "permission denied", ReasonDenied},
+		{"unauthenticated", status.Error(codes.Unauthenticated, "nope"), "not authenticated", ReasonUnauthenticated},
+		{"unknown", errors.New("connection reset by peer"), "connection reset", ReasonUnknown},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := describeFailure("us-central1", tc.err)
-			if got == "" {
+			got, ok := describeFailure("us-central1", tc.err)
+			if !ok {
 				t.Fatal("describeFailure suppressed an error that should surface")
 			}
-			if !strings.HasPrefix(got, "us-central1: ") {
-				t.Errorf("describeFailure = %q, want it prefixed with the scope", got)
+			if got.Scope != "us-central1" {
+				t.Errorf("scope = %q, want the failing scope", got.Scope)
 			}
-			if !strings.Contains(got, tc.want) {
+			if !strings.Contains(got.String(), tc.want) {
 				t.Errorf("describeFailure = %q, want it to contain %q", got, tc.want)
+			}
+			// The classification is what a caller aggregating across projects
+			// reads; the sentence is only for the person looking at one table.
+			if got.Reason != tc.reason {
+				t.Errorf("reason = %v, want %v", got.Reason, tc.reason)
 			}
 		})
 	}
@@ -123,17 +129,20 @@ func TestDescribeFailureClassifiesRESTErrors(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := describeFailure("us-central1", tc.err)
+			got, ok := describeFailure("us-central1", tc.err)
 			if tc.suppress {
-				if got != "" {
+				if ok {
 					t.Errorf("describeFailure = %q, want it suppressed", got)
 				}
 				return
 			}
-			if !strings.HasPrefix(got, "us-central1: ") {
-				t.Errorf("describeFailure = %q, want it prefixed with the scope", got)
+			if !ok {
+				t.Fatal("describeFailure suppressed an error that should surface")
 			}
-			if !strings.Contains(got, tc.want) {
+			if got.Scope != "us-central1" {
+				t.Errorf("scope = %q, want the failing scope", got.Scope)
+			}
+			if !strings.Contains(got.String(), tc.want) {
 				t.Errorf("describeFailure = %q, want it to contain %q", got, tc.want)
 			}
 		})
@@ -145,35 +154,49 @@ func TestDescribeFailureClassifiesRESTErrors(t *testing.T) {
 // inconsistency that gets read as a different failure.
 func TestDescribeFailureUnwrapsRESTErrors(t *testing.T) {
 	wrapped := fmt.Errorf("listing instances: %w", &googleapi.Error{Code: 403, Message: "denied"})
-	if got := describeFailure("us-central1", wrapped); !strings.Contains(got, "permission denied") {
-		t.Errorf("describeFailure = %q, want a wrapped 403 classified the same as a bare one", got)
+	got, ok := describeFailure("us-central1", wrapped)
+	if !ok || got.Reason != ReasonDenied {
+		t.Errorf("describeFailure = %q (%v), want a wrapped 403 classified the same as a bare one", got, got.Reason)
 	}
 }
 
 func TestDescribeFailureTruncatesLongMessages(t *testing.T) {
 	long := errors.New(strings.Repeat("x", 500))
-	got := describeFailure("us-central1", long)
-	if len([]rune(got)) > 140 {
-		t.Errorf("describeFailure produced a %d-rune warning, want it truncated", len([]rune(got)))
+	got, ok := describeFailure("us-central1", long)
+	if !ok {
+		t.Fatal("describeFailure suppressed a plain error")
+	}
+	if n := len([]rune(got.String())); n > 140 {
+		t.Errorf("describeFailure produced a %d-rune warning, want it truncated", n)
 	}
 }
 
 func TestComputeScopeWarningSuppressesEmptyScopes(t *testing.T) {
-	if got := computeScopeWarning("zones/us-east1-b", "NO_RESULTS_ON_PAGE", "no results"); got != "" {
+	if got, ok := computeScopeWarning("zones/us-east1-b", "NO_RESULTS_ON_PAGE", "no results"); ok {
 		t.Errorf("empty scope warning = %q, want it suppressed", got)
 	}
-	got := computeScopeWarning("regions/us-east1", "UNREACHABLE", "backend unavailable")
-	if !strings.Contains(got, "us-east1: backend unavailable") {
+	got, ok := computeScopeWarning("regions/us-east1", "UNREACHABLE", "backend unavailable")
+	if !ok || got.String() != "us-east1: backend unavailable" {
 		t.Errorf("real warning = %q", got)
+	}
+	// The API's own code says which of these it is, and a caller counting
+	// unreachable regions should not have to read the message to find out.
+	if got.Reason != ReasonUnreachable {
+		t.Errorf("reason = %v, want unreachable", got.Reason)
 	}
 }
 
 func TestAppendComputeUnreachablesNamesEachScope(t *testing.T) {
 	var result Result
 	appendComputeUnreachables(&result, []string{"zones/us-east1-b", "regions/us-west1"})
-	if len(result.Warnings) != 2 || result.Warnings[0] != "us-east1-b: unreachable" ||
-		result.Warnings[1] != "us-west1: unreachable" {
+	if len(result.Warnings) != 2 || result.Warnings[0].String() != "us-east1-b: unreachable" ||
+		result.Warnings[1].String() != "us-west1: unreachable" {
 		t.Errorf("warnings = %v", result.Warnings)
+	}
+	for _, w := range result.Warnings {
+		if w.Reason != ReasonUnreachable {
+			t.Errorf("%v classified as %v, want unreachable", w, w.Reason)
+		}
 	}
 }
 
@@ -205,7 +228,7 @@ func TestFanOutCollectsPartialResults(t *testing.T) {
 	if len(result.Warnings) != 1 {
 		t.Fatalf("got %d warnings, want 1: %v", len(result.Warnings), result.Warnings)
 	}
-	if !strings.Contains(result.Warnings[0], "bad") {
+	if !strings.Contains(result.Warnings[0].String(), "bad") {
 		t.Errorf("warning = %q, want it to name the failing scope", result.Warnings[0])
 	}
 }
@@ -234,14 +257,14 @@ func TestFanOutCarriesWarningsFromSuccessfulScopes(t *testing.T) {
 	result := fanOut(context.Background(), []string{"busy"}, func(_ context.Context, loc string) (Result, error) {
 		return Result{
 			Resources: []Resource{{Name: "a", Location: loc}},
-			Warnings:  []string{loc + ": stopped after 200 jobs"},
+			Warnings:  []Warning{scopeWarning(loc, ReasonCapped, "stopped after 200 jobs")},
 		}, nil
 	})
 
 	if len(result.Resources) != 1 {
 		t.Errorf("got %d resources, want 1", len(result.Resources))
 	}
-	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "stopped after") {
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0].String(), "stopped after") {
 		t.Errorf("warnings = %v, want the cap warning carried through", result.Warnings)
 	}
 }
@@ -627,7 +650,14 @@ func TestSQLWarningFormatting(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := sqlWarning(tc.in); got != tc.want {
+			got, ok := sqlWarning(tc.in)
+			if !ok {
+				if tc.want != "" {
+					t.Errorf("sqlWarning dropped %v, want %q", tc.in, tc.want)
+				}
+				return
+			}
+			if got.String() != tc.want {
 				t.Errorf("sqlWarning = %q, want %q", got, tc.want)
 			}
 		})
@@ -636,7 +666,11 @@ func TestSQLWarningFormatting(t *testing.T) {
 
 func TestSQLWarningTruncatesLongMessages(t *testing.T) {
 	w := &sqladmin.ApiWarning{Region: "us-east4", Message: strings.Repeat("x", 500)}
-	if n := len([]rune(sqlWarning(w))); n > 120 {
+	got, ok := sqlWarning(w)
+	if !ok {
+		t.Fatal("sqlWarning dropped a warning with a message")
+	}
+	if n := len([]rune(got.String())); n > 120 {
 		t.Errorf("warning is %d runes, want it truncated", n)
 	}
 }
@@ -644,18 +678,18 @@ func TestSQLWarningTruncatesLongMessages(t *testing.T) {
 func TestDedupeSortWarnings(t *testing.T) {
 	// Cloud SQL repeats the same warning on every page of a paginated listing,
 	// so five pages for one bad region must not read as five bad scopes.
-	r := Result{Warnings: []string{
-		"us-east4: region unreachable",
-		"us-east4: region unreachable",
-		"us-central1: region unreachable",
-		"us-east4: region unreachable",
+	r := Result{Warnings: []Warning{
+		scopeWarning("us-east4", ReasonUnreachable, "region unreachable"),
+		scopeWarning("us-east4", ReasonUnreachable, "region unreachable"),
+		scopeWarning("us-central1", ReasonUnreachable, "region unreachable"),
+		scopeWarning("us-east4", ReasonUnreachable, "region unreachable"),
 	}}
 	dedupeSortWarnings(&r)
 
 	if len(r.Warnings) != 2 {
 		t.Fatalf("got %d warnings, want 2 unique: %v", len(r.Warnings), r.Warnings)
 	}
-	if r.Warnings[0] != "us-central1: region unreachable" {
+	if r.Warnings[0].String() != "us-central1: region unreachable" {
 		t.Errorf("warnings should be sorted, got %v", r.Warnings)
 	}
 }
@@ -921,11 +955,11 @@ func TestMergeResultsCombinesAndDedupes(t *testing.T) {
 	// result has to stay sorted and must not repeat a shared warning.
 	dst := Result{
 		Resources: []Resource{{Name: "b", Location: "us-central1"}},
-		Warnings:  []string{"us-east4: permission denied"},
+		Warnings:  []Warning{scopeWarning("us-east4", ReasonDenied, "permission denied")},
 	}
 	mergeResults(&dst, Result{
 		Resources: []Resource{{Name: "a", Location: "global"}},
-		Warnings:  []string{"us-east4: permission denied"},
+		Warnings:  []Warning{scopeWarning("us-east4", ReasonDenied, "permission denied")},
 	})
 
 	if len(dst.Resources) != 2 {

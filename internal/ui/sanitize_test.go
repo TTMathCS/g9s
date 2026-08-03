@@ -140,7 +140,7 @@ func TestFooterShowsTheWarningTextItself(t *testing.T) {
 	m.screen = screenResources
 	m.cache[m.currentKind().ID] = gcp.Result{
 		Resources: []gcp.Resource{{Name: "a", Row: []string{"a"}}},
-		Warnings:  []string{"only the 500 most recent jobs are shown"},
+		Warnings:  []gcp.Warning{gcp.Warning{Reason: gcp.ReasonCapped, Detail: "only the 500 most recent jobs are shown"}},
 	}
 
 	got := m.footerView()

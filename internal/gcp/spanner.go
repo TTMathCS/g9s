@@ -69,7 +69,7 @@ func (SpannerLister) List(ctx context.Context, _ *config.Config, p config.Projec
 	}
 
 	for _, loc := range sortedKeys(unreachable) {
-		if w := describeFailure(loc, fmt.Errorf("location unreachable")); w != "" {
+		if w, ok := describeFailure(loc, fmt.Errorf("location unreachable")); ok {
 			result.Warnings = append(result.Warnings, w)
 		}
 	}

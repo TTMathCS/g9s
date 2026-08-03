@@ -74,7 +74,7 @@ func (DNSRecordLister) List(ctx context.Context, cfg *config.Config, p config.Pr
 	}
 
 	if capped {
-		result.Warnings = append(result.Warnings, fmt.Sprintf(
+		result.Warnings = append(result.Warnings, cappedWarning(
 			"first %d record sets only — the zone holds more than this table shows",
 			maxRecordSets))
 	}

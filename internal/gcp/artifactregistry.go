@@ -46,9 +46,7 @@ func (ArtifactRegistryLister) Kind() Kind {
 func (ArtifactRegistryLister) List(ctx context.Context, cfg *config.Config, p config.Project, opts []option.ClientOption) (Result, error) {
 	regions := cfg.Regions(p)
 	if len(regions) == 0 {
-		return Result{Warnings: []string{
-			"no regions configured — set projects[].regions or defaults.regions",
-		}}, nil
+		return Result{Warnings: []Warning{narrowedWarning("no regions configured — set projects[].regions or defaults.regions")}}, nil
 	}
 
 	svc, err := artifactregistry.NewService(ctx, opts...)

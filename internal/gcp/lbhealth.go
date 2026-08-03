@@ -75,21 +75,21 @@ func (LoadBalancerHealthLister) List(ctx context.Context, cfg *config.Config, p 
 
 // backendServicesFor resolves a forwarding rule to the backend services behind
 // it, following whichever chain its scheme uses.
-func backendServicesFor(ctx context.Context, svc *compute.Service, p config.Project, rule *computepb.ForwardingRule) ([]*compute.BackendService, []string) {
+func backendServicesFor(ctx context.Context, svc *compute.Service, p config.Project, rule *computepb.ForwardingRule) ([]*compute.BackendService, []Warning) {
 	// An internal passthrough load balancer points straight at its service,
 	// with no proxy in between. The short chain, and the common one inside a
 	// VPC.
 	if ref := rule.GetBackendService(); ref != "" {
 		bs, err := getBackendService(ctx, svc, p, ref)
 		if err != nil {
-			return nil, []string{"backend service: " + clip(err.Error(), 100)}
+			return nil, []Warning{scopeWarning("backend service", ReasonUnknown, clip(err.Error(), 100))}
 		}
 		return []*compute.BackendService{bs}, nil
 	}
 
 	target := rule.GetTarget()
 	if target == "" {
-		return nil, []string{"this rule names no target — nothing to health check"}
+		return nil, []Warning{narrowedWarning("this rule names no target — nothing to health check")}
 	}
 
 	collection, region, name := parseResourceURL(target)
@@ -97,18 +97,18 @@ func backendServicesFor(ctx context.Context, svc *compute.Service, p config.Proj
 	case "targetHttpProxies", "targetHttpsProxies":
 		mapRef, err := urlMapOfProxy(ctx, svc, p, collection, region, name)
 		if err != nil {
-			return nil, []string{"target proxy: " + clip(err.Error(), 100)}
+			return nil, []Warning{scopeWarning("target proxy", ReasonUnknown, clip(err.Error(), 100))}
 		}
 		return servicesOfURLMap(ctx, svc, p, mapRef)
 
 	case "targetTcpProxies", "targetSslProxies":
 		ref, err := serviceOfProxy(ctx, svc, p, collection, region, name)
 		if err != nil {
-			return nil, []string{"target proxy: " + clip(err.Error(), 100)}
+			return nil, []Warning{scopeWarning("target proxy", ReasonUnknown, clip(err.Error(), 100))}
 		}
 		bs, err := getBackendService(ctx, svc, p, ref)
 		if err != nil {
-			return nil, []string{"backend service: " + clip(err.Error(), 100)}
+			return nil, []Warning{scopeWarning("backend service", ReasonUnknown, clip(err.Error(), 100))}
 		}
 		return []*compute.BackendService{bs}, nil
 
@@ -117,9 +117,9 @@ func backendServicesFor(ctx context.Context, svc *compute.Service, p config.Proj
 		// attachments are all legitimate forwarding-rule targets with no
 		// backend service anywhere in them. Saying which one it is beats an
 		// empty table that looks like a failure.
-		return nil, []string{fmt.Sprintf(
+		return nil, []Warning{narrowedWarning(fmt.Sprintf(
 			"target is a %s — health checks live on backend services, which this kind of load balancer has none of",
-			singular(collection))}
+			singular(collection)))}
 	}
 }
 
@@ -184,9 +184,9 @@ func serviceOfProxy(ctx context.Context, svc *compute.Service, p config.Project,
 //
 // Not just the default: a map whose default is healthy while the service behind
 // /api is down is the exact situation someone opens this table during.
-func servicesOfURLMap(ctx context.Context, svc *compute.Service, p config.Project, mapRef string) ([]*compute.BackendService, []string) {
+func servicesOfURLMap(ctx context.Context, svc *compute.Service, p config.Project, mapRef string) ([]*compute.BackendService, []Warning) {
 	if mapRef == "" {
-		return nil, []string{"the target proxy names no URL map"}
+		return nil, []Warning{narrowedWarning("the target proxy names no URL map")}
 	}
 
 	_, region, name := parseResourceURL(mapRef)
@@ -200,20 +200,20 @@ func servicesOfURLMap(ctx context.Context, svc *compute.Service, p config.Projec
 		um, err = svc.RegionUrlMaps.Get(p.ProjectID, region, name).Context(ctx).Do()
 	}
 	if err != nil {
-		return nil, []string{"url map: " + clip(err.Error(), 100)}
+		return nil, []Warning{scopeWarning("url map", ReasonUnknown, clip(err.Error(), 100))}
 	}
 
 	refs := urlMapServiceRefs(um)
 	var (
 		services []*compute.BackendService
-		warnings []string
+		warnings []Warning
 	)
 	for _, ref := range refs {
 		bs, err := getBackendService(ctx, svc, p, ref)
 		if err != nil {
 			// A backend bucket is a perfectly ordinary route target and is not
 			// a backend service, so a miss here is not necessarily a fault.
-			warnings = append(warnings, fmt.Sprintf("%s: %s", lastSegment(ref), clip(err.Error(), 80)))
+			warnings = append(warnings, scopeWarning(lastSegment(ref), ReasonUnknown, clip(err.Error(), 80)))
 			continue
 		}
 		services = append(services, bs)
@@ -260,7 +260,7 @@ func getBackendService(ctx context.Context, svc *compute.Service, p config.Proje
 }
 
 // groupHealth asks each backend group how it is doing, concurrently.
-func groupHealth(ctx context.Context, svc *compute.Service, p config.Project, services []*compute.BackendService, maxHealthGroups int) ([]Resource, []string) {
+func groupHealth(ctx context.Context, svc *compute.Service, p config.Project, services []*compute.BackendService, maxHealthGroups int) ([]Resource, []Warning) {
 	type job struct {
 		service *compute.BackendService
 		group   string
@@ -282,7 +282,7 @@ func groupHealth(ctx context.Context, svc *compute.Service, p config.Project, se
 	var (
 		mu        sync.Mutex
 		resources []Resource
-		warnings  []string
+		warnings  []Warning
 		wg        sync.WaitGroup
 	)
 	for _, j := range jobs {
@@ -302,7 +302,7 @@ func groupHealth(ctx context.Context, svc *compute.Service, p config.Project, se
 				// Serverless NEGs and a few other backend types have no health
 				// concept at all and refuse the call. That is a fact about the
 				// backend, not a failure of the listing.
-				if w := describeFailure(lastSegment(j.group), err); w != "" {
+				if w, ok := describeFailure(lastSegment(j.group), err); ok {
 					warnings = append(warnings, w)
 				}
 				return
@@ -318,7 +318,7 @@ func groupHealth(ctx context.Context, svc *compute.Service, p config.Project, se
 	wg.Wait()
 
 	if len(services) > 0 && len(jobs) == 0 {
-		warnings = append(warnings, "the backend services behind this rule have no backend groups")
+		warnings = append(warnings, narrowedWarning("the backend services behind this rule have no backend groups"))
 	}
 	return resources, warnings
 }

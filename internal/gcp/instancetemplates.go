@@ -45,14 +45,14 @@ func (InstanceTemplateLister) List(ctx context.Context, _ *config.Config, p conf
 		Context(ctx).
 		Pages(ctx, func(page *compute.InstanceTemplateAggregatedList) error {
 			if page.Warning != nil {
-				if warning := computeScopeWarning("all scopes", page.Warning.Code, page.Warning.Message); warning != "" {
+				if warning, ok := computeScopeWarning("all scopes", page.Warning.Code, page.Warning.Message); ok {
 					result.Warnings = append(result.Warnings, warning)
 				}
 			}
 			for scopeRef, scoped := range page.Items {
 				scope := lastSegment(scopeRef)
 				if scoped.Warning != nil {
-					if warning := computeScopeWarning(scope, scoped.Warning.Code, scoped.Warning.Message); warning != "" {
+					if warning, ok := computeScopeWarning(scope, scoped.Warning.Code, scoped.Warning.Message); ok {
 						result.Warnings = append(result.Warnings, warning)
 					}
 				}
