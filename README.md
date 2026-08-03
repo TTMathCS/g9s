@@ -142,9 +142,10 @@ drill-down opened from a parent row.
 | Parent/child drill-downs with sibling tabs | ✅ Implemented | 19 child listings |
 | Partial-result and row-cap warnings | ✅ Implemented | A bounded or incomplete result cannot look complete |
 | Expected account versus actual ADC identity | ✅ Implemented | The actual identity is displayed; a live token for a different configured account is refused |
-| Consistent HTTP/gRPC permission errors | 🟡 Needs improvement | REST 403 responses still need normalized wording |
+| Assisted login for proxied corporate browsers | ✅ Implemented | Paste the stuck localhost redirect; g9s delivers it past the proxy |
+| Consistent HTTP/gRPC permission errors | ✅ Implemented | REST 403/401 map to the same wording as gRPC; unenabled APIs stay quiet |
 | Large OSC 52 clipboard payload handling | 🟡 Needs improvement | Terminal limits can make large YAML copies fail silently |
-| Prebuilt release pipeline | 🟡 Needs improvement | Workflow exists; first verified release is still pending |
+| Prebuilt release pipeline | ✅ Implemented | Every merge to `main` builds, checks and publishes a release |
 | Confirmed VM/Dataproc state actions | 🔜 Next | No mutating API action is implemented today |
 | Terraform managed/drifted/unmanaged overlay | 🔜 Next | Read state; do not replace Terraform |
 | Cross-project inventory for one kind | ⬜ Candidate | Requires context-aware identity and bounded concurrency |
@@ -152,7 +153,7 @@ drill-down opened from a parent row.
 | Cloud Asset Inventory fast path | ⬜ Candidate | Optional; many organizations do not enable the API |
 | Saved filters and bookmarks | ⬜ Candidate | Not implemented |
 | CSV and JSON export | ⬜ Candidate | Not implemented |
-| `g9s doctor` preflight checks | ⬜ Candidate | Config, identity, API and permission diagnostics |
+| `g9s doctor` preflight checks | ✅ Shipped | Config, gcloud, proxy/loopback, credential permissions, live identity |
 | Writing infrastructure definitions | 🚫 Not planned | g9s is not a Terraform replacement |
 | Storing passwords or minting credentials itself | 🚫 Not planned | gcloud owns interactive authentication |
 | Displaying secret values or private key material | 🚫 Not planned | Metadata only |
@@ -200,10 +201,12 @@ $EDITOR ~/.config/g9s/config.yaml
 g9s
 ```
 
-Start with one project. Select it and press `l`; g9s hands the terminal to
-`gcloud auth application-default login` and resumes when login completes.
-Press `L`, or set `defaults.login_no_browser: true`, when the browser cannot
-return to the terminal's loopback address.
+Start with one project. Select it and press `l`; g9s starts
+`gcloud auth application-default login` and opens the sign-in link, staying
+interactive so a login that gets stuck can be rescued — see
+[Login on a corporate laptop](#login-on-a-corporate-laptop). Press `L`, or set
+`defaults.login_no_browser: true`, when this machine has no browser at all.
+`g9s doctor` checks the whole setup from the command line.
 
 ## Configuration
 
@@ -308,7 +311,7 @@ defaults:
 | `o` | Open Airflow for Composer; Cloud Console otherwise |
 | `y` | Copy the resource name; from detail view, copy YAML |
 | `s` | SSH to a selected running VM |
-| `l` / `L` | Login with or without a local browser |
+| `l` / `L` | Login: assisted browser flow / no-browser flow for machines without one |
 | `q` / `esc` | Back one level |
 | `p` | Return to projects |
 | `?` | Help |
@@ -316,13 +319,60 @@ defaults:
 
 ## Authentication and safety
 
-g9s never receives a password. During login, gcloud owns the terminal and the
-browser or identity provider handles password and MFA.
+g9s never receives a password. Login is always gcloud's own
+`auth application-default login` flow: the browser or identity provider
+handles password and MFA, and gcloud writes the credential.
 
 Each project uses its own `CLOUDSDK_CONFIG` directory, so switching projects
 does not change `~/.config/gcloud`. Credential expiry is checked with a live
 token exchange. Resource discovery uses typed Google clients; gcloud is used
 only for login and SSH.
+
+### Login on a corporate laptop
+
+The standard gcloud browser login has a step that corporate proxies break:
+after you sign in, the browser fetches `http://localhost:<port>/` to hand the
+authorization code back to gcloud. A browser that sends localhost through the
+proxy never delivers it — the sign-in *succeeds* and gcloud waits forever.
+
+g9s runs the browser login in **assisted mode** to survive exactly this.
+Press `l`; g9s starts gcloud, opens the sign-in link, and stays interactive:
+
+1. If your browser can reach its own localhost, the login completes by itself —
+   nothing to do.
+2. If the browser instead lands on an error like *"localhost refused to
+   connect"*, the login is still alive. **Copy the entire address from that
+   stuck tab's address bar** (it looks like
+   `http://localhost:8085/?state=…&code=…`) and paste it into g9s. g9s hands
+   it to gcloud on your machine directly, bypassing the proxy, and the login
+   completes. The code in that address is single-use and useless outside the
+   running login.
+
+If the flow cannot run at all (no browser on this machine), press `L` for
+gcloud's `--no-browser` flow: gcloud prints a **command** — not a link — to
+run on a machine that has a browser and gcloud 372.0.0+, and that command's
+output is pasted back. Opening the URL inside it in a browser produces
+`Error 400: missing required parameter: redirect_uri`; the command is the
+thing to copy.
+
+If neither interactive flow can complete, run
+`gcloud auth application-default login` wherever it does work and point the
+project at the file it writes with `credentials_file:` in the config.
+
+### `g9s doctor`
+
+`g9s doctor` (or `g9s -doctor`) checks the whole setup outside the TUI and
+prints one line per finding, with a remedy for anything broken: the config
+file, the gcloud binary and version, whether a proxy would break the browser
+login, per-project credential directory permissions, and — unless `-offline`
+is set — a live token exchange for every project, verifying each credential
+belongs to the account the config expects. It exits non-zero on failures, so
+it also works as a scripted onboarding check:
+
+```sh
+g9s doctor            # everything, including live credential checks
+g9s doctor -offline   # config, gcloud and proxy checks only; nothing leaves the machine
+```
 
 All GCP API calls are currently read-only. API-supplied control characters are
 removed before rendering, and sensitive fields returned inside otherwise

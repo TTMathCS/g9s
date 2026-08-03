@@ -2,11 +2,29 @@
 
 ## What g9s does with your credentials
 
-**It never handles your password, and it never writes a credential.** Pressing
-`l` suspends the TUI and hands the terminal to `gcloud auth application-default
-login`. Your identity provider's login page, the password from your PAM
-checkout and the MFA challenge all happen in the browser and in gcloud's own
-process. g9s resumes afterwards and reads the file gcloud wrote.
+**It never handles your password, and it never writes a credential.** Login is
+always gcloud's own `auth application-default login`. Your identity provider's
+login page, the password from your PAM checkout and the MFA challenge all
+happen in the browser and in gcloud's own process; gcloud writes the
+credential, and g9s reads the file it wrote.
+
+Pressing `l` runs that flow in **assisted mode**: gcloud runs as a child
+process with its output piped, g9s opens the sign-in link, and gcloud's own
+loopback listener receives the browser's redirect exactly as it would without
+g9s. The assisted part only exists for the corporate failure where the
+browser's proxy swallows the `http://localhost:<port>/` redirect: the user
+pastes the stuck tab's address into g9s, and g9s performs that one loopback
+request on the browser's behalf. What passes through g9s in that moment is the
+OAuth **authorization code** — single-use, bound by PKCE to the code verifier
+that only the gcloud child process holds, and useless to any other party. g9s
+still never sees a password, an access token, or a refresh token. The paste is
+validated before a byte is sent: plain `http` only, loopback host only, and
+the exact port gcloud itself announced in its `redirect_uri`; the request is
+pinned to `127.0.0.1` with a client that uses no proxy and follows no
+redirects, so a hostile paste cannot redirect it anywhere else — the worst a
+bad paste can do is knock on gcloud's listener, which verifies the OAuth
+`state` token itself. Pressing `L` uses gcloud's `--no-browser` flow with a
+terminal handover, unchanged.
 
 **Each project is isolated.** g9s sets `CLOUDSDK_CONFIG` to a per-project
 directory under `credential_dir`, created `0700`. Logging into one project
@@ -21,8 +39,8 @@ expiry is detected. Tokens stay in memory for the life of the process.
 
 | | |
 |---|---|
-| **Network** | GCP APIs only, over the Google client libraries. No telemetry, no analytics, no update check, no other host. |
-| **Executes** | `gcloud` (path from `defaults.gcloud_path`) for login and SSH; the platform opener (`open` / `xdg-open` / `rundll32`) for `o` and `c`. Nothing else. |
+| **Network** | GCP APIs only, over the Google client libraries — plus, during an assisted login rescue, one HTTP GET pinned to `127.0.0.1` on the port gcloud announced. No telemetry, no analytics, no update check, no other host. |
+| **Executes** | `gcloud` (path from `defaults.gcloud_path`) for login and SSH; the platform opener (`open` / `xdg-open` / `rundll32`) for `o` and `c` and the assisted login link. Nothing else. |
 | **Writes** | The per-project credential directories (via gcloud), and `config.yaml` on `-init`. |
 | **API calls** | Read-only. Every call is a `List` or `Get`; g9s issues no mutating request of any kind. |
 
@@ -134,6 +152,23 @@ places and the contents are not secret.
   terminate the sequence early.
 - **Credential file handling.** g9s only reads the ADC file; gcloud creates it,
   inside a directory g9s creates `0700`.
+- **SSRF through the assisted-login paste box.** The paste box accepts a URL
+  and g9s performs an HTTP request — the classic server-side request forgery
+  shape. It is constrained on every axis: scheme must be `http`, host must be
+  a loopback name, the port must equal the one gcloud announced in its own
+  `redirect_uri`, the request is pinned to the literal `127.0.0.1` (so a
+  resolver that maps `localhost` elsewhere changes nothing), the client uses
+  no proxy, follows no redirects, and reads a bounded response it discards.
+  The only reachable endpoint is the gcloud child process g9s itself started.
+- **Authorization code exposure in the assisted flow.** The pasted redirect
+  contains the OAuth authorization code. It is held in memory only, never
+  logged, and is useless without the PKCE code verifier, which exists only
+  inside the gcloud child. gcloud additionally verifies the OAuth `state`
+  value before accepting it.
+- **The authorization URL scanner.** gcloud's output is matched structurally —
+  an `https` URL whose `redirect_uri` points at a loopback port — rather than
+  by prose, so a wording change fails safe: the assisted start errors out and
+  the login falls back to the plain terminal handover.
 
 ### Residual, by design
 

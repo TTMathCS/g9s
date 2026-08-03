@@ -3,12 +3,14 @@ package gcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/compute/apiv1/computepb"
 	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v1"
+	"google.golang.org/api/googleapi"
 	iam "google.golang.org/api/iam/v1"
 	sqladmin "google.golang.org/api/sqladmin/v1"
 	"google.golang.org/grpc/codes"
@@ -61,6 +63,90 @@ func TestDescribeFailureReportsRealProblems(t *testing.T) {
 				t.Errorf("describeFailure = %q, want it to contain %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// Roughly half the listers reach services with no gRPC surface — Cloud SQL,
+// DNS, IAM, Resource Manager, Storage. Those return an *googleapi.Error with
+// no gRPC code, so before this was handled a 403 reached the user as a
+// truncated blob of JSON prose rather than "permission denied": exactly the
+// error where "nothing there" and "you cannot see it" must not look alike.
+func TestDescribeFailureClassifiesRESTErrors(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      *googleapi.Error
+		want     string
+		suppress bool
+	}{
+		{
+			name: "403 permission denied",
+			err:  &googleapi.Error{Code: 403, Message: "Request had insufficient authentication scopes."},
+			want: "permission denied",
+		},
+		{
+			name: "401 unauthenticated",
+			err:  &googleapi.Error{Code: 401, Message: "Invalid Credentials"},
+			want: "not authenticated",
+		},
+		{
+			// 403 is overloaded: this one means nobody enabled the API, which
+			// is the normal state for most services in most projects and must
+			// not put a line on every refresh forever.
+			name: "403 api not enabled, by reason",
+			err: &googleapi.Error{
+				Code:   403,
+				Errors: []googleapi.ErrorItem{{Reason: "accessNotConfigured", Message: "API not enabled"}},
+			},
+			suppress: true,
+		},
+		{
+			name: "403 api not enabled, by message",
+			err: &googleapi.Error{
+				Code:    403,
+				Message: "Cloud SQL Admin API has not been used in project 12345 before or it is disabled.",
+			},
+			suppress: true,
+		},
+		{
+			name:     "404 is not worth reporting",
+			err:      &googleapi.Error{Code: 404, Message: "not found"},
+			suppress: true,
+		},
+		{
+			// Nothing to classify, so the server's own message is the best
+			// thing available — but it still has to be scoped and clipped.
+			name: "500 falls back to the server message",
+			err:  &googleapi.Error{Code: 500, Message: "backend error"},
+			want: "backend error",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := describeFailure("us-central1", tc.err)
+			if tc.suppress {
+				if got != "" {
+					t.Errorf("describeFailure = %q, want it suppressed", got)
+				}
+				return
+			}
+			if !strings.HasPrefix(got, "us-central1: ") {
+				t.Errorf("describeFailure = %q, want it prefixed with the scope", got)
+			}
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("describeFailure = %q, want it to contain %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// The client libraries return these wrapped as often as bare, and a warning
+// that degrades to raw JSON depending on the call path is the kind of
+// inconsistency that gets read as a different failure.
+func TestDescribeFailureUnwrapsRESTErrors(t *testing.T) {
+	wrapped := fmt.Errorf("listing instances: %w", &googleapi.Error{Code: 403, Message: "denied"})
+	if got := describeFailure("us-central1", wrapped); !strings.Contains(got, "permission denied") {
+		t.Errorf("describeFailure = %q, want a wrapped 403 classified the same as a bare one", got)
 	}
 }
 

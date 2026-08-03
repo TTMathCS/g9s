@@ -46,6 +46,28 @@ type resourcesMsg struct {
 type loginFinishedMsg struct {
 	project string
 	err     error
+	// output is what gcloud wrote before failing.
+	//
+	// It is captured rather than left on the terminal because the terminal is
+	// exactly where it does not survive: gcloud prints the real reason, exits,
+	// and bubbletea repaints over it within milliseconds of the resume. What
+	// reaches the user is "exit status 1", which is unactionable — the failure
+	// this exists for was reported as "it gives error missing params, I haven't
+	// had a chance to troubleshoot".
+	output string
+	// cancelled marks a login the user ended on purpose, which deserves a
+	// one-line acknowledgement rather than the failure pane.
+	cancelled bool
+}
+
+// assistedLoginMsg is the assisted flow reporting that gcloud is up and has
+// printed its authorization URL — or that it could not start. seq ties it to
+// the attempt that started it, so a stale start cannot be adopted.
+type assistedLoginMsg struct {
+	project string
+	seq     int
+	login   *auth.AssistedLogin
+	err     error
 }
 
 type flashMsg struct {
@@ -114,9 +136,59 @@ func login(mgr *auth.Manager, p config.Project, noBrowser bool) tea.Cmd {
 	// The credential path is in the notice so the manual fallback names a real
 	// destination rather than "wherever g9s keeps them".
 	notice := loginNotice(p, noBrowser, mgr.ADCPath(p))
-	return tea.Exec(&noticeCmd{Cmd: cmd, notice: notice}, func(err error) tea.Msg {
-		return loginFinishedMsg{project: p.Name, err: err}
+	// 16 KiB of tail is far more than any gcloud failure needs and still bounded.
+	transcript := auth.NewTailBuffer(16 << 10)
+	return tea.Exec(&noticeCmd{Cmd: cmd, notice: notice, transcript: transcript}, func(err error) tea.Msg {
+		return loginFinishedMsg{project: p.Name, err: err, output: transcript.String()}
 	})
+}
+
+// startAssisted launches the assisted browser login for a project.
+//
+// This replaces the terminal handover for the browser flow. The difference
+// that matters: gcloud runs as a piped child, so the TUI stays alive to offer
+// the rescue — pasting the localhost address the browser got stuck on — that
+// a suspended UI cannot.
+func startAssisted(mgr *auth.Manager, p config.Project, seq int) tea.Cmd {
+	return func() tea.Msg {
+		login, err := mgr.StartAssistedLogin(p)
+		return assistedLoginMsg{project: p.Name, seq: seq, login: login, err: err}
+	}
+}
+
+// awaitAssisted resolves when gcloud exits, however that happens: the browser
+// completed the redirect itself, a pasted address was delivered, the flow
+// failed, or the user cancelled.
+func awaitAssisted(login *auth.AssistedLogin) tea.Cmd {
+	return func() tea.Msg {
+		<-login.Done()
+		err := login.Err()
+		if err == nil {
+			// gcloud can exit 0 without writing a credential in odd corners;
+			// the auth re-check that follows the success path catches that.
+			return loginFinishedMsg{project: login.Project(), output: login.Output()}
+		}
+		return loginFinishedMsg{
+			project:   login.Project(),
+			err:       err,
+			output:    login.Output(),
+			cancelled: login.Cancelled(),
+		}
+	}
+}
+
+// deliverCode hands the pasted redirect address to gcloud's loopback listener.
+//
+// Success here is not success of the login — it only means the listener got
+// the request. gcloud then exchanges the code, exits, and awaitAssisted
+// reports the real outcome.
+func deliverCode(login *auth.AssistedLogin, pasted string) tea.Cmd {
+	return func() tea.Msg {
+		if err := login.Deliver(pasted); err != nil {
+			return flashMsg{text: err.Error(), level: flashError}
+		}
+		return flashMsg{text: "code delivered — gcloud is finishing the login", level: flashInfo}
+	}
 }
 
 // loginNotice is printed above gcloud's own output, on the terminal gcloud is
@@ -179,6 +251,9 @@ func loginNotice(p config.Project, noBrowser bool, adcPath string) string {
 type noticeCmd struct {
 	*exec.Cmd
 	notice string
+	// transcript keeps a copy of what gcloud wrote while it owned the terminal,
+	// so a failure can still be read after the UI has painted over it.
+	transcript *auth.TailBuffer
 }
 
 func (c *noticeCmd) SetStdin(r io.Reader) {
@@ -189,14 +264,27 @@ func (c *noticeCmd) SetStdin(r io.Reader) {
 
 func (c *noticeCmd) SetStdout(w io.Writer) {
 	if c.Stdout == nil {
-		c.Stdout = w
+		c.Stdout = c.tee(w)
 	}
 }
 
 func (c *noticeCmd) SetStderr(w io.Writer) {
 	if c.Stderr == nil {
-		c.Stderr = w
+		c.Stderr = c.tee(w)
 	}
+}
+
+// tee copies the stream into the transcript when there is one.
+//
+// The nil check is load-bearing rather than defensive: a noticeCmd is useful
+// without a transcript, and io.MultiWriter over a nil buffer is a panic at the
+// first byte gcloud writes — which would turn "your login failed" into "g9s
+// crashed while your login failed".
+func (c *noticeCmd) tee(w io.Writer) io.Writer {
+	if c.transcript == nil {
+		return w
+	}
+	return io.MultiWriter(w, c.transcript)
 }
 
 func (c *noticeCmd) Run() error {

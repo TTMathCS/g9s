@@ -9,12 +9,15 @@ package gcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
@@ -197,6 +200,20 @@ func fanOut(ctx context.Context, locations []string, fn func(ctx context.Context
 // projects. Permission denied is worth showing exactly once per scope, since
 // it is the difference between "nothing there" and "you cannot see it".
 func describeFailure(scope string, err error) string {
+	// REST first. Roughly half the listers reach services with no gRPC surface
+	// — Cloud SQL, DNS, IAM, Resource Manager, Storage — and those return an
+	// *googleapi.Error that carries no gRPC code at all. Without this branch a
+	// 403 fell through to the raw-message case and reached the user as a
+	// truncated blob of JSON prose, which is the one error where knowing the
+	// difference between "nothing there" and "you cannot see it" matters most.
+	var apiErr *googleapi.Error
+	if errors.As(err, &apiErr) {
+		if warning, handled := restReason(scope, apiErr); handled {
+			return warning
+		}
+		return fmt.Sprintf("%s: %s", scope, clip(apiErr.Message, 120))
+	}
+
 	switch grpcCode(err) {
 	case codes.NotFound:
 		return ""
@@ -217,6 +234,42 @@ func describeFailure(scope string, err error) string {
 		return ""
 	}
 	return fmt.Sprintf("%s: %s", scope, clip(msg, 120))
+}
+
+// restReason maps an HTTP error to the same vocabulary the gRPC branch uses.
+//
+// handled is false when the status carries no useful classification and the
+// caller should fall back to the server's own message; a handled warning of ""
+// means the error is the normal state and should not be reported at all.
+//
+// The subtlety is 403, which these APIs overload: it is both "you lack the
+// permission" and "nobody enabled this API". Only the first is worth a warning
+// — an unenabled API is the normal state for most services in most projects,
+// and reporting it would put a line on every refresh forever. They are told
+// apart by the reason field rather than by the message, which is prose and
+// changes.
+func restReason(scope string, err *googleapi.Error) (warning string, handled bool) {
+	for _, item := range err.Errors {
+		switch item.Reason {
+		case "accessNotConfigured", "SERVICE_DISABLED":
+			return "", true
+		}
+	}
+	if strings.Contains(err.Message, "SERVICE_DISABLED") ||
+		strings.Contains(err.Message, "has not been used in project") ||
+		strings.Contains(err.Message, "accessNotConfigured") {
+		return "", true
+	}
+
+	switch err.Code {
+	case http.StatusNotFound:
+		return "", true
+	case http.StatusForbidden:
+		return fmt.Sprintf("%s: permission denied", scope), true
+	case http.StatusUnauthorized:
+		return fmt.Sprintf("%s: not authenticated", scope), true
+	}
+	return "", false
 }
 
 // clip shortens s to at most max runes, marking the cut with an ellipsis.

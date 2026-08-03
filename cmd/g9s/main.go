@@ -2,16 +2,19 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/TTMathCS/g9s/internal/auth"
 	"github.com/TTMathCS/g9s/internal/config"
+	"github.com/TTMathCS/g9s/internal/doctor"
 	"github.com/TTMathCS/g9s/internal/ui"
 )
 
@@ -26,10 +29,16 @@ func main() {
 }
 
 func run() error {
+	// Accept `g9s doctor -offline` as well as `g9s -doctor -offline`.
+	args, subcommandDoctor := stripSubcommand(os.Args[1:], "doctor")
+	os.Args = append(os.Args[:1], args...)
+
 	var (
 		configPath  = flag.String("config", "", "path to config file (default $G9S_CONFIG or ~/.config/g9s/config.yaml)")
 		showVersion = flag.Bool("version", false, "print version and exit")
 		doInit      = flag.Bool("init", false, "write a starter config file and exit")
+		doDoctor    = flag.Bool("doctor", false, "check config, gcloud, credentials and identity, then exit")
+		offline     = flag.Bool("offline", false, "with -doctor, skip the checks that make network calls")
 	)
 	flag.Parse()
 
@@ -45,6 +54,13 @@ func run() error {
 
 	if *doInit {
 		return writeStarterConfig(path)
+	}
+
+	// `g9s doctor` as well as `-doctor`: a subcommand is what people try first,
+	// and being right about the tool while wrong about its spelling is a bad
+	// reason to get an unhelpful error.
+	if *doDoctor || subcommandDoctor {
+		return runDoctor(path, *offline)
 	}
 
 	cfg, err := config.Load(path)
@@ -72,6 +88,64 @@ func run() error {
 	program := tea.NewProgram(ui.New(cfg, mgr), tea.WithAltScreen())
 	_, err = program.Run()
 	return err
+}
+
+// valueFlags are the flags that consume the argument after them, so a
+// subcommand-shaped word in that position can be told apart from a subcommand.
+var valueFlags = map[string]bool{"-config": true, "--config": true}
+
+// stripSubcommand removes a subcommand word from an argument list.
+//
+// Go's flag package stops parsing at the first non-flag argument, so leaving
+// the word in place makes every flag after it silently ignored — `g9s doctor
+// -offline` would run the network checks anyway. Removing it first means the
+// subcommand can appear anywhere: before the flags, after them, or between.
+//
+// A word is only a subcommand if it is not the value of a flag that takes one,
+// which is what keeps `-config doctor` pointing at a file called doctor.
+func stripSubcommand(args []string, name string) ([]string, bool) {
+	var (
+		kept  = make([]string, 0, len(args))
+		found bool
+		// expectValue is set when the previous argument was a flag whose value
+		// comes as the next argument rather than after an `=`.
+		expectValue bool
+	)
+	for _, arg := range args {
+		switch {
+		case expectValue:
+			expectValue = false
+		case arg == name && !found:
+			found = true
+			continue
+		case valueFlags[arg]:
+			expectValue = true
+		}
+		kept = append(kept, arg)
+	}
+	return kept, found
+}
+
+// runDoctor reports on the setup and exits non-zero if anything is broken.
+//
+// Non-zero on failure so it is usable in a script or an onboarding check,
+// rather than only by eye. Warnings do not fail: "not logged in yet" is the
+// expected state on a fresh machine, and a check that cries wolf on first run
+// gets ignored on the run that matters.
+func runDoctor(path string, offline bool) error {
+	report := doctor.Run(context.Background(), doctor.Options{
+		ConfigPath:  path,
+		SkipNetwork: offline,
+		Timeout:     2 * time.Minute,
+	})
+
+	fmt.Printf("g9s %s — checking %s\n\n", version, path)
+	doctor.Write(os.Stdout, report)
+
+	if report.Failed() {
+		return errors.New("doctor found problems that will stop g9s working")
+	}
+	return nil
 }
 
 func writeStarterConfig(path string) error {

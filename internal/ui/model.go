@@ -22,6 +22,7 @@ const (
 	screenResources
 	screenDetail
 	screenHelp
+	screenLogin
 )
 
 // allKind is a synthetic kind that merges every real kind into one table.
@@ -127,6 +128,17 @@ type Model struct {
 	// pushing the footer off the screen.
 	help viewport.Model
 
+	// assisted login. assisted is nil between logins and while gcloud is still
+	// starting; loginProject names the project so the screen can say whose
+	// login this is before gcloud is up; loginReturn is where esc goes back to.
+	// loginSeq counts login attempts, so a gcloud started for an attempt the
+	// user already left is recognised as stale and killed rather than adopted.
+	assisted     *auth.AssistedLogin
+	loginProject string
+	loginReturn  screen
+	loginSeq     int
+	loginInput   textinput.Model
+
 	// transient status line
 	flashText  string
 	flashLevel flashLevel
@@ -147,6 +159,13 @@ func New(cfg *config.Config, mgr *auth.Manager) Model {
 	// validates bytes; this rune limit merely keeps the input bounded.
 	command.CharLimit = 1024
 
+	loginInput := textinput.New()
+	loginInput.Prompt = "> "
+	loginInput.Placeholder = "http://localhost:8085/?state=…&code=…"
+	// A redirect URL with state and code runs a few hundred bytes; 4 KiB is
+	// bounded without ever truncating a real one mid-paste.
+	loginInput.CharLimit = 4096
+
 	return Model{
 		cfg:          cfg,
 		auth:         mgr,
@@ -159,6 +178,7 @@ func New(cfg *config.Config, mgr *auth.Manager) Model {
 		refreshToken: map[string]int{},
 		filter:       filter,
 		command:      command,
+		loginInput:   loginInput,
 		detail:       viewport.New(0, 0),
 		help:         viewport.New(0, 0),
 	}
@@ -312,6 +332,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case resourcesMsg:
 		return m.handleResources(msg)
 
+	case assistedLoginMsg:
+		return m.handleAssistedLogin(msg)
+
 	case loginFinishedMsg:
 		return m.handleLoginFinished(msg)
 
@@ -379,13 +402,72 @@ func (m Model) handleResources(msg resourcesMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleAssistedLogin is the assisted flow coming up — or failing to.
+func (m Model) handleAssistedLogin(msg assistedLoginMsg) (tea.Model, tea.Cmd) {
+	// This start belongs to an attempt nobody is waiting on: the user pressed
+	// esc during the "starting gcloud…" moment, or left and started a newer
+	// attempt. Adopting it would open a browser with no screen explaining it —
+	// or hand attempt two the gcloud from attempt one. Checked before the
+	// error branch on purpose: a stale *failure* must not launch the fallback
+	// handover for an attempt the user already walked away from.
+	if m.screen != screenLogin || msg.seq != m.loginSeq {
+		if msg.login != nil {
+			msg.login.Cancel()
+		}
+		return m, nil
+	}
+
+	if msg.err != nil {
+		// The assisted flow could not even start — a gcloud too old to know
+		// --no-launch-browser, or output this code does not recognise. The
+		// terminal-handover flow needs neither, so fall back to it rather than
+		// stranding the login on a nicety.
+		m.screen = m.loginReturn
+		p, ok := m.cfg.Project(msg.project)
+		if !ok {
+			return m, nil
+		}
+		return m, tea.Batch(
+			flash("assisted login unavailable ("+truncate(msg.err.Error(), 80)+") — handing the terminal to gcloud", flashWarn),
+			login(m.auth, p, false),
+		)
+	}
+
+	m.assisted = msg.login
+	m.loginInput.SetValue("")
+	m.loginInput.Focus()
+	// Three things at once: watch for gcloud to finish, open the browser, and
+	// put the cursor in the paste box for the case where the browser cannot
+	// finish it alone.
+	return m, tea.Batch(awaitAssisted(msg.login), openURL(msg.login.URL()), textinput.Blink)
+}
+
 func (m Model) handleLoginFinished(msg loginFinishedMsg) (tea.Model, tea.Cmd) {
+	// Whatever the outcome, the assisted screen is over. The restore is not
+	// conditional on still holding the assisted handle: a finish that arrives
+	// after the handle is gone must not strand the UI on the login screen.
+	if m.assisted != nil && m.assisted.Project() == msg.project {
+		m.assisted = nil
+	}
+	if m.screen == screenLogin && m.loginProject == msg.project {
+		m.loginInput.Blur()
+		m.screen = m.loginReturn
+	}
 	p, ok := m.cfg.Project(msg.project)
 	if !ok {
 		return m, nil
 	}
+	if msg.cancelled {
+		// Ended on purpose; the failure pane would dress a decision up as a
+		// problem.
+		return m, flash("login cancelled for "+msg.project, flashInfo)
+	}
 	if msg.err != nil {
-		return m, flash("login failed: "+msg.err.Error(), flashError)
+		// A flash is the wrong shape for this. The reason a login failed is
+		// several lines long, it is the one thing the user needs to read, and
+		// gcloud's own copy of it has already been painted over by the resume.
+		// So it goes into the scrollable pane, where it can be read and yanked.
+		return m.showLoginFailure(p, msg)
 	}
 	// Drop anything fetched with the old identity, in flight included: a fetch
 	// started before the login still carries the old token, and without bumping
@@ -476,6 +558,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.command, cmd = m.command.Update(msg)
 		return m, cmd
+	}
+
+	// The login screen swallows keys while it is up: its input takes pasted
+	// URLs, which contain `:` and `?`, so the global bindings for those must
+	// not fire here.
+	if m.screen == screenLogin {
+		return m.handleLoginKey(msg)
 	}
 
 	// Global keys.
@@ -764,10 +853,84 @@ func (m Model) startLogin(noBrowser bool) (tea.Model, tea.Cmd) {
 	// The config setting comes first because it is the one signal that is not a
 	// guess: a browser that proxies localhost breaks the same way, and only the
 	// person running g9s knows whether theirs does.
-	if m.cfg.Defaults.LoginNoBrowser || !auth.LoopbackUsable() {
+	if m.loginNoBrowser(p) {
 		noBrowser = true
 	}
-	return m, login(m.auth, p, noBrowser)
+	if noBrowser {
+		return m, login(m.auth, p, true)
+	}
+
+	// The browser flow runs assisted: gcloud as a piped child, the TUI still
+	// alive. When the browser can reach localhost this looks exactly like the
+	// old flow — sign in, done. When it cannot (a browser that proxies
+	// localhost, the corporate default), the login screen offers the rescue:
+	// paste the address the browser got stuck on and g9s performs that loopback
+	// request itself. The old flow could not be rescued because gcloud owned
+	// the terminal while it waited forever.
+	if m.assisted != nil {
+		return m, flash("a login is already in progress — esc to cancel it", flashWarn)
+	}
+	m.loginSeq++
+	m.loginProject = p.Name
+	m.loginReturn = m.screen
+	m.screen = screenLogin
+	return m, startAssisted(m.auth, p, m.loginSeq)
+}
+
+// handleLoginKey drives the assisted login screen.
+func (m Model) handleLoginKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		if m.assisted != nil {
+			m.assisted.Cancel()
+		}
+		m.quitting = true
+		return m, tea.Quit
+
+	case "esc":
+		if m.assisted != nil {
+			// The cancelled loginFinishedMsg that follows restores the screen;
+			// doing it here as well would race the two.
+			m.assisted.Cancel()
+			return m, nil
+		}
+		m.screen = m.loginReturn
+		return m, nil
+
+	case "enter":
+		if m.assisted == nil {
+			return m, nil
+		}
+		pasted := strings.TrimSpace(m.loginInput.Value())
+		if pasted == "" {
+			return m, flash("paste the address from the stuck browser tab, then press enter", flashWarn)
+		}
+		return m, deliverCode(m.assisted, pasted)
+
+	// The typing keys are taken by the input, so the extras live on ctrl.
+	case "ctrl+o":
+		if m.assisted != nil {
+			return m, openURL(m.assisted.URL())
+		}
+		return m, nil
+
+	case "ctrl+y":
+		if m.assisted != nil {
+			return m, copyToClipboard(m.assisted.URL())
+		}
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.loginInput, cmd = m.loginInput.Update(msg)
+	return m, cmd
+}
+
+// loginNoBrowser reports whether a login for this project takes the
+// --no-browser path even when the browser flow was asked for. The diagnosis of
+// a failure depends on which flow ran, so both callers resolve it the same way.
+func (m Model) loginNoBrowser(_ config.Project) bool {
+	return m.cfg.Defaults.LoginNoBrowser || !auth.LoopbackUsable()
 }
 
 // handleOverviewKey drives the dashboard. Its whole job is to get you into a
@@ -1012,6 +1175,52 @@ func (m Model) selectedChildren() []gcp.ChildLister {
 		return nil
 	}
 	return m.childrenFor(r)
+}
+
+// showLoginFailure puts the reason a login failed somewhere it can be read.
+//
+// gcloud's output is included verbatim underneath the diagnosis, because a
+// failure this code does not recognise still has to leave the user something
+// to act on — an unrecognised error shown in full beats a tidy summary that
+// happens to be wrong.
+func (m Model) showLoginFailure(p config.Project, msg loginFinishedMsg) (tea.Model, tea.Cmd) {
+	var b strings.Builder
+
+	fmt.Fprintf(&b, "Login failed for %s (%s)\n\n", p.Name, p.ProjectID)
+
+	attempt := auth.LoginAttempt{Output: msg.output, NoBrowser: m.loginNoBrowser(p), Err: msg.err}
+	if diag, ok := auth.DiagnoseLogin(attempt); ok {
+		b.WriteString(diag.Summary + "\n\n")
+		for _, line := range diag.Remedy {
+			b.WriteString("  " + line + "\n")
+		}
+		b.WriteString("\n")
+	} else {
+		b.WriteString("g9s does not recognise this failure. gcloud's own output is below.\n")
+		b.WriteString("`g9s doctor` checks config, gcloud, identity and API access outside the UI.\n\n")
+	}
+
+	if msg.err != nil {
+		fmt.Fprintf(&b, "gcloud exited with: %v\n\n", msg.err)
+	}
+
+	out := strings.TrimSpace(msg.output)
+	if out == "" {
+		out = "(gcloud produced no output)"
+	}
+	b.WriteString("--- gcloud output ---\n")
+	b.WriteString(out + "\n")
+
+	m.detail.Width = m.width - 4
+	m.detail.Height = m.bodyHeight()
+	m.detail.SetContent(b.String())
+	m.detail.GotoTop()
+	// Named so the pane's header says what it is, and so `y` yanks something
+	// identifiable when the user pastes it into a ticket.
+	m.detailRes = gcp.Resource{Name: "login failed: " + p.Name, Location: p.ProjectID}
+	m.hasDetail = true
+	m.screen = screenDetail
+	return m, nil
 }
 
 // describe opens the YAML pane on a row.

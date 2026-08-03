@@ -43,6 +43,8 @@ func (m Model) View() string {
 		body = m.detailView()
 	case screenHelp:
 		body = m.helpView()
+	case screenLogin:
+		body = m.loginView()
 	}
 
 	return strings.Join([]string{m.headerView(), body, m.footerView()}, "\n")
@@ -74,7 +76,7 @@ func (m Model) headerView() string {
 	crumbWidth := max(10, m.width-lipgloss.Width(title)-lipgloss.Width(badge)-4)
 	line := lipgloss.JoinHorizontal(lipgloss.Left, title, crumbStyle.Render(truncate(crumb, crumbWidth)), badge)
 
-	if m.screen == screenProjects || m.screen == screenHelp || m.screen == screenOverview {
+	if m.screen == screenProjects || m.screen == screenHelp || m.screen == screenOverview || m.screen == screenLogin {
 		return line + "\n"
 	}
 	// Inside a drill-down the tab strip would be a lie: none of those tabs is
@@ -749,11 +751,12 @@ func (m Model) helpContent() string {
 			{"s", "SSH to the selected running VM"},
 		}},
 		{"Credentials", []helpEntry{
-			{"l", "gcloud login for the selected project"},
+			{"l", "gcloud login for the selected project (assisted browser flow)"},
 			{"L", "login without a local browser (--no-browser)"},
 			{"r", "re-check credentials (project list)"},
-			{"", "stuck on the login URL after signing in? the browser could not reach"},
-			{"", "http://localhost here — ctrl+c, then L. See README, How auth works."},
+			{"", "browser stuck at \"localhost refused to connect\" after signing in?"},
+			{"", "normal behind a corporate proxy — the login screen takes that tab's"},
+			{"", "address pasted back and finishes the login. `g9s doctor` checks setup."},
 		}},
 		{"General", []helpEntry{
 			{"?", "toggle this help"},
@@ -899,9 +902,64 @@ func (m Model) keyHint() string {
 		return "↑/↓ scroll · y copy yaml · esc back"
 	case screenHelp:
 		return "↑/↓ scroll · esc back"
+	case screenLogin:
+		return "enter deliver pasted address · ctrl+o reopen browser · ctrl+y copy link · esc cancel"
 	default:
 		return "esc back"
 	}
+}
+
+// loginView is the assisted login screen.
+//
+// It reads as numbered steps because that is what it is. The screen has one
+// job beyond showing the link: telling the user, at the exact moment the
+// browser shows "localhost refused to connect", that nothing has gone wrong
+// yet and the address bar of that broken tab is the login. That moment is
+// where the corporate-proxy flow died before this screen existed.
+func (m Model) loginView() string {
+	width := max(20, m.width-6)
+	var b strings.Builder
+
+	fmt.Fprintf(&b, "\n  %s\n\n", titleStyle.Render("Logging in to "+m.loginProject))
+
+	if m.assisted == nil {
+		b.WriteString(mutedStyle.Render("  starting gcloud…") + "\n")
+		return b.String()
+	}
+
+	b.WriteString("  1. Sign in in the browser tab that just opened.\n")
+	b.WriteString(mutedStyle.Render("     No tab? ctrl+o reopens it; ctrl+y copies the link:") + "\n\n")
+	for _, line := range wrapHard(m.assisted.URL(), width-5) {
+		b.WriteString("     " + mutedStyle.Render(line) + "\n")
+	}
+	b.WriteString("\n")
+	b.WriteString("  2. If the sign-in finishes and this screen closes on its own, you are done.\n\n")
+	b.WriteString("  3. If the browser instead lands on an error like " + warnStyle.Render("\"localhost refused to") + "\n")
+	b.WriteString("     " + warnStyle.Render("connect\"") + " — that is normal behind a corporate proxy, and the login is\n")
+	b.WriteString("     still alive. Copy the ENTIRE address from that tab's address bar and\n")
+	b.WriteString("     paste it here, then press enter:\n\n")
+
+	m.loginInput.Width = width - 8
+	b.WriteString("     " + m.loginInput.View() + "\n\n")
+	b.WriteString(mutedStyle.Render("     The address looks like http://localhost:8085/?state=…&code=… — g9s hands\n"))
+	b.WriteString(mutedStyle.Render("     it to gcloud on this machine, bypassing the proxy. The code in it is\n"))
+	b.WriteString(mutedStyle.Render("     single-use and useless outside this login.") + "\n")
+	return b.String()
+}
+
+// wrapHard breaks text at width unconditionally — for URLs, which have no
+// spaces for wrap to use.
+func wrapHard(s string, width int) []string {
+	if width < 1 {
+		return []string{s}
+	}
+	var lines []string
+	runes := []rune(s)
+	for len(runes) > width {
+		lines = append(lines, string(runes[:width]))
+		runes = runes[width:]
+	}
+	return append(lines, string(runes))
 }
 
 func (m Model) drillLister() gcp.Lister {
