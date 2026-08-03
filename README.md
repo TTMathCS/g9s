@@ -4,7 +4,7 @@ A k9s-style terminal console for Google Cloud. Switch between projects and
 accounts, inspect resources, and navigate related resources without changing
 your global gcloud configuration.
 
-> **Current maturity:** read-only MVP. The source contains 40 top-level
+> **Current maturity:** read-only MVP. The source contains 43 top-level
 > resource kinds and 21 drill-down listings. SSH to a running VM is the only
 > interactive resource operation; mutating API actions are not implemented.
 
@@ -75,7 +75,7 @@ drill-down opened from a parent row.
 | Data and analytics | **BigQuery** → Datasets | Top-level | ✅ Implemented | Name, location, type and labels |
 |  | ↳ Tables | Dataset drill-down | 🟡 Implemented, bounded | 1,000 rows per dataset by default |
 |  | **BigQuery** → Jobs | Top-level | 🟡 Implemented, bounded | 500 rows by default inside the configured time window |
-|  | **BigQuery** → Reservations | — | ⬜ Candidate | Not implemented |
+|  | **BigQuery** → Reservations | Top-level | ✅ Implemented | Swept across the configured regions plus `US` and `EU`, where most reservations actually live. Flags baseline slots billed continuously and not lent to other reservations |
 |  | **Dataproc** → Clusters | Top-level | ✅ Implemented | Listed per configured region; `global` is always included |
 |  | ↳ Jobs on this cluster | Cluster drill-down | 🟡 Implemented, bounded | 200 rows by default |
 |  | **Dataproc** → Jobs | Top-level | 🟡 Implemented, bounded | 200 rows per configured region by default |
@@ -88,8 +88,8 @@ drill-down opened from a parent row.
 |  | **Memorystore** → Redis instances | Top-level | ✅ Implemented | One call; the API aggregates every region. Flags basic tier (single node, no failover) and AUTH left off |
 |  | **Memorystore** → Memcached instances | Top-level | ✅ Implemented | One call; the API aggregates every region. Flags nodes that are not serving while the instance itself still reports READY |
 |  | **Firestore** → Databases | Top-level | ✅ Implemented | One global call. Delete protection and point-in-time recovery are both off by default and report nothing when off |
-|  | **Datastream** → Streams | — | ⬜ Candidate | Not implemented |
-|  | **Data Fusion** → Instances | — | ⬜ Candidate | Not implemented |
+|  | **Datastream** → Streams | Top-level | ✅ Implemented | One call; the API aggregates every region. Errors outrank the state, because a stream can be RUNNING and failing every row it reads |
+|  | **Data Fusion** → Instances | Top-level | ✅ Implemented | One call; the API aggregates every region. Edition leads the row — an instance bills per hour for as long as it exists, run or not |
 |  | **Artifact Registry** → Repositories | Top-level | ✅ Implemented | Listed per configured region. Size and cleanup policy on the row, because a registry nothing prunes grows until someone reads the bill |
 | Databases | **Cloud SQL** → Instances | Top-level | ✅ Implemented | Includes version, tier, HA and unreachable-region warnings |
 |  | ↳ Databases | Instance drill-down | ✅ Implemented | One of two sibling listings |

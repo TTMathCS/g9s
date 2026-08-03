@@ -102,17 +102,26 @@ func Listers() []Lister {
 		CloudSQLLister{},
 		StorageLister{},
 		BigQueryDatasetLister{},
+		BigQueryJobLister{},
+		BigQueryReservationLister{},
+		DataprocLister{},
+		DataprocJobLister{},
+		ComposerLister{},
+		DataflowLister{},
+		// The managed data stores, after the processing kinds rather than
+		// interleaved with them. Two reasons, both practical: `:data` has to go
+		// on resolving to Dataproc, which it does only while Dataproc comes
+		// first among the five ids starting with those letters; and every kind
+		// after an insertion point gets a new hotkey, so new kinds go at the end
+		// of a group instead of the middle of one.
 		SpannerLister{},
 		BigtableLister{},
 		FirestoreLister{},
 		RedisLister{},
 		MemcacheLister{},
+		DatastreamLister{},
+		DataFusionLister{},
 		ArtifactRegistryLister{},
-		BigQueryJobLister{},
-		DataprocLister{},
-		DataprocJobLister{},
-		ComposerLister{},
-		DataflowLister{},
 		PubSubTopicLister{},
 		PubSubSubscriptionLister{},
 		CloudRunServiceLister{},

@@ -198,6 +198,15 @@ func resourcesShot() Model {
 	m.cache["gcs"] = gcp.Result{
 		Resources: statusOnly(kindByID("gcs"), map[string]int{"ACTIVE": 5}),
 	}
+	m.cache["datastream"] = gcp.Result{
+		Resources: statusOnly(kindByID("datastream"), map[string]int{"RUNNING": 3, "PAUSED": 1}),
+	}
+	m.cache["datafusion"] = gcp.Result{
+		Resources: statusOnly(kindByID("datafusion"), map[string]int{"RUNNING": 1}),
+	}
+	m.cache["bqreservations"] = gcp.Result{
+		Resources: statusOnly(kindByID("bqreservations"), map[string]int{"ACTIVE": 2}),
+	}
 	m.cache["bigtable"] = gcp.Result{
 		Resources: statusOnly(kindByID("bigtable"), map[string]int{"READY": 2, "DEVELOPMENT": 1}),
 	}
@@ -331,6 +340,15 @@ func dashboardShot() Model {
 	}
 	m.cache["gcs"] = gcp.Result{
 		Resources: statusOnly(kindByID("gcs"), map[string]int{"ACTIVE": 5}),
+	}
+	m.cache["datastream"] = gcp.Result{
+		Resources: statusOnly(kindByID("datastream"), map[string]int{"RUNNING": 3, "PAUSED": 1}),
+	}
+	m.cache["datafusion"] = gcp.Result{
+		Resources: statusOnly(kindByID("datafusion"), map[string]int{"RUNNING": 1}),
+	}
+	m.cache["bqreservations"] = gcp.Result{
+		Resources: statusOnly(kindByID("bqreservations"), map[string]int{"ACTIVE": 2}),
 	}
 	m.cache["bigtable"] = gcp.Result{
 		Resources: statusOnly(kindByID("bigtable"), map[string]int{"READY": 2, "DEVELOPMENT": 1}),

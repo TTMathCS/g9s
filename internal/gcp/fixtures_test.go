@@ -10,12 +10,15 @@ import (
 	"cloud.google.com/go/storage"
 	artifactregistry "google.golang.org/api/artifactregistry/v1"
 	bigquery "google.golang.org/api/bigquery/v2"
+	bigqueryreservation "google.golang.org/api/bigqueryreservation/v1"
 	bigtableadmin "google.golang.org/api/bigtableadmin/v2"
 	cloudfunctions "google.golang.org/api/cloudfunctions/v2"
 	cloudkms "google.golang.org/api/cloudkms/v1"
 	cloudscheduler "google.golang.org/api/cloudscheduler/v1"
 	compute "google.golang.org/api/compute/v1"
 	dataflow "google.golang.org/api/dataflow/v1b3"
+	datafusion "google.golang.org/api/datafusion/v1"
+	datastream "google.golang.org/api/datastream/v1"
 	dns "google.golang.org/api/dns/v1"
 	firestore "google.golang.org/api/firestore/v1"
 	iam "google.golang.org/api/iam/v1"
@@ -835,5 +838,49 @@ func testMemcacheInstance() *memcache.Instance {
 			{NodeId: "node-2", State: "READY"},
 			{NodeId: "node-3", State: "READY"},
 		},
+	}
+}
+
+// testStream is running cleanly with a full backfill; the paused and erroring
+// cases are the findings, so the tests that need them build them.
+func testStream() *datastream.Stream {
+	return &datastream.Stream{
+		Name:        "projects/sandbox-123/locations/us-central1/streams/orders-cdc",
+		DisplayName: "Orders CDC",
+		State:       "RUNNING",
+		BackfillAll: &datastream.BackfillAllStrategy{},
+		SourceConfig: &datastream.SourceConfig{
+			SourceConnectionProfile: "projects/sandbox-123/locations/us-central1/connectionProfiles/orders-mysql",
+			MysqlSourceConfig:       &datastream.MysqlSourceConfig{},
+		},
+		DestinationConfig: &datastream.DestinationConfig{
+			DestinationConnectionProfile: "projects/sandbox-123/locations/us-central1/connectionProfiles/warehouse-bq",
+			BigqueryDestinationConfig:    &datastream.BigQueryDestinationConfig{},
+		},
+		UpdateTime: time.Now().Add(-50 * time.Hour).Format(time.RFC3339),
+	}
+}
+
+// testDataFusionInstance is Enterprise — the expensive, ordinary case.
+func testDataFusionInstance() *datafusion.Instance {
+	return &datafusion.Instance{
+		Name:            "projects/sandbox-123/locations/us-central1/instances/etl-fusion",
+		Type:            "ENTERPRISE",
+		Version:         "6.10.1",
+		State:           "RUNNING",
+		PrivateInstance: true,
+		CreateTime:      time.Now().Add(-200 * 24 * time.Hour).Format(time.RFC3339),
+	}
+}
+
+// testBQReservation holds a baseline and shares its idle slots, which is the
+// sensible default. The finding is the reservation that does not.
+func testBQReservation() *bigqueryreservation.Reservation {
+	return &bigqueryreservation.Reservation{
+		Name:            "projects/sandbox-123/locations/US/reservations/analytics",
+		SlotCapacity:    500,
+		Edition:         "ENTERPRISE",
+		IgnoreIdleSlots: false,
+		Autoscale:       &bigqueryreservation.Autoscale{CurrentSlots: 100, MaxSlots: 1000},
 	}
 }
