@@ -83,6 +83,13 @@ func (m *Manager) StartAssistedLogin(p config.Project) (*AssistedLogin, error) {
 		done:    make(chan struct{}),
 	}
 
+	// Stdin is deliberately left nil, which gives gcloud /dev/null. If gcloud
+	// ever wants to prompt — an account to choose, a confirmation — it gets
+	// EOF and exits at once rather than blocking forever on input no one can
+	// see, and StartAssistedLogin reports a failure the caller answers by
+	// falling back to the terminal handover, where prompts do work. A pipe
+	// held open would turn the same situation into a silent hang.
+
 	ready := make(chan struct{})
 	scanner := &authURLScanner{
 		tail: a.tail,
@@ -115,7 +122,11 @@ func (m *Manager) StartAssistedLogin(p config.Project) (*AssistedLogin, error) {
 		return nil, fmt.Errorf("gcloud exited before printing a login URL: %w\n%s", a.Err(), a.Output())
 	case <-time.After(30 * time.Second):
 		a.Cancel()
-		return nil, errors.New("gcloud did not print a login URL within 30s")
+		// The transcript goes into the error here too. A timeout with gcloud
+		// silent and a timeout with gcloud printing a banner this code failed
+		// to recognise are different bugs, and only the output tells them
+		// apart — which matters because the second one is g9s's to fix.
+		return nil, fmt.Errorf("gcloud did not print a login URL within 30s; it wrote:\n%s", a.Output())
 	}
 }
 
