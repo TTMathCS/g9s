@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -169,7 +171,11 @@ func fanOut(ctx context.Context, locations []string, fn func(ctx context.Context
 		wg.Add(1)
 		go func(loc string) {
 			defer wg.Done()
-			partial, err := fn(ctx, loc)
+			var partial Result
+			err := safely(loc, func() (err error) {
+				partial, err = fn(ctx, loc)
+				return err
+			})
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -190,6 +196,63 @@ func fanOut(ctx context.Context, locations []string, fn func(ctx context.Context
 	sortResources(result.Resources)
 	sort.Strings(result.Warnings)
 	return result
+}
+
+// safely runs fn in the current goroutine, converting a panic into an error.
+//
+// Every goroutine g9s starts itself needs this. bubbletea recovers a panic in
+// the command goroutine it started and restores the terminal on the way out,
+// but recover only reaches its own goroutine's stack — a panic in a fan-out
+// leg bypasses that entirely and takes the process down with the terminal
+// still in raw mode and on the alternate screen. What the user gets is a shell
+// that no longer echoes, with no message explaining it and nothing to do but
+// `reset`. That is a far worse outcome than the missing rows.
+//
+// A malformed or unexpected API response reaching a row builder is the
+// realistic trigger: listers index into slices and dereference fields that the
+// proto or JSON says are optional. Turning that into one scope's warning is
+// what every other partial failure here already does, so the table stays
+// honest — it shows what could be read and names what could not.
+func safely(scope string, fn func() error) (err error) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		// Deliberately not the standard logger: it writes to stderr, and
+		// stderr is the terminal bubbletea is drawing on. A stack trace there
+		// would scribble across the UI, which is the second-worst outcome
+		// after the crash this is preventing. The stack goes to the debug file
+		// when one is configured, and nowhere otherwise.
+		writeCrashLog(scope, r, debug.Stack())
+		err = fmt.Errorf("internal error reading %s: %v", scope, r)
+	}()
+	return fn()
+}
+
+// debugLogEnv names the file to append panic stacks to. Unset means no file is
+// written and no stack is kept.
+const debugLogEnv = "G9S_DEBUG_LOG"
+
+// writeCrashLog appends a recovered panic to the debug file, if one is set.
+//
+// Opt-in by environment variable rather than a default path: g9s writes
+// nothing outside its credential directory unless asked, and a support
+// engineer chasing a reproducible panic can set one variable and re-run.
+// Failures to write are ignored on purpose — the panic is already handled, and
+// a logging error is not worth a second failure path on top of it.
+func writeCrashLog(scope string, recovered any, stack []byte) {
+	path := os.Getenv(debugLogEnv)
+	if path == "" {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "\n=== %s: recovered panic listing %s: %v\n%s\n",
+		time.Now().Format(time.RFC3339), scope, recovered, stack)
 }
 
 // describeFailure turns an API error into a short warning, or "" if the error

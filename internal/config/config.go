@@ -56,6 +56,22 @@ type Defaults struct {
 	// one UI page while browsing a bucket. It is not a total cap: the UI retains
 	// the continuation token and can load the next page.
 	StorageObjectsPageSize int `yaml:"storage_objects_page_size"`
+	// ClipboardLimit is the largest OSC 52 escape sequence, in bytes, that this
+	// terminal is believed to accept.
+	//
+	// It exists because the failure it prevents is silent. `y` writes the
+	// clipboard as one escape sequence, and a terminal that considers it too
+	// long drops the whole thing without reporting anything — so g9s would say
+	// "copied" over a clipboard that never changed. A stock xterm cuts off
+	// around 8 KB and tmux refuses entirely unless set-clipboard is on, while
+	// modern terminals take far more, and nothing in the protocol lets g9s ask
+	// which it is talking to. So the default is the conservative one and the
+	// number is yours to raise once you know your terminal.
+	//
+	// Zero uses the default. Negative removes the check, which means trusting
+	// the terminal to say something when it truncates — most do not.
+	ClipboardLimit int `yaml:"clipboard_limit"`
+
 	// Limits raises or removes the per-kind row caps.
 	Limits Limits `yaml:"limits"`
 }

@@ -245,3 +245,29 @@ func TestHelpDocumentsTheKindHotkeys(t *testing.T) {
 		t.Errorf("help does not document the hotkey legend %q", legend)
 	}
 }
+
+// Every key the model answers to has to appear in the help, because the help
+// is the only place a user finds out it exists. `] / [` were bound and undocumented
+// for long enough to be recorded in ADVICE.md as an open inconsistency — a
+// binding nobody can discover is the same as no binding at all.
+func TestHelpDocumentsTheKeysTheModelBinds(t *testing.T) {
+	m := crowdedModel(t)
+	// Tall enough that the whole panel renders without scrolling, so this test
+	// is about the content rather than the viewport.
+	m.width, m.height = 100, 200
+
+	next, _ := m.openHelp()
+	help := next.(Model).helpView()
+
+	for _, key := range []string{
+		"↑/k ↓/j", "g / G", "enter", "0 / a",
+		"tab / shift+tab", "] / [",
+		"q / esc", "p", "/", ":", "space",
+		"d", "r", "o", "y", "s",
+		"l", "L", "?",
+	} {
+		if !strings.Contains(help, key) {
+			t.Errorf("help panel never mentions %q", key)
+		}
+	}
+}

@@ -125,11 +125,18 @@ func accountKeys(ctx context.Context, svc *iam.Service, accounts []*iam.ServiceA
 
 			// User-managed only: Google-managed keys are rotated by Google and
 			// cannot be exported, so their age answers no question here.
-			resp, err := svc.Projects.ServiceAccounts.Keys.List(a.Name).
-				KeyTypes("USER_MANAGED").Context(ctx).Do()
+			var resp *iam.ListServiceAccountKeysResponse
+			err := safely(a.Name, func() (err error) {
+				resp, err = svc.Projects.ServiceAccounts.Keys.List(a.Name).
+					KeyTypes("USER_MANAGED").Context(ctx).Do()
+				return err
+			})
 
 			mu.Lock()
 			defer mu.Unlock()
+			// A panic counts as denied for the same reason an error does: the
+			// key age for this account is unknown either way, and the warning
+			// that follows says exactly that.
 			if err != nil {
 				denied++
 				return

@@ -56,6 +56,14 @@ defaults:
   # the next page. Cloud Storage recommends at most 1,000 per response.
   storage_objects_page_size: 500
 
+  # Largest OSC 52 escape sequence `y` will write, in bytes. Copying sends the
+  # clipboard as one escape, and a terminal that finds it too long drops the
+  # whole thing without saying anything — so the default is the pessimistic
+  # one (a stock xterm stops near 8 KB). Raise it once you know your terminal
+  # takes more; most modern ones do. -1 disables the check entirely.
+  # Note that base64 makes the escape about a third larger than the text.
+  #clipboard_limit: 8192
+
 # Ten projects is a normal working set. Order here is the order in the picker,
 # so put the ones you touch daily at the top.
 #

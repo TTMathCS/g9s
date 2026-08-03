@@ -916,7 +916,7 @@ func (m Model) handleLoginKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "ctrl+y":
 		if m.assisted != nil {
-			return m, copyToClipboard(m.assisted.URL())
+			return m, copyToClipboard(m.assisted.URL(), m.clipboardLimit())
 		}
 		return m, nil
 	}
@@ -1137,7 +1137,7 @@ func (m Model) handleResourcesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		return m, copyToClipboard(r.Name)
+		return m, copyToClipboard(r.Name, m.clipboardLimit())
 
 	case "s":
 		return m.startSSH()
@@ -1383,7 +1383,7 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !m.hasDetail {
 			return m, nil
 		}
-		return m, copyToClipboard(renderDetail(m.detailRes))
+		return m, copyToClipboard(renderDetail(m.detailRes), m.clipboardLimit())
 	}
 	var cmd tea.Cmd
 	m.detail, cmd = m.detail.Update(msg)

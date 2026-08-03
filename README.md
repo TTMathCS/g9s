@@ -226,7 +226,8 @@ drill-down opened from a parent row.
 | Expected account versus actual ADC identity | ✅ Implemented | The actual identity is displayed; a live token for a different configured account is refused |
 | Assisted login for proxied corporate browsers | ✅ Implemented | Paste the stuck localhost redirect; g9s delivers it past the proxy |
 | Consistent HTTP/gRPC permission errors | ✅ Implemented | REST 403/401 map to the same wording as gRPC; unenabled APIs stay quiet |
-| Large OSC 52 clipboard payload handling | 🟡 Needs improvement | Terminal limits can make large YAML copies fail silently |
+| Large OSC 52 clipboard payload handling | ✅ Implemented | The escape sequence is measured against a configurable `clipboard_limit`; an oversized copy is refused rather than silently dropped |
+| Panic isolation in concurrent listings | ✅ Implemented | A panic in one fan-out scope becomes that scope's warning instead of killing the process and stranding the terminal |
 | Prebuilt release pipeline | ✅ Implemented | Every merge to `main` builds, checks and publishes a release |
 | Confirmed VM/Dataproc state actions | 🔜 Next | No mutating API action is implemented today |
 | Terraform managed/drifted/unmanaged overlay | 🔜 Next | Read state; do not replace Terraform |
@@ -240,16 +241,19 @@ drill-down opened from a parent row.
 | Storing passwords or minting credentials itself | 🚫 Not planned | gcloud owns interactive authentication |
 | Displaying secret values or private key material | 🚫 Not planned | Metadata only |
 
-See [ROADMAP.md](ROADMAP.md) for design rationale and request costs, and
-[ADVICE.md](ADVICE.md) for the cross-project architecture review.
+See [PERMISSIONS.md](PERMISSIONS.md) for the API to enable and the IAM
+permissions to grant per resource kind, [ROADMAP.md](ROADMAP.md) for design
+rationale and request costs, and [ADVICE.md](ADVICE.md) for the cross-project
+architecture review.
 
 ## Requirements and installation
 
 The **prebuilt binary from the [⬇️ Download](#g9s) table at the top is the
 intended install** — nothing compiles, tests or fetches modules on your
-machine. The
-only other requirement is the **gcloud CLI**, which g9s shells out to for
-login and SSH (372.0.0+ for the `--no-browser` flow):
+machine. You also need the **gcloud CLI**, which g9s shells out to for login
+and SSH (372.0.0+ for the `--no-browser` flow), and read access to the projects
+you configure — see [PERMISSIONS.md](PERMISSIONS.md) for the API to enable and
+the IAM permissions each resource kind needs:
 
 ```sh
 brew install --cask gcloud-cli   # macOS with Homebrew; or use Google's installer
@@ -302,6 +306,7 @@ defaults:
   list_timeout: 90s
   bigquery_job_window: 24h
   storage_objects_page_size: 500
+  clipboard_limit: 8192
 
 projects:
   - name: sandbox
@@ -345,6 +350,18 @@ service request to fill one page when Cloud Storage returns a shorter response.
 Current object generations are shown by default; older versions and
 soft-deleted objects are not mixed into the ordinary browser.
 
+### Clipboard size
+
+`y` copies over the OSC 52 terminal escape, which needs no clipboard binary and
+works over SSH — but the clipboard travels as a single escape sequence, and a
+terminal that finds it too long discards the whole thing without reporting
+anything. `clipboard_limit` (default 8,192 bytes, the point where a stock xterm
+stops) is measured against the *encoded* sequence, which base64 makes about a
+third larger than the text. An oversized copy is refused with a message naming
+both sizes rather than reported as a copy that did not happen. Raise it once
+you know what your terminal accepts; `-1` removes the check. In tmux, OSC 52 is
+swallowed entirely unless `set-clipboard on` is set.
+
 ### Row and request limits
 
 Omitted or `0` uses the default. A positive number sets a custom cap; `-1`
@@ -385,7 +402,7 @@ defaults:
 | `space` | Load the next Storage Objects page when available |
 | `r` | Refresh the current kind, all dashboard kinds, or selected credential |
 | `o` | Open Airflow for Composer; Cloud Console otherwise |
-| `y` | Copy the resource name; from detail view, copy YAML |
+| `y` | Copy the resource name; from detail view, copy YAML (see `clipboard_limit`) |
 | `s` | SSH to a selected running VM |
 | `l` / `L` | Login: assisted browser flow / no-browser flow for machines without one |
 | `q` / `esc` | Back one level |

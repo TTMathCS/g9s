@@ -161,24 +161,30 @@ command broadcasting; expose typed, resource-appropriate actions instead.
 
 ### Before a support-team pilot
 
-- Compare the configured account with the account read from the ADC file. The
-  latter is collected today but is not displayed or enforced. A valid token
-  for an unexpected identity should be a visible warning or failure.
+Remaining:
+
 - Make listing completeness and failures structured rather than relying on
   warning strings. This is required to aggregate results honestly across
-  projects.
-- Apply the REST permission-error mapping described below so HTTP and gRPC
-  providers report authorization failures consistently.
-- Validate the permissions of pre-existing credential directories, not only
-  newly created ones.
-- Add a `g9s doctor` command that checks config, gcloud, expected identities,
-  enabled APIs and basic access without launching the TUI.
-- Document required APIs and least-privilege IAM permissions per resource kind
-  and, later, per action.
-- Complete and verify the first release produced by the new binary pipeline.
-  Requiring every support engineer to install Go 1.25 should be temporary.
+  projects, and is the largest piece of work left before a cross-project view
+  is worth attempting.
 - Smoke-test against dedicated dev/uat projects with expired credentials,
   missing APIs, partial IAM access, empty projects and slow regional responses.
+  This one needs real projects and cannot be done from the repository.
+
+Done:
+
+- ~~Compare the configured account with the account read from the ADC file.~~
+  A live token minted for an unexpected identity is refused, and the actual
+  identity is shown in the header.
+- ~~Apply the REST permission-error mapping.~~
+- ~~Validate the permissions of pre-existing credential directories.~~
+- ~~Add a `g9s doctor` command.~~
+- ~~Document required APIs and least-privilege IAM permissions per resource
+  kind.~~ See [PERMISSIONS.md](PERMISSIONS.md). Per-action permissions remain
+  open, and become relevant only once mutations exist.
+- ~~Complete and verify the first release produced by the binary pipeline.~~
+  Every merge to `main` publishes checksummed, provenance-attested archives for
+  four platforms.
 
 For future mutations, keep production visually unmistakable, show the exact
 account/project/resource and operation in the confirmation, require stronger
@@ -193,10 +199,28 @@ comparison and mutation concerns into the root Bubble Tea model at once.
 
 ## Inconsistencies
 
-**Help screen omits `[` / `]`.** Same gap the README had — `helpView` in
-`internal/ui/views.go` lists only `tab / shift+tab`.
+None outstanding.
 
 ## Resolved since the first review
+
+- The help screen lists `] / [` alongside `tab / shift+tab`. A test now asserts
+  that every key the model binds appears in the panel, so the next binding
+  cannot be added without being documented.
+- Panics in the goroutines g9s starts itself are recovered and reported as that
+  scope's warning. bubbletea restores the terminal when a panic reaches the
+  command goroutine it started, but recover does not cross goroutines, so a
+  fan-out leg used to kill the process outright and leave the terminal in raw
+  mode on the alternate screen.
+- Oversized clipboard copies are refused rather than silently dropped. The
+  check measures the encoded OSC 52 sequence against `clipboard_limit`; it
+  previously measured the raw text against a limit eight times larger than a
+  stock xterm accepts.
+- REST providers report authorization failures in the same words as gRPC ones.
+- Pre-existing credential directories are permission-checked by `g9s doctor`,
+  not only newly created ones.
+- `g9s doctor` checks config, gcloud, proxy and loopback reachability,
+  credential permissions and live per-project identity without the TUI.
+- The binary pipeline publishes a verified release on every merge to `main`.
 
 - Switching resource kinds now consistently clears the previous kind's
   filter, including tab and hotkey navigation.

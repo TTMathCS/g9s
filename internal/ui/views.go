@@ -737,6 +737,7 @@ func (m Model) helpContent() string {
 			{m.hotkeyLegend(), "jump straight to a resource kind — the key is printed beside it"},
 			{"0 / a", "all resources, every kind in one table"},
 			{"tab / shift+tab", "cycle resource kinds — or, in a drill-down with two listings, those"},
+			{"] / [", "the same, for when tab is taken by your terminal or multiplexer"},
 			{"q / esc", "back up one level"},
 			{"p", "back to the project list"},
 			{"/", "filter rows (cleared when you switch kinds)"},

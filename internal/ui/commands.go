@@ -363,23 +363,40 @@ func openURL(target string) tea.Cmd {
 	}
 }
 
-// maxClipboardBytes bounds an OSC 52 payload. Terminals cap the sequence — the
-// limit is 8KB in a stock xterm — and drop anything longer without saying so.
-// Refusing loudly beats reporting a copy that never reached the clipboard.
-const maxClipboardBytes = 64 * 1024
+// defaultClipboardLimit is the largest OSC 52 escape sequence g9s will write
+// when the config does not say otherwise.
+//
+// 8 KB because that is where a stock xterm stops, and being wrong in this
+// direction costs a refusal the user can see and override, while being wrong
+// in the other direction costs a clipboard that silently did not change.
+// Modern terminals accept far more; `clipboard_limit` is how you say so.
+const defaultClipboardLimit = 8 * 1024
+
+// osc52Overhead is the length of the escape sequence around the payload:
+// "\x1b]52;c;" is seven bytes and the "\x07" terminator is one.
+const osc52Overhead = len("\x1b]52;c;") + len("\x07")
+
+// clipboardLimit resolves the configured limit. Negative disables the check.
+func (m Model) clipboardLimit() int {
+	if n := m.cfg.Defaults.ClipboardLimit; n != 0 {
+		return n
+	}
+	return defaultClipboardLimit
+}
 
 // copyToClipboard uses the OSC 52 terminal escape, which works over SSH and
 // needs no platform clipboard binary.
-func copyToClipboard(text string) tea.Cmd {
+//
+// The size check measures the *encoded sequence*, not the text. Base64 is four
+// bytes out for every three in, so a check against the raw length passes
+// payloads a third larger than it thinks — which is how a copy that reports
+// success reaches a terminal that drops it for being too long. The terminal
+// never says it truncated, so this check is the only thing standing between
+// the user and a clipboard they believe is full.
+func copyToClipboard(text string, limit int) tea.Cmd {
 	return func() tea.Msg {
 		if text == "" {
 			return flashMsg{text: "nothing to copy", level: flashWarn}
-		}
-		if len(text) > maxClipboardBytes {
-			return flashMsg{
-				text:  fmt.Sprintf("too large to copy: %dKB, limit %dKB", len(text)/1024, maxClipboardBytes/1024),
-				level: flashWarn,
-			}
 		}
 		// The escape goes to stderr because bubbletea owns stdout. If stderr
 		// has been redirected the sequence lands in a file, where it does
@@ -389,9 +406,40 @@ func copyToClipboard(text string) tea.Cmd {
 		}
 
 		encoded := base64.StdEncoding.EncodeToString([]byte(text))
+		if refusal, tooBig := clipboardRefusal(text, encoded, limit); tooBig {
+			return refusal
+		}
+
 		fmt.Fprintf(os.Stderr, "\x1b]52;c;%s\x07", encoded)
 		return flashMsg{text: "copied: " + truncate(text, 50), level: flashInfo}
 	}
+}
+
+// clipboardRefusal reports whether the escape sequence is too long for the
+// terminal to accept, and what to say about it.
+//
+// Separate from copyToClipboard because it is the part worth testing and the
+// rest is terminal I/O: under `go test` stderr is not a terminal, so the copy
+// stops before it ever reaches a size check living inside that function.
+func clipboardRefusal(text, encoded string, limit int) (flashMsg, bool) {
+	sequence := len(encoded) + osc52Overhead
+	if limit <= 0 || sequence <= limit {
+		return flashMsg{}, false
+	}
+	return flashMsg{
+		text: fmt.Sprintf(
+			"too large to copy: %s needs a %s escape, limit %s — raise defaults.clipboard_limit if your terminal takes more",
+			byteSize(len(text)), byteSize(sequence), byteSize(limit)),
+		level: flashWarn,
+	}, true
+}
+
+// byteSize renders a byte count the way the footer has room for.
+func byteSize(n int) string {
+	if n < 1024 {
+		return fmt.Sprintf("%dB", n)
+	}
+	return fmt.Sprintf("%.1fKB", float64(n)/1024)
 }
 
 func isTerminal(f *os.File) bool {

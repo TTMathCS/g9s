@@ -114,15 +114,17 @@ func kmsKeysIn(ctx context.Context, svc *cloudkms.Service, p config.Project, loc
 			defer func() { <-sem }()
 
 			var keys []Resource
-			err := svc.Projects.Locations.KeyRings.CryptoKeys.List(ring).
-				Pages(ctx, func(page *cloudkms.ListCryptoKeysResponse) error {
-					for _, k := range page.CryptoKeys {
-						if k != nil {
-							keys = append(keys, cryptoKeyResource(p, location, ring, k))
+			err := safely(ring, func() error {
+				return svc.Projects.Locations.KeyRings.CryptoKeys.List(ring).
+					Pages(ctx, func(page *cloudkms.ListCryptoKeysResponse) error {
+						for _, k := range page.CryptoKeys {
+							if k != nil {
+								keys = append(keys, cryptoKeyResource(p, location, ring, k))
+							}
 						}
-					}
-					return nil
-				})
+						return nil
+					})
+			})
 
 			mu.Lock()
 			defer mu.Unlock()

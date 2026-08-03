@@ -290,7 +290,11 @@ func groupHealth(ctx context.Context, svc *compute.Service, p config.Project, se
 		go func(j job) {
 			defer wg.Done()
 
-			health, err := healthOfGroup(ctx, svc, p, j.service, j.group)
+			var health *compute.BackendServiceGroupHealth
+			err := safely(lastSegment(j.group), func() (err error) {
+				health, err = healthOfGroup(ctx, svc, p, j.service, j.group)
+				return err
+			})
 
 			mu.Lock()
 			defer mu.Unlock()
