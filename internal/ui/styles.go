@@ -138,7 +138,17 @@ func statusStyle(status string) lipgloss.Style {
 		"NO_AUTH",
 		// A Spanner database with drop protection off: the default, and the
 		// only thing standing between it and a one-command deletion.
-		"NO_DROP_PROTECTION":
+		"NO_DROP_PROTECTION",
+		// A Bigtable instance created as DEVELOPMENT: one node, no SLA, no
+		// replication. A deliberate choice for a sandbox, a discovery in prod.
+		"DEVELOPMENT",
+		// A Firestore database with no delete protection, or no point-in-time
+		// recovery. Neither is on by default and neither reports anything when
+		// off, so the row is the only place either becomes visible.
+		"NO_DELETE_PROTECTION", "NO_PITR",
+		// A Memcached instance whose own state is READY while some of its nodes
+		// are not serving. The instance row says everything is fine.
+		"NODES_DOWN":
 		return warnStyle
 	case "ERROR", "FAILED", "TERMINATED", "STOPPED", "SUSPENDED", "UNHEALTHY", "DEGRADED",
 		// Compute routes rejected by their backend or dropped at a route limit.

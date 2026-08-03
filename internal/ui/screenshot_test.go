@@ -198,6 +198,15 @@ func resourcesShot() Model {
 	m.cache["gcs"] = gcp.Result{
 		Resources: statusOnly(kindByID("gcs"), map[string]int{"ACTIVE": 5}),
 	}
+	m.cache["bigtable"] = gcp.Result{
+		Resources: statusOnly(kindByID("bigtable"), map[string]int{"READY": 2, "DEVELOPMENT": 1}),
+	}
+	m.cache["firestore"] = gcp.Result{
+		Resources: statusOnly(kindByID("firestore"), map[string]int{"ACTIVE": 1, "NO_PITR": 1}),
+	}
+	m.cache["memcached"] = gcp.Result{
+		Resources: statusOnly(kindByID("memcached"), map[string]int{"READY": 2}),
+	}
 	m.cache["spanner"] = gcp.Result{
 		Resources: statusOnly(kindByID("spanner"), map[string]int{"READY": 2}),
 	}
@@ -322,6 +331,15 @@ func dashboardShot() Model {
 	}
 	m.cache["gcs"] = gcp.Result{
 		Resources: statusOnly(kindByID("gcs"), map[string]int{"ACTIVE": 5}),
+	}
+	m.cache["bigtable"] = gcp.Result{
+		Resources: statusOnly(kindByID("bigtable"), map[string]int{"READY": 2, "DEVELOPMENT": 1}),
+	}
+	m.cache["firestore"] = gcp.Result{
+		Resources: statusOnly(kindByID("firestore"), map[string]int{"ACTIVE": 1, "NO_PITR": 1}),
+	}
+	m.cache["memcached"] = gcp.Result{
+		Resources: statusOnly(kindByID("memcached"), map[string]int{"READY": 2}),
 	}
 	m.cache["spanner"] = gcp.Result{
 		Resources: statusOnly(kindByID("spanner"), map[string]int{"READY": 2}),

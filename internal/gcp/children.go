@@ -47,6 +47,7 @@ func Children() []ChildLister {
 		SQLUserLister{},
 		BigQueryTableLister{},
 		SpannerDatabaseLister{},
+		BigtableClusterLister{},
 		CloudRunRevisionLister{},
 		CloudRunExecutionLister{},
 		SubnetLister{},

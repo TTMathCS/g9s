@@ -4,8 +4,8 @@ A k9s-style terminal console for Google Cloud. Switch between projects and
 accounts, inspect resources, and navigate related resources without changing
 your global gcloud configuration.
 
-> **Current maturity:** read-only MVP. The source contains 37 top-level
-> resource kinds and 20 drill-down listings. SSH to a running VM is the only
+> **Current maturity:** read-only MVP. The source contains 40 top-level
+> resource kinds and 21 drill-down listings. SSH to a running VM is the only
 > interactive resource operation; mutating API actions are not implemented.
 
 ## At a glance
@@ -81,12 +81,13 @@ drill-down opened from a parent row.
 |  | **Dataproc** → Jobs | Top-level | 🟡 Implemented, bounded | 200 rows per configured region by default |
 |  | **Dataflow** → Jobs | Top-level | 🟡 Implemented, bounded | 500 rows by default; API aggregates locations |
 |  | **Cloud Composer** → Environments | Top-level | ✅ Implemented | Listed per configured location |
-|  | **Bigtable** → Instances | — | ⬜ Candidate | Not implemented |
+|  | **Bigtable** → Instances | Top-level | ✅ Implemented | One global call. An instance holds no data itself; DEVELOPMENT type is flagged because it means one node, no SLA and no replication |
+|  | ↳ Clusters | Instance drill-down | ✅ Implemented | Nodes, zone, storage type and autoscaling — the billed capacity, which the instance row cannot show |
 |  | **Spanner** → Instances | Top-level | ✅ Implemented | One global call. Capacity normalised to processing units with the node equivalent, so an instance sized in nodes and one sized in PU are comparable |
 |  | ↳ Databases | Instance drill-down | ✅ Implemented | Leads with drop protection, which is off by default and is the only guard against a one-command deletion |
 |  | **Memorystore** → Redis instances | Top-level | ✅ Implemented | One call; the API aggregates every region. Flags basic tier (single node, no failover) and AUTH left off |
-|  | **Memorystore** → Memcached instances | — | ⬜ Candidate | Not implemented |
-|  | **Firestore** → Databases | — | ⬜ Candidate | Not implemented |
+|  | **Memorystore** → Memcached instances | Top-level | ✅ Implemented | One call; the API aggregates every region. Flags nodes that are not serving while the instance itself still reports READY |
+|  | **Firestore** → Databases | Top-level | ✅ Implemented | One global call. Delete protection and point-in-time recovery are both off by default and report nothing when off |
 |  | **Datastream** → Streams | — | ⬜ Candidate | Not implemented |
 |  | **Data Fusion** → Instances | — | ⬜ Candidate | Not implemented |
 |  | **Artifact Registry** → Repositories | Top-level | ✅ Implemented | Listed per configured region. Size and cleanup policy on the row, because a registry nothing prunes grows until someone reads the bill |

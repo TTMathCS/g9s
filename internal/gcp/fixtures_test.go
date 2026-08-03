@@ -10,13 +10,16 @@ import (
 	"cloud.google.com/go/storage"
 	artifactregistry "google.golang.org/api/artifactregistry/v1"
 	bigquery "google.golang.org/api/bigquery/v2"
+	bigtableadmin "google.golang.org/api/bigtableadmin/v2"
 	cloudfunctions "google.golang.org/api/cloudfunctions/v2"
 	cloudkms "google.golang.org/api/cloudkms/v1"
 	cloudscheduler "google.golang.org/api/cloudscheduler/v1"
 	compute "google.golang.org/api/compute/v1"
 	dataflow "google.golang.org/api/dataflow/v1b3"
 	dns "google.golang.org/api/dns/v1"
+	firestore "google.golang.org/api/firestore/v1"
 	iam "google.golang.org/api/iam/v1"
+	memcache "google.golang.org/api/memcache/v1"
 	pubsub "google.golang.org/api/pubsub/v1"
 	redis "google.golang.org/api/redis/v1"
 	run "google.golang.org/api/run/v2"
@@ -780,5 +783,57 @@ func testSpannerDatabase() *spanner.Database {
 		DatabaseDialect:        "GOOGLE_STANDARD_SQL",
 		VersionRetentionPeriod: "1h",
 		EnableDropProtection:   false,
+	}
+}
+
+// testBigtableInstance is a production instance — the ordinary case, so a test
+// asserting the development finding has to build one.
+func testBigtableInstance() *bigtableadmin.Instance {
+	return &bigtableadmin.Instance{
+		Name:        "projects/sandbox-123/instances/events-store",
+		DisplayName: "Events Store",
+		Type:        "PRODUCTION",
+		Edition:     "STANDARD",
+		State:       "READY",
+	}
+}
+
+func testBigtableCluster() *bigtableadmin.Cluster {
+	return &bigtableadmin.Cluster{
+		Name:               "projects/sandbox-123/instances/events-store/clusters/events-c1",
+		Location:           "projects/sandbox-123/locations/us-central1-b",
+		ServeNodes:         6,
+		DefaultStorageType: "SSD",
+		State:              "READY",
+	}
+}
+
+// testFirestoreDatabase has both recovery guards off, which is the default and
+// the finding.
+func testFirestoreDatabase() *firestore.GoogleFirestoreAdminV1Database {
+	return &firestore.GoogleFirestoreAdminV1Database{
+		Name:                          "projects/sandbox-123/databases/(default)",
+		LocationId:                    "nam5",
+		Type:                          "FIRESTORE_NATIVE",
+		ConcurrencyMode:               "PESSIMISTIC",
+		PointInTimeRecoveryEnablement: "POINT_IN_TIME_RECOVERY_DISABLED",
+		DeleteProtectionState:         "DELETE_PROTECTION_DISABLED",
+	}
+}
+
+// testMemcacheInstance has every node serving; the degraded case is built by
+// the test that needs it.
+func testMemcacheInstance() *memcache.Instance {
+	return &memcache.Instance{
+		Name:            "projects/sandbox-123/locations/us-central1/instances/page-cache",
+		NodeCount:       3,
+		MemcacheVersion: "MEMCACHE_1_5",
+		State:           "READY",
+		NodeConfig:      &memcache.NodeConfig{CpuCount: 2, MemorySizeMb: 4096},
+		MemcacheNodes: []*memcache.Node{
+			{NodeId: "node-1", State: "READY"},
+			{NodeId: "node-2", State: "READY"},
+			{NodeId: "node-3", State: "READY"},
+		},
 	}
 }
