@@ -236,7 +236,8 @@ drill-down opened from a parent row.
 | Prebuilt release pipeline | ✅ Implemented | Every merge to `main` builds, checks and publishes a release |
 | Confirmed VM power actions | ✅ Implemented | `:start` / `:stop` / `:reset`, typed as commands and confirmed against the instance name; production demands the typed form for all three |
 | Confirmed Dataproc state actions | ⬜ Candidate | The VM action framework generalises, but each new service is its own decision |
-| Terraform managed/drifted/unmanaged overlay | 🔜 Next | Read state; do not replace Terraform |
+| Terraform managed/unmanaged overlay | ✅ Implemented | `:tf` reads the project's state from its GCS backend and marks the open table. Only the resource type and name survive parsing — never a value from `attributes`. A kind g9s has no Terraform type for reads `?`, never `unmanaged` |
+| Terraform drift detection | 🚫 Not planned | Drift is what `terraform plan` computes, and computing it means running Terraform against your configuration. g9s reads state; it does not plan |
 | Cross-project inventory for one kind | ✅ Implemented | `:fleet <kind>` sweeps every configured project, four at a time. Projects that were denied, failed or never asked are named beneath the table rather than dropped, because a count that quietly omits them reads as a statement about the estate |
 | Horizontal dev/uat/prod comparison | ✅ Implemented | `:diff <kind>` lays the same sweep out with the projects as columns and the rows that do not line up first. A project that could not be read shows `?`, never `-`, so a permission error never becomes a missing resource |
 | Cloud Asset Inventory fast path | ⬜ Candidate | Optional; many organizations do not enable the API |
@@ -435,6 +436,7 @@ removes it. The footer warns whenever a listing reaches its cap.
 | `service_account_key_lookups` | 200 | Requests: one key-list call per account |
 | `kms_key_rings` | 100 | Requests per location |
 | `cloud_builds` | 200 | Rows, newest first |
+| `terraform_state_objects` | 25 | Requests: one download per `.tfstate` object |
 
 ```yaml
 defaults:
@@ -500,6 +502,53 @@ its own name instead.
 Narrow terminals get fewer columns and a line naming the projects that were
 dropped, rather than a comparison quietly missing one.
 
+## Terraform overlay
+
+`:tf` marks the table you are looking at against the project's Terraform
+state: which of these resources is in code, and which was made by hand.
+
+```yaml
+projects:
+  - name: prod
+    project_id: acme-prod-1
+    terraform:
+      state_bucket: acme-tfstate     # no gs://
+      state_prefix: prod             # the backend's prefix
+```
+
+The same two values as the `backend "gcs"` block your Terraform config already
+has. `defaults.terraform` sets a fallback for every project, which suits an
+estate keeping all its workspaces in one bucket and is wrong for one giving
+each project its own — the per-project setting wins.
+
+```text
+  NAME            LOCATION        STATUS     TERRAFORM
+▸ api-01          us-central1-a   RUNNING    MANAGED
+  scratch-box     us-central1-a   RUNNING    UNMANAGED
+```
+
+Three things it deliberately does not do:
+
+- **It never guesses.** A kind g9s has no Terraform type for shows `?`, never
+  `UNMANAGED`, and the line above the table says so. An overlay reporting a
+  managed resource as untracked because g9s did not recognise the type name is
+  how somebody deletes production.
+- **It does not detect drift.** Drift is what `terraform plan` computes, and
+  computing it means running Terraform against your configuration. g9s reads
+  state and reports presence.
+- **It does not read your secrets.** A state file carries every value the
+  provider round-trips — passwords, keys, certificates. g9s keeps the resource
+  type and name and drops the attributes before anything else in the process
+  sees them, guarded by a test that fails if a value from `attributes` survives
+  parsing. It is still a bucket worth being careful who can read; see
+  [PERMISSIONS.md](PERMISSIONS.md).
+
+The line above the table names the state files that were read, because a table
+full of `UNMANAGED` usually means the wrong state was consulted rather than an
+estate built by hand. State files that could not be read are named beneath it,
+for the same reason: one that failed to load makes everything it manages look
+untracked.
+
 ## Bookmarks
 
 `:bm <name>` saves where you are — the project, the kind and the filter you
@@ -544,6 +593,7 @@ silently lands somewhere else is worse than one that fails.
 | `:fleet <kind>` | One kind across every configured project; `enter` opens the row in the project it came from |
 | `:diff <kind>` | The same sweep with the projects as columns and the differences first; `c` switches between the two shapes |
 | `:bm <name>` | Save where you are — project, kind and filter; `:bm` alone opens the list, `d` removes one |
+| `:tf` | Mark the open table managed/unmanaged from the project's Terraform state |
 | `/` | Filter rows; `esc` clears |
 | `space` | Load the next Storage Objects page when available |
 | `r` | Refresh the current kind, all dashboard kinds, or selected credential |

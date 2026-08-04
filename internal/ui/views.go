@@ -64,6 +64,8 @@ func (m Model) View() string {
 		body = m.fleetView()
 	case screenBookmarks:
 		body = m.bookmarksView()
+	case screenTerraform:
+		body = m.terraformView()
 	}
 
 	return clampHeight(strings.Join([]string{m.headerView(), body, m.footerView()}, "\n"), m.height)
@@ -344,6 +346,64 @@ func (m Model) fleetProblemLines() string {
 			fmt.Fprintf(&b, "  %s %s — %s\n", warnStyle.Render("·"),
 				s.Project.Name, truncate(gcp.WarningStrings(s.Result.Warnings)[0], max(10, m.width-24)))
 		}
+	}
+	return b.String()
+}
+
+// terraformView draws the managed/unmanaged overlay.
+//
+// The summary above the table is doing the real work. Somebody reads
+// UNMANAGED and reaches for the delete button, so what the verdict rests on —
+// which state files were consulted, and whether g9s could reach a verdict at
+// all — is on screen beside it rather than something to go and check.
+func (m Model) terraformView() string {
+	if m.tf == nil {
+		return ""
+	}
+
+	var b strings.Builder
+	title := m.tf.kind.Title + " · terraform"
+	b.WriteString("  " + titleStyle.Render(" "+truncate(title, max(10, m.width-6))+" ") + "\n")
+
+	summary := m.terraformSummary()
+	style := mutedStyle
+	if m.tf.err != nil {
+		style = badStyle
+	} else if !m.tf.loading && (!m.tf.mapped || len(m.tf.warnings) > 0) {
+		style = warnStyle
+	}
+	b.WriteString("  " + style.Render(truncate(summary, max(10, m.width-4))) + "\n\n")
+
+	if m.tf.loading || m.tf.err != nil {
+		return padBody(b.String(), m.bodyHeight())
+	}
+
+	rows := m.visibleTerraformRows()
+	if len(rows) == 0 {
+		b.WriteString(mutedStyle.Render("  no rows to mark") + "\n")
+		return padBody(b.String(), m.bodyHeight())
+	}
+
+	problems := m.terraformProblemLines()
+	reserved := 3 + strings.Count(problems, "\n")
+	b.WriteString(m.renderTable(tfKind, rows, max(1, m.bodyHeight()-reserved)))
+	b.WriteString(problems)
+	return b.String()
+}
+
+// terraformProblemLines names the state files that could not be read.
+//
+// A state file that failed to load makes every resource it manages look
+// unmanaged, which is the one way this table can send somebody to delete
+// something. It is never a footnote.
+func (m Model) terraformProblemLines() string {
+	if m.tf == nil || m.tf.loading {
+		return ""
+	}
+	var b strings.Builder
+	for _, w := range gcp.WarningStrings(m.tf.warnings) {
+		fmt.Fprintf(&b, "  %s %s\n", warnStyle.Render("·"),
+			warnStyle.Render(truncate(w, max(10, m.width-6))))
 	}
 	return b.String()
 }
@@ -1062,6 +1122,7 @@ func (m Model) helpContent() string {
 			{":diff <kind>", "the same sweep with the projects as columns, gaps first — what dev has and prod does not"},
 			{"c", "switch a sweep between the flat list and the comparison (no refetch)"},
 			{":bm <name>", "save this project, kind and filter as a bookmark; :bm alone opens the list"},
+			{":tf", "mark the open table managed/unmanaged from the project's Terraform state"},
 			{"space", "load the next Storage Objects page when more rows are available"},
 		}},
 		{"Actions", []helpEntry{
@@ -1269,6 +1330,8 @@ func (m Model) keyHint() string {
 		return "enter open in its project · c compare · d describe · y yank · / filter · r re-sweep · esc back"
 	case screenBookmarks:
 		return "enter go there · d remove · esc back"
+	case screenTerraform:
+		return "d describe · y yank · / filter · r re-read state · esc back"
 	case screenConfirm:
 		if m.pending != nil && m.pending.typed {
 			return "type the instance name, then enter · esc cancel"

@@ -49,6 +49,11 @@ type Defaults struct {
 	// CredentialsFile points every project at an existing credentials file
 	// instead of a per-project directory g9s logs into. See Project.
 	CredentialsFile string `yaml:"credentials_file"`
+	// Terraform is the fallback state location for projects that do not name
+	// their own. Useful for an estate that keeps every workspace in one
+	// bucket, and wrong for one that gives each project its own — which is
+	// why the per-project setting exists and wins.
+	Terraform Terraform `yaml:"terraform"`
 	// LoginNoBrowser makes `l` always use gcloud's --no-browser flow, the same
 	// as pressing `L` every time.
 	//
@@ -130,6 +135,11 @@ type Limits struct {
 	// indefinitely, so without a bound this is the one listing that grows
 	// without limit for the life of the project.
 	CloudBuilds int `yaml:"cloud_builds"`
+	// TerraformStateObjects caps how many state files the overlay reads in one
+	// load. A prefix pointed at the root of a bucket can match hundreds, and
+	// each one is a download — so this is a request and bandwidth bound rather
+	// than a row bound.
+	TerraformStateObjects int `yaml:"terraform_state_objects"`
 }
 
 // Default row caps. These are the numbers that used to be compiled into each
@@ -145,6 +155,7 @@ const (
 	DefaultServiceAccountKeyLookups = 200
 	DefaultKMSKeyRings              = 100
 	DefaultCloudBuilds              = 200
+	DefaultTerraformStateObjects    = 25
 )
 
 // limit resolves one configured cap: unset falls back to the default, and a
@@ -182,6 +193,10 @@ func (c *Config) limits() Limits {
 
 func (c *Config) LimitCloudBuilds() int {
 	return limit(c.limits().CloudBuilds, DefaultCloudBuilds)
+}
+
+func (c *Config) LimitTerraformStateObjects() int {
+	return limit(c.limits().TerraformStateObjects, DefaultTerraformStateObjects)
 }
 
 func (c *Config) LimitBigQueryJobs() int {
@@ -265,6 +280,25 @@ type Project struct {
 	Regions           []string `yaml:"regions"`
 	DataprocRegions   []string `yaml:"dataproc_regions"`
 	ComposerLocations []string `yaml:"composer_locations"`
+
+	// Terraform is where this project's state lives. Almost always
+	// per-project, since each project usually has its own state bucket.
+	Terraform Terraform `yaml:"terraform"`
+}
+
+// Terraform locates a project's state in its GCS backend.
+//
+// The same two values the `backend "gcs"` block in the Terraform config
+// already has, so this is copied rather than worked out. g9s only ever reads
+// these objects: it never writes state, never locks it, and never runs
+// Terraform.
+type Terraform struct {
+	// StateBucket is the GCS bucket the state lives in, without the gs://.
+	StateBucket string `yaml:"state_bucket"`
+	// StatePrefix is the backend's prefix. Empty reads the whole bucket,
+	// which is fine for a bucket that holds only state and slow for one that
+	// does not.
+	StatePrefix string `yaml:"state_prefix"`
 }
 
 // productionHints are the substrings that make a project look like production.
@@ -341,6 +375,19 @@ func (c *Config) ComposerLocations(p Project) []string {
 // wildcard, so the sweep is only ever as wide as this list.
 func (c *Config) Regions(p Project) []string {
 	return firstNonEmpty(p.Regions, c.Defaults.Regions)
+}
+
+// TerraformBackend returns the bucket and prefix holding a project's state.
+//
+// The bucket and prefix travel together: a project that names its own bucket
+// gets its own prefix too, empty or not. Mixing one project's bucket with
+// another's prefix would read the wrong state and report every resource in the
+// project as unmanaged, which is the worst answer this feature can give.
+func (c *Config) TerraformBackend(p Project) (bucket, prefix string) {
+	if p.Terraform.StateBucket != "" {
+		return p.Terraform.StateBucket, p.Terraform.StatePrefix
+	}
+	return c.Defaults.Terraform.StateBucket, c.Defaults.Terraform.StatePrefix
 }
 
 // CredentialsFile returns the existing credentials file to read for a project,

@@ -48,7 +48,7 @@ is left below wants that shape rather than another tab — see
 | Cloud Run services | regional | 1 per region | one client per region: the v2 API documents that location cannot be the `-` wildcard, so there is no aggregated call to fall back on |
 | Cloud Run jobs | regional | 1 per region | same fan-out as the services; the row leads with the last execution's result, because a job whose executions all fail is still a perfectly healthy job resource |
 | Cloud Scheduler jobs | regional | 1 per region | one client per region; the parent is a concrete location. The row leads with what happened last rather than what is configured, because a cron entry is not interesting for existing — it is interesting when it stopped working, and there are two ways for that which a config-only table cannot tell apart. PAUSED is the quiet one: nothing errors, nothing alerts, the work simply stops, and someone paused it for a deploy in March. The other is a job running exactly on schedule against a target that rejects every attempt, where the job's own state stays a perfectly truthful ENABLED. LAST and RESULT are the two columns that separate them |
-| KMS keys | regional + global | 1 per location, then 1 per ring | keys rather than key rings, which is a choice about what the table is for: a ring is a folder, and its row would carry a name, a location and nothing anyone opens a tool to find. So the ring becomes a column and the N+1 to reach the keys is paid — the same trade service accounts make for key age. Two calls per location, bounded by `limits.kms_key_rings`, `cloud_builds` (default 100), twelve at a time; one unreadable ring costs its own keys rather than the location, since `cryptoKeys.list` is a separate grant from the one that listed the rings. "global" is always swept because that is where most projects' first key ring lives. Rotation leads the row: a symmetric key with rotation never configured reports ENABLED forever, which is exactly what hides it. Asymmetric keys are explicitly *not* flagged — KMS cannot rotate one on a schedule, its public half is pinned by whoever verifies signatures, and a column of invented findings is a column nobody reads when a real one appears. **Metadata only, like Secret Manager**: no Decrypt, no AsymmetricSign, no key material, guarded by a test that fails on the call name |
+| KMS keys | regional + global | 1 per location, then 1 per ring | keys rather than key rings, which is a choice about what the table is for: a ring is a folder, and its row would carry a name, a location and nothing anyone opens a tool to find. So the ring becomes a column and the N+1 to reach the keys is paid — the same trade service accounts make for key age. Two calls per location, bounded by `limits.kms_key_rings` (default 100), twelve at a time; one unreadable ring costs its own keys rather than the location, since `cryptoKeys.list` is a separate grant from the one that listed the rings. "global" is always swept because that is where most projects' first key ring lives. Rotation leads the row: a symmetric key with rotation never configured reports ENABLED forever, which is exactly what hides it. Asymmetric keys are explicitly *not* flagged — KMS cannot rotate one on a schedule, its public half is pinned by whoever verifies signatures, and a column of invented findings is a column nobody reads when a real one appears. **Metadata only, like Secret Manager**: no Decrypt, no AsymmetricSign, no key material, guarded by a test that fails on the call name |
 | Cloud Functions | regional | 1 (aggregated) | the v2 API takes `locations/-` for the parent and sweeps every location in one paginated call, naming the ones that did not answer in `Unreachable` — the opposite of Cloud Run, in the same product family, which is why each lister says which answer it got. Both generations list together with a `GEN` column, because gen 2 is Cloud Run with a build attached and gen 1 is not: they scale, time out and bill differently, and "which generation is this" is the first question when one behaves unlike its neighbour. The trigger column separates HTTP functions, reachable by whoever IAM allows, from event-driven ones that only fire on their source |
 | VPC networks | global | 1 | one call |
 | Firewall rules | global | 1 | ordered by evaluation priority rather than name, because that is the only order a rule set can be reasoned about |
@@ -62,6 +62,8 @@ is left below wants that shape rather than another tab — see
 | PSC service attachments | regional | 1 (aggregated) | producer side only; a consumer endpoint *is* a forwarding rule, so listing those here would double-count |
 | Secret Manager secrets | global | 1 | **metadata only — never values.** One paginated call to `secrets.list`; `AccessSecretVersion` is never called, so no payload enters the process |
 | Service accounts | global | 1, then 1 per account | one paginated call for the accounts, then `keys.list` per account — bounded by `limits.service_account_key_lookups` (default 200), twelve at a time. N+1 is the only shape on offer, and it is worth paying: key age is the standing audit question, and putting it on the row is the difference between a table you scan and one you have to interrogate account by account. User-managed keys only; Google-managed ones rotate themselves and would put "2 keys" on every row |
+| Cloud Build history | global | 1 | one paginated call, newest first, `limits.cloud_builds` (default 200). Build records are kept indefinitely, so without a bound this is the one listing that grows for the life of the project |
+| Terraform state overlay (`:tf`) | a GCS bucket | 1 list, then 1 download per state object | not a lister — it marks the table already on screen. One `objects.list` under `terraform.state_prefix`, then a download per `.tfstate`, bounded by `limits.terraform_state_objects` (default 25) because a prefix pointed at a bucket root can match hundreds. Only the resource type and name survive parsing; a state file is the most secret-dense artifact infrastructure produces, and nothing from `attributes` ever enters memory |
 
 Nineteen listings hang underneath these, reached with `enter` on the row rather
 than a hotkey of their own. A row may hold more than one — `tab` moves between
@@ -233,11 +235,23 @@ Shipped:
   comment in it the first time somebody saved a bookmark.
 - **Prebuilt release binaries** — see [Install](README.md#install).
 
+- **Terraform state overlay.** `:tf` reads the project's state from its GCS
+  backend and marks the open table managed or unmanaged. Two parts of the
+  original idea are deliberately not in it. Drift is what `terraform plan`
+  computes, and computing it means running Terraform against your
+  configuration, which g9s does not do. And jumping from a row to the `.tf`
+  that defines it needs the configuration rather than the state — the state
+  knows a resource's Terraform address, not which file the block is written in.
+  What is left is the question people actually ask: which of these was made by
+  hand.
+
+  The mapping from kind to Terraform type is deliberately incomplete, and the
+  incompleteness is the safety property: an unmapped kind reads `?` rather than
+  `UNMANAGED`, because an overlay that reports a managed resource as untracked
+  is how somebody deletes production.
+
 Still ahead:
 
-- **Terraform state overlay.** Read the GCS backend and mark each row managed /
-  drifted / unmanaged, and jump from a row to the `.tf` that defines it. The
-  single most useful thing on this page, and the most work.
 - **Cloud Asset Inventory fast path.** Where the API is enabled, one call
   replaces the entire fan-out. Optional, because plenty of orgs do not enable it
   — that is the reason g9s does the fan-out at all.

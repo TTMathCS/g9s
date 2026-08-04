@@ -27,6 +27,7 @@ const (
 	screenConfirm
 	screenFleet
 	screenBookmarks
+	screenTerraform
 )
 
 // allKind is a synthetic kind that merges every real kind into one table.
@@ -160,6 +161,14 @@ type Model struct {
 	marks          *bookmarks.Store
 	bookmarkReturn screen
 	bookmarkCursor int
+
+	// tf is the Terraform overlay, or nil. tfRows is the table it was opened
+	// on, captured at that moment: the overlay marks the rows somebody was
+	// looking at, and a refresh landing underneath must not change which rows
+	// the verdict applies to.
+	tf       *tfState
+	tfRows   []gcp.Resource
+	tfReturn screen
 
 	// cacheGen counts mutations of cache. It is the validity key for rows
 	// below: anything derived from the cache is stale the moment this moves.
@@ -457,6 +466,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case fleetFinishedMsg:
 		return m.handleFleetFinished(msg)
+
+	case tfFinishedMsg:
+		return m.handleTerraformFinished(msg)
 
 	case actionFinishedMsg:
 		return m.handleActionFinished(msg)
@@ -772,6 +784,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleFleetKey(msg)
 	case screenBookmarks:
 		return m.handleBookmarkKey(msg)
+	case screenTerraform:
+		return m.handleTerraformKey(msg)
 	}
 	return m, nil
 }
@@ -833,6 +847,10 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 	if verb == "export" {
 		return m.runExport(argument)
 	}
+	if verb == "tf" || verb == "terraform" {
+		return m.startTerraform()
+	}
+
 	// `:bm` with a name saves where you are; without one it opens the list.
 	// Two commands would be one more thing to remember for no gain.
 	if verb == "bm" || verb == "bookmark" || verb == "bookmarks" {
@@ -885,7 +903,7 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 
 	idx, ok := m.matchKind(line)
 	if !ok {
-		return m, flash(fmt.Sprintf("unknown command %q — a kind id or title prefix, fleet, diff, bm, export, start/stop/reset, cd, find, all, projects, help or q", line), flashWarn)
+		return m, flash(fmt.Sprintf("unknown command %q — a kind id or title prefix, fleet, diff, tf, bm, export, start/stop/reset, cd, find, all, projects, help or q", line), flashWarn)
 	}
 	if !m.hasActive {
 		return m, flash("select a project first", flashWarn)

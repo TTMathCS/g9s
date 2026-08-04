@@ -73,7 +73,9 @@ func statusStyle(status string) lipgloss.Style {
 	// HEALTHY is a load balancer backend passing its health check, which is the
 	// one word the backend health table exists to show.
 	case "RUNNING", "RUNNABLE", "ACTIVE", "READY", "ESTABLISHED", "ENABLED", "DONE",
-		"SUCCEEDED", "DRAINED", "UPDATED", "HEALTHY", "STABLE", "IN_USE", "GRANTED":
+		"SUCCEEDED", "DRAINED", "UPDATED", "HEALTHY", "STABLE", "IN_USE", "GRANTED",
+		// A resource the Terraform state accounts for.
+		"MANAGED":
 		return goodStyle
 	case "PROVISIONING", "STAGING", "CREATING", "UPDATING", "STOPPING", "DELETING",
 		"REPAIRING", "SUSPENDING", "RECONCILING", "RECREATING", "VERIFYING",
@@ -172,7 +174,13 @@ func statusStyle(status string) lipgloss.Style {
 		// will not start again on its own, while the state alone reads like
 		// something that might recover — and a TPU is the most expensive thing
 		// in most projects to be wrong about.
-		"PREEMPTED":
+		"PREEMPTED",
+		// A resource no Terraform state manages. Not a failure — plenty of
+		// things are created deliberately by hand — but it is the row the
+		// overlay was opened to find, and the one that will be silently
+		// recreated or silently lost the next time somebody rebuilds from
+		// code.
+		"UNMANAGED":
 		return warnStyle
 	case "ERROR", "FAILED", "TERMINATED", "STOPPED", "SUSPENDED", "UNHEALTHY", "DEGRADED",
 		// Compute routes rejected by their backend or dropped at a route limit.

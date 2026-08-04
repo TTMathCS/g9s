@@ -301,7 +301,7 @@ func TestHelpDocumentsTheCommandsTheModelAnswersTo(t *testing.T) {
 	next, _ := m.openHelp()
 	help := next.(Model).helpView()
 
-	for _, verb := range []string{"fleet", "diff", "bm", "export", "cd", "find", "start", "stop", "reset"} {
+	for _, verb := range []string{"fleet", "diff", "tf", "bm", "export", "cd", "find", "start", "stop", "reset"} {
 		if !strings.Contains(help, ":"+verb) {
 			t.Errorf("help panel never mentions the :%s command", verb)
 		}

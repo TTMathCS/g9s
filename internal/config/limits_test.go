@@ -158,7 +158,7 @@ func TestEveryLimitFieldHasAnAccessor(t *testing.T) {
 	// Reflection over the struct rather than a hand-kept list, since a
 	// hand-kept list is the thing that goes stale.
 	fields := limitFieldNames()
-	if len(fields) != 10 {
+	if len(fields) != 11 {
 		t.Fatalf("Limits has %d fields (%v) — add the accessor and update this count", len(fields), fields)
 	}
 
@@ -174,6 +174,7 @@ func TestEveryLimitFieldHasAnAccessor(t *testing.T) {
 		"ServiceAccountKeyLookups": c.LimitServiceAccountKeyLookups(),
 		"KMSKeyRings":              c.LimitKMSKeyRings(),
 		"CloudBuilds":              c.LimitCloudBuilds(),
+		"TerraformStateObjects":    c.LimitTerraformStateObjects(),
 	}
 	for _, name := range fields {
 		if _, ok := accessors[name]; !ok {

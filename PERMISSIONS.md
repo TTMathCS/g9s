@@ -191,6 +191,28 @@ report a permission error if attempted.
 | Credential check | A live token exchange against the ADC file; no project permission |
 | SSH to a VM (`s`) | `compute.instances.osLogin` or a project SSH key, plus firewall access to port 22 or IAP TCP forwarding. This is the one action that is not a read |
 | Open in Console (`o`) | Nothing from g9s; the browser authenticates separately |
+| Cross-project sweep (`:fleet` / `:diff`) | Nothing extra — it runs the same listings against each configured project, so it needs whatever those kinds need, in every project you want an answer for |
+| Terraform overlay (`:tf`) | `storage.objects.list` and `storage.objects.get` on the **state bucket**, which is often not one of the buckets `roles/viewer` on the project already covers |
+
+The Terraform overlay is worth a second look before you grant it. A state file
+carries every value the provider round-trips — database passwords, generated
+keys, TLS material — so read access to a state bucket is a far broader grant
+than read access to the resources it describes.
+
+g9s reads only the resource type and name out of each state file and drops the
+attributes before anything else in the process can see them, guarded by a test
+that fails if a value from `attributes` survives parsing. That is a property of
+g9s, not of the grant: anyone holding `storage.objects.get` on that bucket can
+read the whole file by other means. Grant it to the bucket, not the project:
+
+```sh
+gcloud storage buckets add-iam-policy-binding gs://STATE_BUCKET \
+  --member="user:someone@example.com" \
+  --role="roles/storage.objectViewer"
+```
+
+Not granting it is a supported configuration. `:tf` then reports a permission
+error and every other table is unaffected.
 
 ## Checking what you have
 

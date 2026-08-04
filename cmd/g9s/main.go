@@ -287,4 +287,11 @@ projects:
     # Override the default sweep for this project only.
     regions:
       - northamerica-northeast1
+    # Where this project's Terraform state lives, so :tf can mark a table
+    # managed or unmanaged. The same two values as the backend "gcs" block in
+    # your Terraform config. g9s only ever reads these objects, and keeps only
+    # each resource's type and name — never a value from its attributes.
+    #terraform:
+    #  state_bucket: my-tfstate-bucket
+    #  state_prefix: prod
 `
