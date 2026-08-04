@@ -10,6 +10,7 @@ package doctor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -170,18 +171,120 @@ func checkGcloud(report *Report, cfg *config.Config) {
 	report.add(LevelOK, "gcloud", resolved, "")
 
 	// Version matters for one specific reason worth naming.
-	out, err := exec.Command(gcloudPath, "version", "--format=value(Google Cloud SDK)").Output()
-	if err != nil {
-		report.add(LevelWarn, "gcloud version", "could not be determined: "+err.Error(),
-			"g9s will still try to use it; `gcloud version` failing on its own is worth looking at.")
-		return
-	}
-	version := strings.TrimSpace(string(out))
+	version, detail := gcloudVersion(gcloudPath)
 	if version == "" {
-		version = "unknown"
+		report.add(LevelWarn, "gcloud version", "could not be determined: "+detail,
+			"Only this check is affected — g9s uses gcloud the same way regardless, and every other check here still applies. "+
+				"Run `gcloud version` yourself to see the same output g9s got.")
+		return
 	}
 	report.add(LevelOK, "gcloud version", version,
 		"The --no-browser login flow needs 372.0.0 or newer on both machines.")
+}
+
+// gcloudVersion asks gcloud what version it is, and returns "" with a reason
+// when it will not say.
+//
+// Two attempts, because the first one used to be a `--format=value(...)`
+// projection naming a key with spaces in it — and gcloud's projection grammar
+// splits on whitespace, so the key it was handed was not the key anybody
+// meant. That failed on a perfectly healthy install and reported `exit status
+// 1`, which is a warning nobody can act on.
+//
+// So: ask for JSON, whose keys are exactly the strings gcloud prints, and fall
+// back to parsing the plain output that every version of gcloud has always
+// printed. And keep stderr, because gcloud says why it is unhappy there and
+// throwing it away is what made the original warning useless.
+func gcloudVersion(gcloudPath string) (version, detail string) {
+	jsonOut, jsonErr := runGcloud(gcloudPath, "version", "--format=json")
+	if jsonErr == nil {
+		if v := parseGcloudVersion(jsonOut); v != "" {
+			return v, ""
+		}
+	}
+
+	plainOut, plainErr := runGcloud(gcloudPath, "version")
+	if plainErr == nil {
+		if v := parseGcloudVersion(plainOut); v != "" {
+			return v, ""
+		}
+	}
+
+	switch {
+	case plainErr != nil:
+		return "", plainErr.Error()
+	case jsonErr != nil:
+		return "", jsonErr.Error()
+	default:
+		// Both ran and neither carried a version. Not a failure of gcloud, and
+		// not something to imply is one.
+		return "", "gcloud ran but its output carried no SDK version"
+	}
+}
+
+// runGcloud runs gcloud and folds stderr into the error, since that is where
+// gcloud explains itself.
+func runGcloud(gcloudPath string, args ...string) ([]byte, error) {
+	// Bounded: a gcloud waiting on a component update prompt or a wedged
+	// network would otherwise hang `g9s doctor`, which is the one command
+	// somebody runs precisely because something is already stuck.
+	ctx, cancel := context.WithTimeout(context.Background(), gcloudVersionTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, gcloudPath, args...)
+	// Nothing here is interactive, and a gcloud that decides to prompt should
+	// get EOF and exit rather than block on a terminal g9s is not driving.
+	cmd.Stdin = nil
+
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return out, fmt.Errorf("%w — %s", err, firstLine(msg))
+		}
+		return out, err
+	}
+	return out, nil
+}
+
+// gcloudVersionTimeout bounds the version check.
+const gcloudVersionTimeout = 15 * time.Second
+
+// parseGcloudVersion pulls the SDK version out of either shape of output.
+//
+// JSON first: `{"Google Cloud SDK": "458.0.0", …}`. Then the plain listing,
+// whose first line has always been `Google Cloud SDK 458.0.0`. Both are
+// handled here rather than at the call site so this is testable without a
+// gcloud to run — which is the whole reason the original was wrong.
+func parseGcloudVersion(out []byte) string {
+	var doc map[string]any
+	if err := json.Unmarshal(out, &doc); err == nil {
+		if v, ok := doc[gcloudSDKKey].(string); ok && strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		rest, found := strings.CutPrefix(line, gcloudSDKKey)
+		if !found {
+			continue
+		}
+		if v := strings.TrimSpace(rest); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// gcloudSDKKey is what gcloud calls the SDK itself, in both output shapes.
+const gcloudSDKKey = "Google Cloud SDK"
+
+// firstLine keeps a multi-line gcloud complaint to one report line.
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(s, "\n")
+	return strings.TrimSpace(line)
 }
 
 // checkEnvironment reports whether the browser login flow can complete here.

@@ -191,3 +191,101 @@ func TestWriteWrapsRemediesAndOmitsThemForPassingChecks(t *testing.T) {
 		t.Errorf("summary line missing or wrong:\n%s", out)
 	}
 }
+
+// The original version check asked gcloud for `--format=value(Google Cloud
+// SDK)` — a projection key with spaces in it, which gcloud's grammar splits on
+// whitespace. It failed on a perfectly healthy install and reported `exit
+// status 1`, a warning nobody could act on. These fixtures are what gcloud
+// really prints, so the parser is held to real output rather than to a
+// projection nobody could test without a gcloud to run.
+func TestGcloudVersionIsParsedFromJSON(t *testing.T) {
+	out := []byte(`{
+  "Google Cloud SDK": "458.0.1",
+  "bq": "2.0.101",
+  "core": "2024.01.12",
+  "gcloud-crc32c": "1.0.0",
+  "gsutil": "5.27"
+}`)
+	if got := parseGcloudVersion(out); got != "458.0.1" {
+		t.Errorf("parseGcloudVersion(json) = %q, want 458.0.1", got)
+	}
+}
+
+func TestGcloudVersionIsParsedFromThePlainListing(t *testing.T) {
+	out := []byte(`Google Cloud SDK 458.0.1
+bq 2.0.101
+core 2024.01.12
+gcloud-crc32c 1.0.0
+gsutil 5.27
+`)
+	if got := parseGcloudVersion(out); got != "458.0.1" {
+		t.Errorf("parseGcloudVersion(plain) = %q, want 458.0.1", got)
+	}
+}
+
+// Some installs print an update notice above the listing, and gcloud writes
+// component warnings into the same stream.
+func TestGcloudVersionSurvivesSurroundingNoise(t *testing.T) {
+	out := []byte(`Updates are available for some Google Cloud CLI components.
+
+Google Cloud SDK 372.0.0
+bq 2.0.72
+`)
+	if got := parseGcloudVersion(out); got != "372.0.0" {
+		t.Errorf("parseGcloudVersion = %q, want 372.0.0", got)
+	}
+}
+
+// Output with no version in it must come back empty rather than as a
+// plausible-looking string, or the report states a version gcloud never gave.
+func TestUnrecognisedOutputYieldsNoVersion(t *testing.T) {
+	for _, out := range []string{
+		"",
+		"ERROR: (gcloud.version) unrecognized arguments",
+		`{"bq": "2.0.101"}`,
+		"Google Cloud SDK",
+	} {
+		if got := parseGcloudVersion([]byte(out)); got != "" {
+			t.Errorf("parseGcloudVersion(%q) = %q, want no version", out, got)
+		}
+	}
+}
+
+// A failing gcloud has to say what it said. `exit status 1` on its own is the
+// warning that sent somebody looking for a broken install they did not have.
+func TestAFailingGcloudReportsItsOwnComplaint(t *testing.T) {
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "gcloud")
+	script := "#!/bin/sh\necho 'ERROR: (gcloud.version) Unknown attribute [Cloud]' >&2\nexit 1\n"
+	if err := os.WriteFile(fake, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	version, detail := gcloudVersion(fake)
+	if version != "" {
+		t.Errorf("version = %q from a gcloud that failed", version)
+	}
+	if !strings.Contains(detail, "Unknown attribute") {
+		t.Errorf("detail = %q, want gcloud's own message rather than just the exit status", detail)
+	}
+}
+
+// The check has to work against a gcloud that only speaks the plain listing,
+// which is the fallback the JSON attempt exists to be rescued by.
+func TestAGcloudThatRefusesJSONStillYieldsAVersion(t *testing.T) {
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "gcloud")
+	script := "#!/bin/sh\n" +
+		"for a in \"$@\"; do\n" +
+		"  case \"$a\" in --format=json) echo 'ERROR: unsupported' >&2; exit 1;; esac\n" +
+		"done\n" +
+		"echo 'Google Cloud SDK 372.0.0'\n"
+	if err := os.WriteFile(fake, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	version, detail := gcloudVersion(fake)
+	if version != "372.0.0" {
+		t.Errorf("version = %q (detail %q), want the plain listing to have rescued it", version, detail)
+	}
+}
