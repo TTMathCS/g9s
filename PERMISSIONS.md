@@ -109,6 +109,9 @@ gcloud services enable --project=PROJECT_ID \
 | Cloud Build | `cloudbuild.googleapis.com` | `cloudbuild.builds.list` |
 | Task Queues | `cloudtasks.googleapis.com` | `cloudtasks.queues.list` |
 | Alert Policies | `monitoring.googleapis.com` | `monitoring.alertPolicies.list` |
+| Batch Jobs | `batch.googleapis.com` | `batch.jobs.list` |
+| Certificates | `certificatemanager.googleapis.com` | `certificatemanager.certs.list` |
+| IAM Bindings | `cloudresourcemanager.googleapis.com` | `resourcemanager.projects.getIamPolicy` |
 | VPC Networks | `compute.googleapis.com` | `compute.networks.list` |
 | Firewall Rules | `compute.googleapis.com` | `compute.firewalls.list` |
 | VPC Routes | `compute.googleapis.com` | `compute.routes.list` |

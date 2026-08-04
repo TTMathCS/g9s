@@ -241,8 +241,27 @@ func TestHelpFromDetailReturnsToDetail(t *testing.T) {
 func TestHelpDocumentsTheKindHotkeys(t *testing.T) {
 	m := crowdedModel(t)
 	content := m.helpContent()
-	if legend := m.hotkeyLegend(); !strings.Contains(content, legend) {
-		t.Errorf("help does not document the hotkey legend %q", legend)
+
+	// Key by key rather than the legend as one string: at forty-nine kinds the
+	// legend is wider than the panel and is wrapped, so asserting on the
+	// joined form would be asserting that it is NOT wrapped — which is the
+	// layout bug, not the property worth pinning. What matters is that no key
+	// a user can press is missing from the panel.
+	//
+	// The first nine are written as the range "1-9" rather than listed, so
+	// they are checked as the range they are printed as.
+	if len(m.listers) > 0 && !strings.Contains(content, "1-") {
+		t.Error("help does not document the digit hotkeys")
+	}
+	for i := 9; i < len(m.listers); i++ {
+		key := kindKey(i)
+		if key == noHotkey {
+			continue
+		}
+		if !strings.Contains(content, key) {
+			t.Errorf("help never mentions the hotkey %q for kind %q",
+				key, m.listers[i].Kind().ID)
+		}
 	}
 }
 

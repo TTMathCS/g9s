@@ -8,7 +8,7 @@ A k9s-style terminal console for Google Cloud. Switch between projects and
 accounts, inspect resources, and navigate related resources without changing
 your global gcloud configuration.
 
-> **Current maturity:** read-mostly. 46 top-level resource kinds and 21
+> **Current maturity:** read-mostly. 49 top-level resource kinds and 21
 > drill-down listings, all read-only. The only exceptions are SSH to a running
 > VM and three VM power actions (`:start`, `:stop`, `:reset`), each of which
 > must be typed as a command and confirmed against the instance's own name.
@@ -145,7 +145,7 @@ drill-down opened from a parent row.
 |  | **Compute Engine** → Instance templates | Top-level | ✅ Implemented | Global and regional templates; includes machine shape and accelerators |
 |  | **Compute Engine** → Capacity reservations | Top-level | ✅ Implemented | Includes GPU-backed reservations and unused/partial utilization findings |
 |  | **Cloud TPU** → Queued resources and reservations | — | ⬜ Candidate | Separate service and API; not part of Compute Engine reservation coverage |
-|  | **Batch** → Jobs | — | ⬜ Candidate | Not implemented |
+|  | **Batch** → Jobs | Top-level | ✅ Implemented | Listed per configured region. Task counts per state, because a job reporting RUNNING with every task failing reads identically to a healthy one |
 |  | **Cloud Functions** → Functions | Top-level | ✅ Implemented | Both generations; aggregated across locations |
 |  | **Cloud Run** → Services | Top-level | ✅ Implemented | Listed across configured regions |
 |  | ↳ Revisions | Service drill-down | ✅ Implemented | Includes traffic split from the parent service |
@@ -200,9 +200,9 @@ drill-down opened from a parent row.
 |  | **IAM** → Service accounts | Top-level | 🟡 Implemented, bounded | Key age lookup for 200 accounts by default |
 |  | ↳ Keys | Account drill-down | 🔒 Metadata only | ID, origin, algorithm, age and expiry; never private key material |
 |  | ↳ Direct project roles | Account drill-down | ✅ Implemented | One version-3 project policy read, filtered to the account; conditions are shown and inherited folder/organization roles are explicitly outside the listing |
-|  | **IAM** → Project policy bindings | — | ⬜ Candidate | Needs a table shaped around role/member pairs |
+|  | **IAM** → Project policy bindings | Top-level | ✅ Implemented | One row per member per role, the way the question is usually asked. Flags allUsers, primitive roles and deleted principals; inherited folder/org roles are outside the listing and it says so |
 |  | **Cloud KMS** → Keys | Top-level | 🟡 Implemented, bounded | 100 key rings per location by default; never key material |
-|  | **Certificate Manager** → Certificates | — | ⬜ Candidate | Not implemented |
+|  | **Certificate Manager** → Certificates | Top-level | ✅ Implemented | `global` plus the configured regions. Flags expiry inside 30 days, already-expired, and managed certificates stuck provisioning |
 |  | **Binary Authorization** → Policies | — | ⬜ Candidate | Not implemented |
 |  | **VPC Service Controls** → Perimeters | — | ⬜ Candidate | Not implemented |
 |  | **Organization Policy** → Effective constraints | — | ⬜ Candidate | Not implemented |

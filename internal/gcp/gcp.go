@@ -140,6 +140,7 @@ func Listers() []Lister {
 		CloudBuildLister{},
 		CloudTaskQueueLister{},
 		AlertPolicyLister{},
+		BatchJobLister{},
 		VPCLister{},
 		FirewallLister{},
 		RouteLister{},
@@ -152,8 +153,10 @@ func Listers() []Lister {
 		PSCLister{},
 		// Last, and together: not compute, not data, not networking. The two
 		// kinds you open with an audit question rather than an outage.
+		CertificateLister{},
 		SecretLister{},
 		ServiceAccountLister{},
+		IAMBindingLister{},
 		KMSKeyLister{},
 	}
 }

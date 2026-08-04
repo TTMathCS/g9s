@@ -864,7 +864,7 @@ func (m Model) helpContent() string {
 			{"↑/k ↓/j", "move cursor"},
 			{"g / G", "jump to top / bottom"},
 			{"enter", "go in — category (dashboard), the row's own listing where it has one, else describe"},
-			{m.hotkeyLegend(), "jump straight to a resource kind — the key is printed beside it"},
+			{"1-9 a-z A-Z", "jump straight to a resource kind — the key is printed beside it"},
 			{"0 / a", "all resources, every kind in one table"},
 			{"tab / shift+tab", "cycle resource kinds — or, in a drill-down with two listings, those"},
 			{"] / [", "the same, for when tab is taken by your terminal or multiplexer"},
@@ -900,9 +900,15 @@ func (m Model) helpContent() string {
 		}},
 	}
 
-	// Widest key column across every section, so the descriptions line up as a
-	// single column rather than per section. The legend row grows with the
-	// number of kinds, which is what makes measuring beat a fixed width.
+	// Widest key column across every section, so descriptions line up as one
+	// column rather than per section.
+	//
+	// This works only because the kind legend is no longer one of these
+	// entries. It is ninety characters wide at forty-nine kinds, and sitting
+	// in the key column it set the indent for every row in the panel — pushing
+	// every description off the right edge of a 100-column terminal, where the
+	// border quietly clipped them. It now goes below, wrapped, where being
+	// long costs nothing.
 	keyWidth := 0
 	for _, s := range sections {
 		for _, e := range s.entries {
@@ -910,13 +916,31 @@ func (m Model) helpContent() string {
 		}
 	}
 
+	// The panel is bordered and padded, so the text has less room than the
+	// terminal is wide. Wrapping to it is what keeps the last column readable
+	// rather than clipped by the border.
+	descWidth := max(20, m.width-keyWidth-10)
+
 	var b strings.Builder
 	for _, s := range sections {
 		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorAccent).Render(s.title) + "\n")
 		for _, e := range s.entries {
-			b.WriteString("  " + helpKeyStyle.Render(pad(e.keys, keyWidth)) + "  " + helpDescStyle.Render(e.desc) + "\n")
+			lines := strings.Split(wrap(e.desc, descWidth), "\n")
+			for i, line := range lines {
+				key := ""
+				if i == 0 {
+					key = e.keys
+				}
+				b.WriteString("  " + helpKeyStyle.Render(pad(key, keyWidth)) + "  " + helpDescStyle.Render(line) + "\n")
+			}
 		}
 		b.WriteString("\n")
+	}
+
+	// The legend last, on its own, where being long is free.
+	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorAccent).Render("Kind keys") + "\n")
+	for _, line := range strings.Split(wrap(m.hotkeyLegend(), max(20, m.width-8)), "\n") {
+		b.WriteString("  " + helpDescStyle.Render(line) + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

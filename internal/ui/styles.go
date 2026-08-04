@@ -160,7 +160,14 @@ func statusStyle(status string) lipgloss.Style {
 		// one somebody silenced during an incident and never turned back on.
 		// Both are monitoring that exists on paper and does nothing, and the
 		// second looks entirely healthy from every other column.
-		"NO_NOTIFICATIONS", "NO_CONDITIONS":
+		"NO_NOTIFICATIONS", "NO_CONDITIONS",
+		// A certificate inside its renewal window: working right now, and
+		// stopping on a date. The only failure mode a calendar can prevent.
+		"EXPIRING_SOON",
+		// An IAM binding left behind by a deleted principal, and one granting a
+		// primitive role — owner, editor, viewer predate granular IAM and hand
+		// out far more than their names suggest.
+		"DELETED_PRINCIPAL", "PRIMITIVE_ROLE":
 		return warnStyle
 	case "ERROR", "FAILED", "TERMINATED", "STOPPED", "SUSPENDED", "UNHEALTHY", "DEGRADED",
 		// Compute routes rejected by their backend or dropped at a route limit.
@@ -190,7 +197,13 @@ func statusStyle(status string) lipgloss.Style {
 		"LAST_RUN_FAILED",
 		// A build that failed, timed out, or died inside Cloud Build itself.
 		// FAILURE is the one anybody opened this table to find.
-		"FAILURE", "TIMEOUT", "INTERNAL_ERROR":
+		"FAILURE", "TIMEOUT", "INTERNAL_ERROR",
+		// A certificate that has already expired, and a managed one that never
+		// provisioned — neither is protecting anything now.
+		"PROVISIONING_FAILED",
+		// A role granted to allUsers or allAuthenticatedUsers. Occasionally
+		// deliberate, usually not, and reachable by anyone on the internet.
+		"PUBLIC":
 		return badStyle
 	default:
 		return rowStyle

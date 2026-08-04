@@ -9,12 +9,15 @@ import (
 	"cloud.google.com/go/orchestration/airflow/service/apiv1/servicepb"
 	"cloud.google.com/go/storage"
 	artifactregistry "google.golang.org/api/artifactregistry/v1"
+	batch "google.golang.org/api/batch/v1"
 	bigquery "google.golang.org/api/bigquery/v2"
 	bigqueryreservation "google.golang.org/api/bigqueryreservation/v1"
 	bigtableadmin "google.golang.org/api/bigtableadmin/v2"
+	certificatemanager "google.golang.org/api/certificatemanager/v1"
 	cloudbuild "google.golang.org/api/cloudbuild/v1"
 	cloudfunctions "google.golang.org/api/cloudfunctions/v2"
 	cloudkms "google.golang.org/api/cloudkms/v1"
+	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v1"
 	cloudscheduler "google.golang.org/api/cloudscheduler/v1"
 	cloudtasks "google.golang.org/api/cloudtasks/v2"
 	compute "google.golang.org/api/compute/v1"
@@ -924,5 +927,35 @@ func testAlertPolicy() *monitoring.AlertPolicy {
 		Conditions:  []*monitoring.Condition{{DisplayName: "lag > 1800s"}},
 		// No notification channels: enabled, evaluating, and telling nobody.
 		NotificationChannels: nil,
+	}
+}
+
+func testBatchJob() *batch.Job {
+	return &batch.Job{
+		Name:       "projects/sandbox-123/locations/us-central1/jobs/nightly-render",
+		CreateTime: time.Now().Add(-5 * time.Hour).Format(time.RFC3339),
+		Status: &batch.JobStatus{
+			State: "RUNNING",
+			// Every task failing while the job still reports RUNNING is the
+			// case the counts column exists to make visible.
+			TaskGroups: map[string]batch.TaskGroupStatus{
+				"group0": {Counts: map[string]string{"FAILED": "12", "RUNNING": "3", "SUCCEEDED": "0"}},
+			},
+		},
+	}
+}
+
+func testCertificate() *certificatemanager.Certificate {
+	return &certificatemanager.Certificate{
+		Name:        "projects/sandbox-123/locations/global/certificates/api-edge",
+		SanDnsnames: []string{"api.example.com", "www.example.com"},
+		ExpireTime:  time.Now().Add(11 * 24 * time.Hour).Format(time.RFC3339),
+	}
+}
+
+func testIAMBinding() *cloudresourcemanager.Binding {
+	return &cloudresourcemanager.Binding{
+		Role:    "roles/editor",
+		Members: []string{"user:dana@example.com"},
 	}
 }

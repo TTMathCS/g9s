@@ -26,15 +26,24 @@ package ui
 // list. What changed is that the keyspace is no longer the thing deciding which
 // kinds can exist.
 
-// kindKeys selects a resource kind by index into Listers(). Forty-seven kinds
+// kindKeys selects a resource kind by index into Listers(). Fifty-two kinds
 // fit; past that a kind gets noHotkey and is reached with tab, the dashboard
 // cursor or `:<kind>`. TestEveryKindStillHasAKey fails first.
+//
+// The punctuation at the end is the tail of the run, added when the alphabet
+// ran out at forty-seven. It is odd-looking and that costs nothing: the key is
+// printed beside its kind everywhere it can be pressed, so it is read rather
+// than remembered — and the alternative was two kinds arbitrarily losing their
+// key because they happened to be registered last.
 var kindKeys = []string{
 	"1", "2", "3", "4", "5", "6", "7", "8", "9",
 	"b", "c", "e", "f", "h", "i", "m", "n", "t", "u", "v", "w", "x", "z",
 	// Shift, in alphabetical order, skipping G and L.
 	"A", "B", "C", "D", "E", "F", "H", "I", "J", "K", "M", "N", "O",
 	"P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+	// Punctuation nothing else claims. `/`, `:`, `?`, `[` and `]` are actions
+	// and are deliberately absent.
+	",", ".", ";", "-", "=",
 }
 
 // allKeys select the merged view. `0` is the k9s reflex for "everything at
