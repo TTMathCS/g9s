@@ -468,6 +468,8 @@ func TestResourceRowsMatchColumns(t *testing.T) {
 		"scheduler": schedulerJobResource(testProject(), "us-central1", testSchedulerJob()),
 		"builds":    buildResource(testProject(), testCloudBuild()),
 		"batch":     batchJobResource(testProject(), "us-central1", testBatchJob()),
+		"errors":    errorGroupResource(testProject(), testErrorGroup()),
+		"tpus":      tpuResource(testProject(), "us-central1", testTPUNode()),
 		"certs":     certificateResource(testProject(), "global", testCertificate()),
 		"iam":       iamBindingResource(testProject(), "user:dana@example.com", testIAMBinding()),
 		"tasks":     taskQueueResource(testProject(), "us-central1", testTaskQueue()),

@@ -8,7 +8,7 @@ A k9s-style terminal console for Google Cloud. Switch between projects and
 accounts, inspect resources, and navigate related resources without changing
 your global gcloud configuration.
 
-> **Current maturity:** read-mostly. 49 top-level resource kinds and 21
+> **Current maturity:** read-mostly. 51 top-level resource kinds and 21
 > drill-down listings, all read-only. The only exceptions are SSH to a running
 > VM and three VM power actions (`:start`, `:stop`, `:reset`), each of which
 > must be typed as a command and confirmed against the instance's own name.
@@ -144,7 +144,7 @@ drill-down opened from a parent row.
 |  | ↳ Managed VM instances | Group drill-down | ✅ Implemented | Instance state, current action, intended template and version |
 |  | **Compute Engine** → Instance templates | Top-level | ✅ Implemented | Global and regional templates; includes machine shape and accelerators |
 |  | **Compute Engine** → Capacity reservations | Top-level | ✅ Implemented | Includes GPU-backed reservations and unused/partial utilization findings |
-|  | **Cloud TPU** → Queued resources and reservations | — | ⬜ Candidate | Separate service and API; not part of Compute Engine reservation coverage |
+|  | **Cloud TPU** → Nodes | Top-level | ✅ Implemented | Swept per configured region across every zone in it. Leads with accelerator type and PREEMPTED, since a reclaimed TPU is not coming back on its own |
 |  | **Batch** → Jobs | Top-level | ✅ Implemented | Listed per configured region. Task counts per state, because a job reporting RUNNING with every task failing reads identically to a healthy one |
 |  | **Cloud Functions** → Functions | Top-level | ✅ Implemented | Both generations; aggregated across locations |
 |  | **Cloud Run** → Services | Top-level | ✅ Implemented | Listed across configured regions |
@@ -203,17 +203,17 @@ drill-down opened from a parent row.
 |  | **IAM** → Project policy bindings | Top-level | ✅ Implemented | One row per member per role, the way the question is usually asked. Flags allUsers, primitive roles and deleted principals; inherited folder/org roles are outside the listing and it says so |
 |  | **Cloud KMS** → Keys | Top-level | 🟡 Implemented, bounded | 100 key rings per location by default; never key material |
 |  | **Certificate Manager** → Certificates | Top-level | ✅ Implemented | `global` plus the configured regions. Flags expiry inside 30 days, already-expired, and managed certificates stuck provisioning |
-|  | **Binary Authorization** → Policies | — | ⬜ Candidate | Not implemented |
-|  | **VPC Service Controls** → Perimeters | — | ⬜ Candidate | Not implemented |
-|  | **Organization Policy** → Effective constraints | — | ⬜ Candidate | Not implemented |
+|  | **Binary Authorization** → Policies | — | ⬜ Candidate | One policy per project rather than a list; belongs in a detail pane, not a table |
+|  | **VPC Service Controls** → Perimeters | — | 🚫 Not planned | Perimeters are defined on an access policy at the organisation, not in a project. g9s is scoped to a project and has no organisation credential to read them with |
+|  | **Organization Policy** → Effective constraints | — | ⬜ Candidate | The effective policy needs one call per constraint, and the constraint list is long; a useful table here means choosing which constraints matter rather than listing all of them |
 | Operations | **Cloud Scheduler** → Jobs | Top-level | ✅ Implemented | Includes paused state and last-attempt result |
 |  | **Cloud Monitoring** → Alert policies | Top-level | ✅ Implemented | One global call. Flags policies that are disabled, have no notification channels, or have no conditions — monitoring that exists and does nothing. Firing state is not exposed by this API and is deliberately not invented |
-|  | **Error Reporting** → Error groups | — | ⬜ Candidate | Not implemented |
+|  | **Error Reporting** → Error groups | Top-level | ✅ Implemented | Grouped, most frequent first, over a one-day window. FIRING separates a fault still happening from one that merely happened today |
 |  | **Cloud Tasks** → Queues | Top-level | ✅ Implemented | Listed per configured region. Leads with PAUSED, the state that silently accumulates work, plus the rate limits that stop a queue keeping up |
 |  | **Cloud Build** → Build history | Top-level | 🟡 Implemented, bounded | 200 most recent builds by default, newest first; flags manual builds and running ones by elapsed time |
 |  | **Cloud Logging** → Log entries | — | 🚫 Not planned | An unbounded query stream, not a finite resource inventory |
-| Cost and capacity | **Cloud Quotas** → Usage and limits | — | ⬜ Candidate | Nested quota metrics need a different presentation |
-|  | **Cloud Billing** → Current-month spend | — | ⬜ Candidate | Requires an accessible billing export |
+| Cost and capacity | **Cloud Quotas** → Usage and limits | — | ⬜ Candidate | Nested quota metrics need a different presentation, and the Cloud Quotas API is not in the pinned client module |
+|  | **Cloud Billing** → Current-month spend | — | ⬜ Candidate | Requires a BigQuery billing export that most projects do not have, and reads cost data that is usually restricted more tightly than anything else here |
 
 ### Platform capabilities
 

@@ -167,7 +167,12 @@ func statusStyle(status string) lipgloss.Style {
 		// An IAM binding left behind by a deleted principal, and one granting a
 		// primitive role — owner, editor, viewer predate granular IAM and hand
 		// out far more than their names suggest.
-		"DELETED_PRINCIPAL", "PRIMITIVE_ROLE":
+		"DELETED_PRINCIPAL", "PRIMITIVE_ROLE",
+		// A preemptible TPU that was reclaimed. It is not running your job and
+		// will not start again on its own, while the state alone reads like
+		// something that might recover — and a TPU is the most expensive thing
+		// in most projects to be wrong about.
+		"PREEMPTED":
 		return warnStyle
 	case "ERROR", "FAILED", "TERMINATED", "STOPPED", "SUSPENDED", "UNHEALTHY", "DEGRADED",
 		// Compute routes rejected by their backend or dropped at a route limit.
@@ -203,7 +208,10 @@ func statusStyle(status string) lipgloss.Style {
 		"PROVISIONING_FAILED",
 		// A role granted to allUsers or allAuthenticatedUsers. Occasionally
 		// deliberate, usually not, and reachable by anyone on the internet.
-		"PUBLIC":
+		"PUBLIC",
+		// An error group still arriving within the last hour, as opposed to one
+		// that merely happened today. The distinction is the whole table.
+		"FIRING":
 		return badStyle
 	default:
 		return rowStyle

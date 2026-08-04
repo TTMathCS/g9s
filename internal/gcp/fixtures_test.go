@@ -15,6 +15,7 @@ import (
 	bigtableadmin "google.golang.org/api/bigtableadmin/v2"
 	certificatemanager "google.golang.org/api/certificatemanager/v1"
 	cloudbuild "google.golang.org/api/cloudbuild/v1"
+	clouderrorreporting "google.golang.org/api/clouderrorreporting/v1beta1"
 	cloudfunctions "google.golang.org/api/cloudfunctions/v2"
 	cloudkms "google.golang.org/api/cloudkms/v1"
 	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v1"
@@ -35,6 +36,7 @@ import (
 	secretmanager "google.golang.org/api/secretmanager/v1"
 	spanner "google.golang.org/api/spanner/v1"
 	sqladmin "google.golang.org/api/sqladmin/v1"
+	tpu "google.golang.org/api/tpu/v2"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/TTMathCS/g9s/internal/config"
@@ -957,5 +959,30 @@ func testIAMBinding() *cloudresourcemanager.Binding {
 	return &cloudresourcemanager.Binding{
 		Role:    "roles/editor",
 		Members: []string{"user:dana@example.com"},
+	}
+}
+
+func testErrorGroup() *clouderrorreporting.ErrorGroupStats {
+	return &clouderrorreporting.ErrorGroupStats{
+		Group:              &clouderrorreporting.ErrorGroup{GroupId: "CNbn4pDDlqoCEAE"},
+		Count:              11402,
+		AffectedUsersCount: 87,
+		LastSeenTime:       time.Now().Add(-4 * time.Minute).Format(time.RFC3339),
+		Representative: &clouderrorreporting.ErrorEvent{
+			Message: "java.lang.NullPointerException: orders.customer is null\n\tat com.acme.OrderService.price(OrderService.java:214)",
+		},
+		AffectedServices: []*clouderrorreporting.ServiceContext{
+			{Service: "order-api", Version: "00042"},
+		},
+	}
+}
+
+func testTPUNode() *tpu.Node {
+	return &tpu.Node{
+		Name:             "projects/sandbox-123/locations/us-central1-a/nodes/train-v5-slice",
+		AcceleratorType:  "v5litepod-16",
+		RuntimeVersion:   "tpu-vm-tf-2.16.1",
+		State:            "READY",
+		SchedulingConfig: &tpu.SchedulingConfig{Preemptible: true},
 	}
 }

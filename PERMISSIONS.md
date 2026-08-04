@@ -110,6 +110,8 @@ gcloud services enable --project=PROJECT_ID \
 | Task Queues | `cloudtasks.googleapis.com` | `cloudtasks.queues.list` |
 | Alert Policies | `monitoring.googleapis.com` | `monitoring.alertPolicies.list` |
 | Batch Jobs | `batch.googleapis.com` | `batch.jobs.list` |
+| Cloud TPUs | `tpu.googleapis.com` | `tpu.nodes.list` |
+| Error Groups | `clouderrorreporting.googleapis.com` | `errorreporting.groups.list` |
 | Certificates | `certificatemanager.googleapis.com` | `certificatemanager.certs.list` |
 | IAM Bindings | `cloudresourcemanager.googleapis.com` | `resourcemanager.projects.getIamPolicy` |
 | VPC Networks | `compute.googleapis.com` | `compute.networks.list` |
