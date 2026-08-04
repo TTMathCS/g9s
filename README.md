@@ -240,7 +240,7 @@ drill-down opened from a parent row.
 | Cross-project inventory for one kind | ✅ Implemented | `:fleet <kind>` sweeps every configured project, four at a time. Projects that were denied, failed or never asked are named beneath the table rather than dropped, because a count that quietly omits them reads as a statement about the estate |
 | Horizontal dev/uat/prod comparison | ✅ Implemented | `:diff <kind>` lays the same sweep out with the projects as columns and the rows that do not line up first. A project that could not be read shows `?`, never `-`, so a permission error never becomes a missing resource |
 | Cloud Asset Inventory fast path | ⬜ Candidate | Optional; many organizations do not enable the API |
-| Saved filters and bookmarks | ⬜ Candidate | Not implemented |
+| Saved filters and bookmarks | ✅ Implemented | `:bm <name>` saves the project, kind and filter you are looking at; `:bm` opens the list. Stored in `bookmarks.yaml` beside the config rather than inside it, so saving one never rewrites a hand-edited file |
 | CSV and JSON export | ✅ Implemented | `:export csv` / `:export json` writes the visible table; JSON records whether the listing was complete |
 | `g9s doctor` preflight checks | ✅ Implemented | Config, gcloud, proxy/loopback, credential permissions, live identity |
 | Writing infrastructure definitions | 🚫 Not planned | g9s is not a Terraform replacement |
@@ -500,6 +500,36 @@ its own name instead.
 Narrow terminals get fewer columns and a line naming the projects that were
 dropped, rather than a comparison quietly missing one.
 
+## Bookmarks
+
+`:bm <name>` saves where you are — the project, the kind and the filter you
+typed. `:bm` with no name opens the list; `enter` goes there, `d` removes one.
+A sweep is saved as a sweep, so a bookmarked `:diff run` reopens the
+comparison rather than one project's table.
+
+Bookmarks live in `bookmarks.yaml` **beside** your config, not inside it:
+
+```yaml
+bookmarks:
+    - name: prod-api
+      project: prod
+      kind: vm
+      filter: api
+    - name: all-errors
+      kind: errors
+      sweep: fleet
+```
+
+A separate file because `config.yaml` is hand-written and full of comments,
+and rewriting it from a struct would delete every one of them the first time
+you saved a bookmark. It is written by replacing a complete temporary file, so
+a crash or a full disk cannot leave a half-written list that parses as a
+shorter one.
+
+Opening a bookmark re-resolves everything it names. A project that has left
+the config, or a kind that no longer exists, says which — a bookmark that
+silently lands somewhere else is worse than one that fails.
+
 ## Keys
 
 | Key | Action |
@@ -513,6 +543,7 @@ dropped, rather than a comparison quietly missing one.
 | `:` | Command mode; for example `:vm`, `:all`, `:export csv`, `:stop`, or `:cd` / `:find` in Storage Objects |
 | `:fleet <kind>` | One kind across every configured project; `enter` opens the row in the project it came from |
 | `:diff <kind>` | The same sweep with the projects as columns and the differences first; `c` switches between the two shapes |
+| `:bm <name>` | Save where you are — project, kind and filter; `:bm` alone opens the list, `d` removes one |
 | `/` | Filter rows; `esc` clears |
 | `space` | Load the next Storage Objects page when available |
 | `r` | Refresh the current kind, all dashboard kinds, or selected credential |

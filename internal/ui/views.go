@@ -62,6 +62,8 @@ func (m Model) View() string {
 		body = m.confirmView()
 	case screenFleet:
 		body = m.fleetView()
+	case screenBookmarks:
+		body = m.bookmarksView()
 	}
 
 	return clampHeight(strings.Join([]string{m.headerView(), body, m.footerView()}, "\n"), m.height)
@@ -119,6 +121,16 @@ func clampHeight(view string, height int) string {
 	return strings.Join(lines[:height], "\n")
 }
 
+// padBody fills a short body out to the height it was given, so the footer
+// stays pinned to the bottom rather than floating up under the last line.
+func padBody(body string, height int) string {
+	lines := strings.Count(body, "\n")
+	if lines >= height {
+		return body
+	}
+	return body + strings.Repeat("\n", height-lines)
+}
+
 // --- header ---
 
 func (m Model) headerView() string {
@@ -145,7 +157,13 @@ func (m Model) headerView() string {
 	crumbWidth := max(10, m.width-lipgloss.Width(title)-lipgloss.Width(badge)-4)
 	line := lipgloss.JoinHorizontal(lipgloss.Left, title, crumbStyle.Render(truncate(crumb, crumbWidth)), badge)
 
-	if m.screen == screenProjects || m.screen == screenHelp || m.screen == screenOverview || m.screen == screenLogin || m.screen == screenConfirm || m.screen == screenFleet {
+	// The tab strip belongs to the resource table and the pane opened from it,
+	// and nowhere else. A whitelist rather than a list of exclusions, because
+	// the list of exclusions only had to be forgotten once for a new screen to
+	// grow a row of tabs that select nothing on it.
+	switch m.screen {
+	case screenResources, screenDetail:
+	default:
 		return line + "\n"
 	}
 	// Inside a drill-down the tab strip would be a lie: none of those tabs is
@@ -326,6 +344,60 @@ func (m Model) fleetProblemLines() string {
 			fmt.Fprintf(&b, "  %s %s — %s\n", warnStyle.Render("·"),
 				s.Project.Name, truncate(gcp.WarningStrings(s.Result.Warnings)[0], max(10, m.width-24)))
 		}
+	}
+	return b.String()
+}
+
+// bookmarksView lists the saved places.
+//
+// The destination is a column of its own rather than something you find by
+// opening the bookmark, because a list of names alone is only useful to
+// whoever wrote it, on the day they wrote it.
+func (m Model) bookmarksView() string {
+	list := m.marks.All()
+
+	var b strings.Builder
+	b.WriteString("  " + titleStyle.Render(" Bookmarks ") + "\n")
+	b.WriteString("  " + mutedStyle.Render(truncate(m.marks.Path(), max(10, m.width-4))) + "\n\n")
+
+	// A file that exists and could not be read must not look like an empty
+	// one: those are opposite situations and only one of them is fine.
+	if err := m.marks.Err(); err != nil {
+		b.WriteString("  " + badStyle.Render(truncate("could not read bookmarks: "+err.Error(), max(10, m.width-4))) + "\n")
+		return padBody(b.String(), m.bodyHeight())
+	}
+
+	if len(list) == 0 {
+		b.WriteString(mutedStyle.Render("  nothing saved yet — open a table, type a filter,") + "\n")
+		b.WriteString(mutedStyle.Render("  and run `:bm <name>` to come back to it") + "\n")
+		return padBody(b.String(), m.bodyHeight())
+	}
+
+	nameWidth := 0
+	for _, mark := range list {
+		nameWidth = max(nameWidth, lipgloss.Width(mark.Name))
+	}
+	nameWidth = min(nameWidth, max(8, m.width/3))
+	destWidth := max(10, m.width-nameWidth-8)
+
+	rows := max(1, m.bodyHeight()-3)
+	start, end := listWindow(m.bookmarkCursor, len(list), rows)
+	for i := start; i < end; i++ {
+		mark := list[i]
+		line := pad(truncate(mark.Name, nameWidth), nameWidth) + "  " +
+			truncate(bookmarkDestination(mark), destWidth)
+		if mark.Filter != "" {
+			line += "  " + truncate("/"+mark.Filter, max(6, destWidth/2))
+		}
+		if i == m.bookmarkCursor {
+			b.WriteString(selectedRowStyle.Render("▸ " + line))
+		} else {
+			b.WriteString("  " + rowStyle.Render(line))
+		}
+		b.WriteString("\n")
+	}
+	for i := end - start; i < rows; i++ {
+		b.WriteString("\n")
 	}
 	return b.String()
 }
@@ -989,6 +1061,7 @@ func (m Model) helpContent() string {
 			{":fleet <kind>", "one kind across every configured project — :fleet vm. enter opens the row's own project"},
 			{":diff <kind>", "the same sweep with the projects as columns, gaps first — what dev has and prod does not"},
 			{"c", "switch a sweep between the flat list and the comparison (no refetch)"},
+			{":bm <name>", "save this project, kind and filter as a bookmark; :bm alone opens the list"},
 			{"space", "load the next Storage Objects page when more rows are available"},
 		}},
 		{"Actions", []helpEntry{
@@ -1194,6 +1267,8 @@ func (m Model) keyHint() string {
 			return "enter per-project names · c flat list · y yank · / filter · r re-sweep · esc back"
 		}
 		return "enter open in its project · c compare · d describe · y yank · / filter · r re-sweep · esc back"
+	case screenBookmarks:
+		return "enter go there · d remove · esc back"
 	case screenConfirm:
 		if m.pending != nil && m.pending.typed {
 			return "type the instance name, then enter · esc cancel"

@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/TTMathCS/g9s/internal/auth"
+	"github.com/TTMathCS/g9s/internal/bookmarks"
 	"github.com/TTMathCS/g9s/internal/config"
 	"github.com/TTMathCS/g9s/internal/gcp"
 )
@@ -25,6 +26,7 @@ const (
 	screenLogin
 	screenConfirm
 	screenFleet
+	screenBookmarks
 )
 
 // allKind is a synthetic kind that merges every real kind into one table.
@@ -152,6 +154,13 @@ type Model struct {
 	fleet       *fleetState
 	fleetReturn screen
 
+	// marks is the saved-places file. bookmarkReturn is where esc goes, and
+	// bookmarkCursor is kept separate from the table cursor so opening the
+	// list and backing out does not move the table underneath.
+	marks          *bookmarks.Store
+	bookmarkReturn screen
+	bookmarkCursor int
+
 	// cacheGen counts mutations of cache. It is the validity key for rows
 	// below: anything derived from the cache is stale the moment this moves.
 	cacheGen int
@@ -204,7 +213,7 @@ func New(cfg *config.Config, mgr *auth.Manager) Model {
 
 	command := textinput.New()
 	command.Prompt = ":"
-	command.Placeholder = "kind · export csv|json · cd PATH · find GLOB · all · projects · help · q"
+	command.Placeholder = "kind · fleet KIND · diff KIND · bm NAME · export csv|json · cd PATH · find GLOB · all · projects · help · q"
 	// Cloud Storage glob expressions can be up to 1,024 bytes. The gcp layer
 	// validates bytes; this rune limit merely keeps the input bounded.
 	command.CharLimit = 1024
@@ -239,6 +248,10 @@ func New(cfg *config.Config, mgr *auth.Manager) Model {
 		rows:         &rowCache{},
 		detail:       viewport.New(0, 0),
 		help:         viewport.New(0, 0),
+		// Read at startup rather than on first use, so a file g9s cannot parse
+		// is a message on the bookmark screen instead of an empty list that
+		// looks like nothing was ever saved.
+		marks: bookmarks.Load(bookmarks.PathFor(cfg.Path())),
 	}
 }
 
@@ -757,6 +770,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleHelpKey(msg)
 	case screenFleet:
 		return m.handleFleetKey(msg)
+	case screenBookmarks:
+		return m.handleBookmarkKey(msg)
 	}
 	return m, nil
 }
@@ -818,6 +833,15 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 	if verb == "export" {
 		return m.runExport(argument)
 	}
+	// `:bm` with a name saves where you are; without one it opens the list.
+	// Two commands would be one more thing to remember for no gain.
+	if verb == "bm" || verb == "bookmark" || verb == "bookmarks" {
+		if argument == "" {
+			return m.openBookmarks()
+		}
+		return m.saveBookmark(argument)
+	}
+
 	// Both read every project once. They differ only in how the one sweep is
 	// laid out, and `c` switches between them without fetching again.
 	if verb == "fleet" || verb == "diff" {
@@ -861,7 +885,7 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 
 	idx, ok := m.matchKind(line)
 	if !ok {
-		return m, flash(fmt.Sprintf("unknown command %q — a kind id or title prefix, fleet, diff, export, start/stop/reset, cd, find, all, projects, help or q", line), flashWarn)
+		return m, flash(fmt.Sprintf("unknown command %q — a kind id or title prefix, fleet, diff, bm, export, start/stop/reset, cd, find, all, projects, help or q", line), flashWarn)
 	}
 	if !m.hasActive {
 		return m, flash("select a project first", flashWarn)

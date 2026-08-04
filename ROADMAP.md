@@ -227,6 +227,10 @@ Shipped:
   error into a missing resource.
 - **Export** the current table to CSV or JSON, for when the answer needs to
   leave the terminal.
+- **Saved filters and bookmarks.** `:bm <name>` saves the project, kind and
+  filter; `:bm` opens the list. In a file of its own beside the config, because
+  rewriting a hand-edited `config.yaml` from a struct would delete every
+  comment in it the first time somebody saved a bookmark.
 - **Prebuilt release binaries** — see [Install](README.md#install).
 
 Still ahead:
@@ -237,7 +241,6 @@ Still ahead:
 - **Cloud Asset Inventory fast path.** Where the API is enabled, one call
   replaces the entire fan-out. Optional, because plenty of orgs do not enable it
   — that is the reason g9s does the fan-out at all.
-- **Saved filters and bookmarks**, for the query you type ten times a day.
 
 ## Not planned
 
