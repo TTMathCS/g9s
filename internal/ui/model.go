@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -469,6 +470,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tfFinishedMsg:
 		return m.handleTerraformFinished(msg)
+
+	case egressCheckedMsg:
+		return m.handleEgressChecked(msg)
 
 	case actionFinishedMsg:
 		return m.handleActionFinished(msg)
@@ -1075,6 +1079,54 @@ func (m Model) startLogin(noBrowser bool) (tea.Model, tea.Cmd) {
 			p.Name, m.auth.ADCPath(p)), flashWarn)
 	}
 
+	// Before choosing a flow at all: can this machine reach the endpoint every
+	// flow ends at?
+	//
+	// Neither flow can complete when it cannot, and the failure is invisible
+	// until it is too late — the browser prints "You are now authenticated"
+	// before gcloud has called the token endpoint, so the sign-in and the MFA
+	// prompt both succeed and gcloud crashes afterwards. Spending a few seconds
+	// here to say so beats spending two minutes to find out.
+	m.loginProject = p.Name
+	m.loginReturn = m.screen
+	return m, checkEgressThen(p, noBrowser, m.loginSeq+1)
+}
+
+// egressCheckedMsg carries the pre-flight result back to the login.
+type egressCheckedMsg struct {
+	project   config.Project
+	noBrowser bool
+	seq       int
+	result    auth.EgressResult
+}
+
+// checkEgressThen probes the token endpoint, then reports back so the login can
+// start or be stopped with a reason.
+func checkEgressThen(p config.Project, noBrowser bool, seq int) tea.Cmd {
+	return func() tea.Msg {
+		return egressCheckedMsg{
+			project:   p,
+			noBrowser: noBrowser,
+			seq:       seq,
+			result:    auth.CheckEgress(context.Background()),
+		}
+	}
+}
+
+func (m Model) handleEgressChecked(msg egressCheckedMsg) (tea.Model, tea.Cmd) {
+	if !msg.result.OK() {
+		// Stopped before gcloud runs. The diagnosis is the same one a login
+		// that got as far as crashing would produce, deliberately: reading two
+		// different explanations of one wall is how an afternoon goes.
+		if diag, ok := auth.EgressDiagnosis(msg.result); ok {
+			return m.showPreflightFailure(msg.project, diag)
+		}
+	}
+	return m.beginLogin(msg.project, msg.noBrowser)
+}
+
+// beginLogin starts the flow now that the endpoint is known to be reachable.
+func (m Model) beginLogin(p config.Project, noBrowser bool) (tea.Model, tea.Cmd) {
 	// Choose the flow that can actually finish rather than letting the user
 	// find out by waiting. gcloud's browser login ends with the browser
 	// fetching http://localhost:<port>/ to hand the code back; when the browser
@@ -1470,6 +1522,29 @@ func (m Model) showLoginFailure(p config.Project, msg loginFinishedMsg) (tea.Mod
 	// Named so the pane's header says what it is, and so `y` yanks something
 	// identifiable when the user pastes it into a ticket.
 	m.detailRes = gcp.Resource{Name: "login failed: " + p.Name, Location: p.ProjectID}
+	m.hasDetail = true
+	m.screen = screenDetail
+	return m, nil
+}
+
+// showPreflightFailure explains a login that was stopped before it started.
+//
+// The same pane the post-mortem uses, so a failure caught early and the same
+// failure caught late look alike rather than like two problems.
+func (m Model) showPreflightFailure(p config.Project, diag auth.LoginDiagnosis) (tea.Model, tea.Cmd) {
+	var b strings.Builder
+
+	fmt.Fprintf(&b, "Login not started for %s (%s)\n\n", p.Name, p.ProjectID)
+	b.WriteString(diag.Summary + "\n\n")
+	for _, line := range diag.Remedy {
+		b.WriteString("  " + line + "\n")
+	}
+
+	m.detail.Width = m.width - 4
+	m.detail.Height = m.bodyHeight()
+	m.detail.SetContent(b.String())
+	m.detail.GotoTop()
+	m.detailRes = gcp.Resource{Name: "login not started: " + p.Name, Location: p.ProjectID}
 	m.hasDetail = true
 	m.screen = screenDetail
 	return m, nil

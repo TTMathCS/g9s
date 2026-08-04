@@ -2,15 +2,10 @@ package doctor
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
-	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func writeConfig(t *testing.T, body string) string {
@@ -306,44 +301,5 @@ func TestOfflineDoctorMakesNoEgressProbe(t *testing.T) {
 		if f.Check == "reach google" {
 			t.Errorf("offline doctor probed the network anyway: %+v", f)
 		}
-	}
-}
-
-// The two failures need opposite remedies — one wants a proxy address, the
-// other a CA certificate — so telling them apart is the whole value of the
-// check. A certificate signed by an unknown authority is what a TLS-terminating
-// corporate proxy produces.
-func TestTLSTrustFailuresAreDistinguishedFromUnreachableHosts(t *testing.T) {
-	trust := []error{
-		x509.UnknownAuthorityError{},
-		x509.HostnameError{Host: "oauth2.googleapis.com"},
-		x509.CertificateInvalidError{Reason: x509.Expired},
-		&tls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}},
-		fmt.Errorf("get %q: %w", tokenEndpoint, x509.UnknownAuthorityError{}),
-	}
-	for _, err := range trust {
-		if !isTLSTrustFailure(err) {
-			t.Errorf("%T was not recognised as a certificate problem", err)
-		}
-	}
-
-	unreachable := []error{
-		errors.New("dial tcp 142.250.1.95:443: connect: connection refused"),
-		errors.New("proxyconnect tcp: dial tcp: lookup proxy.corp: no such host"),
-		context.DeadlineExceeded,
-	}
-	for _, err := range unreachable {
-		if isTLSTrustFailure(err) {
-			t.Errorf("%v was misread as a certificate problem", err)
-		}
-	}
-}
-
-// The probe has to be bounded. `g9s doctor` is what somebody runs when things
-// are already stuck, and a proxy that accepts connections and never answers is
-// exactly the situation that produces the report.
-func TestTheEgressProbeIsBounded(t *testing.T) {
-	if egressTimeout <= 0 || egressTimeout > 15*time.Second {
-		t.Errorf("egressTimeout = %v, want a short positive bound", egressTimeout)
 	}
 }

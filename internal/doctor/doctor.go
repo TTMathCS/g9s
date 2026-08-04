@@ -10,13 +10,9 @@ package doctor
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -129,6 +125,7 @@ func Run(ctx context.Context, opts Options) *Report {
 	cfg := checkConfig(report, path)
 	checkGcloud(report, cfg)
 	checkEnvironment(report)
+	checkLoginFlow(report, cfg)
 	if !opts.SkipNetwork {
 		// Before the per-project checks, because it explains them: every one of
 		// those fails the same way when this one does, and reading "cannot
@@ -322,58 +319,53 @@ func checkEnvironment(report *Report) {
 	report.add(LevelOK, "platform", runtime.GOOS+"/"+runtime.GOARCH, "")
 }
 
-// tokenEndpoint is where the authorization code is redeemed.
+// checkLoginFlow reports a machine configured out of the flow that suits it.
 //
-// The one host that has to be reachable for any login to complete, whichever
-// flow is used, and the one that fails invisibly: the browser says "You are now
-// authenticated" before gcloud ever calls it.
-const tokenEndpoint = "https://oauth2.googleapis.com/token"
-
-// egressTimeout bounds the reachability probe. Short: this is a check for
-// whether anything answers, not a measurement of how fast.
-const egressTimeout = 8 * time.Second
+// `login_no_browser: true` on a laptop that has a browser is the
+// misconfiguration worth naming, because it is self-inflicted and sticky: it
+// was once suggested on every browser-flow hang, and taking it swaps a
+// rescuable problem for a worse one. The --no-browser flow hands you a command
+// whose embedded URL the terminal renders as a clickable link, and clicking it
+// gets "Error 400: invalid_request, missing required parameter: redirect_uri" —
+// which reads like g9s produced a broken link. The assisted flow handles a
+// proxied localhost with none of that.
+func checkLoginFlow(report *Report, cfg *config.Config) {
+	if cfg == nil || !cfg.Defaults.LoginNoBrowser {
+		return
+	}
+	if !auth.LoopbackUsable() {
+		report.add(LevelOK, "login flow", "login_no_browser: true, and this machine has no local browser", "")
+		return
+	}
+	report.add(LevelWarn, "login flow", "login_no_browser: true on a machine that has a browser",
+		"This skips the assisted browser flow, which is the one that handles a proxy swallowing the loopback redirect — sign in normally, then paste the stuck tab's address back. "+
+			"The --no-browser flow instead prints a command whose URL your terminal makes clickable, and clicking it gets \"Error 400: invalid_request, missing required parameter: redirect_uri\". "+
+			"Remove defaults.login_no_browser (or set it to false) and press l.")
+}
 
 // checkEgress reports whether this machine can reach Google's token endpoint.
 //
-// This is the check that would have saved an afternoon. Behind a proxy that
-// gcloud is not configured for, the browser signs in, the redirect arrives, and
-// gcloud then crashes redeeming the code — which looks like the loopback
-// problem, and is not. Every remedy for the loopback problem makes it worse,
-// because the --no-browser flow redeems the code the same way.
-//
-// It is a real request rather than a DNS lookup or a TCP dial, because the
-// three fail differently and only the full request distinguishes them: a
-// proxy that resolves and accepts connections and then refuses CONNECT to
-// Google looks healthy to everything cheaper.
+// The probe lives in the auth package rather than here, because the login runs
+// it too — someone who hits this before signing in and someone who hits it
+// after have to read the same words, or the second one spends the afternoon
+// deciding they are two different problems.
 func checkEgress(ctx context.Context, report *Report) {
 	if proxy := auth.ProxyAddress(); proxy != "" {
 		report.add(LevelOK, "proxy", proxy,
 			"g9s and the Go client read HTTPS_PROXY and NO_PROXY; gcloud reads them too, but its own `gcloud config set proxy/…` settings are separate and do not apply to g9s.")
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, egressTimeout)
-	defer cancel()
-
-	// A HEAD to the token endpoint. It will refuse the method — that is the
-	// point: a refusal is proof the request reached Google, which is all this
-	// check is asking.
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, tokenEndpoint, nil)
-	if err != nil {
-		report.add(LevelWarn, "reach google", "could not build the probe: "+err.Error(), "")
-		return
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err == nil {
-		resp.Body.Close()
+	result := auth.CheckEgress(ctx)
+	if result.OK() {
 		report.add(LevelOK, "reach google", "oauth2.googleapis.com answered", "")
 		return
 	}
 
-	// Which failure it is decides the remedy, and the two are not close: one
-	// needs a proxy address, the other needs a CA certificate.
-	detail := firstLine(err.Error())
-	if isTLSTrustFailure(err) {
+	detail := firstLine(result.Err.Error())
+
+	// Which failure it is decides the remedy, and the two share nothing: one
+	// needs a proxy address, the other a CA certificate.
+	if result.State == auth.EgressUntrusted {
 		report.add(LevelFail, "reach google", "TLS certificate refused: "+detail,
 			"A proxy is terminating TLS and re-signing it with your organization's CA, which this machine does not trust for Go. "+
 				"Point gcloud at the CA with `gcloud config set core/custom_ca_certs_file /path/to/corp-ca.pem`, and g9s at the same file with SSL_CERT_FILE. "+
@@ -387,19 +379,6 @@ func checkEgress(ctx context.Context, report *Report) {
 		advice = "A proxy is set in this shell and the request still did not get through, so either it is not the right proxy for Google or it needs credentials. " + advice
 	}
 	report.add(LevelFail, "reach google", "cannot reach oauth2.googleapis.com: "+detail, advice)
-}
-
-// isTLSTrustFailure reports whether a request failed because the certificate
-// was not trusted, as opposed to the connection not being made at all.
-func isTLSTrustFailure(err error) bool {
-	var unknownAuthority x509.UnknownAuthorityError
-	var hostname x509.HostnameError
-	var invalid x509.CertificateInvalidError
-	if errors.As(err, &unknownAuthority) || errors.As(err, &hostname) || errors.As(err, &invalid) {
-		return true
-	}
-	var recordErr *tls.CertificateVerificationError
-	return errors.As(err, &recordErr)
 }
 
 func checkProjects(ctx context.Context, report *Report, cfg *config.Config, skipNetwork bool) {

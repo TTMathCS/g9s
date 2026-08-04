@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os/exec"
 	"strings"
@@ -212,7 +213,10 @@ func TestLoginNoticeExplainsTheLoopbackRedirect(t *testing.T) {
 	if !strings.Contains(browser, "http://localhost") {
 		t.Errorf("notice does not say what has to be reachable:\n%s", browser)
 	}
-	if !strings.Contains(browser, "L") {
+	// This notice only prints when the assisted flow could not start, so the
+	// usual rescue is unavailable and L is a real next step rather than a
+	// detour.
+	if !strings.Contains(browser, "press L") {
 		t.Errorf("notice does not point at the way out:\n%s", browser)
 	}
 
@@ -282,11 +286,42 @@ func TestLoginNoBrowserSettingAlwaysWins(t *testing.T) {
 	}
 }
 
-func TestBrowserNoticePointsAtTheSetting(t *testing.T) {
-	// Someone who hits the hang once should not have to hit it twice.
+// The permanent setting is only the right answer on a machine with no browser,
+// and recommending it anywhere else produced the worst report this file has:
+// the advice was taken, the setting stuck, and every later login went down the
+// --no-browser path — whose command contains a URL the terminal renders as a
+// clickable link, and clicking it gets a Google 400 that reads like g9s emitted
+// a broken link. A machine with a browser has the assisted flow, which handles
+// a proxied localhost with none of that.
+func TestTheNoBrowserSettingIsOnlySuggestedWhereItIsTheAnswer(t *testing.T) {
 	notice := loginNotice(config.Project{Name: "p"}, false, "/creds/adc.json")
+
+	if auth.LoopbackUsable() {
+		if strings.Contains(notice, "login_no_browser") {
+			t.Errorf("a machine with a browser was told to turn the assisted flow off for good:\n%s", notice)
+		}
+		return
+	}
 	if !strings.Contains(notice, "login_no_browser") {
-		t.Errorf("the browser notice does not mention the setting:\n%s", notice)
+		t.Errorf("a machine with no browser was not told about the setting that suits it:\n%s", notice)
+	}
+}
+
+// The --no-browser flow reached on a machine that has a browser is a
+// misconfiguration, and the notice has to say so — otherwise "run this on a
+// machine with a web browser" reads as "some other machine" while Chrome sits
+// behind the terminal.
+func TestTheNoBrowserNoticeNamesTheMisconfiguration(t *testing.T) {
+	if !auth.LoopbackUsable() {
+		t.Skip("no local browser here, so this flow is the right one")
+	}
+	notice := loginNotice(config.Project{Name: "p"}, true, "/creds/adc.json")
+
+	if !strings.Contains(notice, "login_no_browser") {
+		t.Errorf("the notice does not name the setting that put this machine here:\n%s", notice)
+	}
+	if !strings.Contains(notice, "press l") {
+		t.Errorf("the notice does not point back at the flow that suits this machine:\n%s", notice)
 	}
 }
 
@@ -298,11 +333,21 @@ func TestNoBrowserNoticeWarnsAgainstOpeningTheURL(t *testing.T) {
 	// g9s handed out a broken link, so the notice has to name the trap.
 	notice := loginNotice(config.Project{Name: "prod"}, true, "/creds/prod/adc.json")
 
-	if !strings.Contains(notice, "WHOLE gcloud command") {
+	if !strings.Contains(notice, "COMMAND") || !strings.Contains(notice, "Copy the whole line") {
 		t.Errorf("notice does not say to run the command:\n%s", notice)
 	}
 	if !strings.Contains(notice, "redirect_uri") {
 		t.Errorf("notice does not name the error the URL alone produces:\n%s", notice)
+	}
+	// Prose alone loses this fight. The terminal renders the https:// inside
+	// that command as blue, underlined and clickable — the one thing on screen
+	// that looks like the thing to click is the thing that must not be — so the
+	// notice has to name what the terminal is about to do to it.
+	if !strings.Contains(notice, "clickable") {
+		t.Errorf("notice does not warn that the terminal will linkify the URL:\n%s", notice)
+	}
+	if !strings.Contains(notice, "DO NOT CLICK IT") {
+		t.Errorf("notice does not say it plainly enough to beat a blue underlined link:\n%s", notice)
 	}
 	// And the escape hatch for a machine with no gcloud has to name a real
 	// destination, not "wherever g9s keeps them".
@@ -315,5 +360,58 @@ func TestNoticeOmitsTheFallbackWithoutAPath(t *testing.T) {
 	notice := loginNotice(config.Project{Name: "prod"}, true, "")
 	if strings.Contains(notice, "copy the credentials file") {
 		t.Errorf("notice offers a copy target it does not have:\n%s", notice)
+	}
+}
+
+// The pre-flight has to stop the login, not merely warn beside it. Its whole
+// value is saving the sign-in and the MFA prompt that were always going to end
+// in a crash, and a flash the user scrolls past does not do that.
+func TestAFailedEgressPreflightStopsTheLoginBeforeGcloudRuns(t *testing.T) {
+	cfg := &config.Config{Projects: []config.Project{{Name: "prod", ProjectID: "prod-1"}}}
+	m := New(cfg, nil)
+	// Tall enough that the whole pane renders rather than scrolling, so this
+	// test is about the content and not the viewport.
+	m.width, m.height = 100, 200
+
+	next, cmd := m.handleEgressChecked(egressCheckedMsg{
+		project: cfg.Projects[0],
+		result: auth.EgressResult{
+			State: auth.EgressUnreachable,
+			Err:   errors.New("dial tcp 142.250.1.95:443: connect: connection refused"),
+		},
+	})
+	after := next.(Model)
+
+	if after.screen != screenDetail {
+		t.Fatalf("screen = %v, want the explanation pane", after.screen)
+	}
+	if cmd != nil {
+		t.Error("the login started anyway after a failed pre-flight")
+	}
+
+	content := after.detailView()
+	for _, want := range []string{"Login not started", "prod", "HTTPS_PROXY", "connection refused"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("the pane never mentions %q:\n%s", want, content)
+		}
+	}
+	// It must not read as g9s refusing to try.
+	if !strings.Contains(content, "Checked before starting") {
+		t.Errorf("the pane does not explain why it stopped early:\n%s", content)
+	}
+}
+
+// A reachable endpoint must not add a screen between pressing l and the login.
+func TestAPassingPreflightGoesStraightIntoTheLogin(t *testing.T) {
+	cfg := &config.Config{Projects: []config.Project{{Name: "prod", ProjectID: "prod-1"}}}
+	m := New(cfg, nil)
+	m.width, m.height = 100, 24
+
+	next, _ := m.handleEgressChecked(egressCheckedMsg{
+		project: cfg.Projects[0],
+		result:  auth.EgressResult{State: auth.EgressOK},
+	})
+	if after := next.(Model); after.screen == screenDetail {
+		t.Error("a healthy pre-flight put an explanation pane in the way")
 	}
 }

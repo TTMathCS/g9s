@@ -224,11 +224,37 @@ func loginNotice(p config.Project, noBrowser bool, adcPath string) string {
 		// one pointing at its own loopback. Opening it in a browser gets
 		// "Error 400: invalid_request, missing required parameter:
 		// redirect_uri", which reads like g9s produced a broken link.
-		b.WriteString("     --no-browser flow. Run the WHOLE gcloud command printed below on a\n")
-		b.WriteString("     machine that has a browser and gcloud (372.0.0+), then paste that\n")
-		b.WriteString("     command's output back here.\n")
-		b.WriteString("     Do not open the URL inside it in a browser — on its own it is missing\n")
-		b.WriteString("     redirect_uri and Google answers 400 invalid_request.\n")
+		b.WriteString("     --no-browser flow. Below, gcloud prints a COMMAND. Copy the whole line,\n")
+		b.WriteString("     starting at `gcloud` and including the closing quote, and run it in a\n")
+		b.WriteString("     terminal on a machine with a browser and gcloud 372.0.0+. Paste what it\n")
+		b.WriteString("     prints back here.\n")
+		b.WriteString("\n")
+		// The trap is visual, not textual. Terminals auto-linkify the https://
+		// inside that command, so the one thing on the screen rendered in blue
+		// and underlined — the one thing that looks like the thing to click —
+		// is the thing that must not be clicked. Saying "do not open the URL"
+		// loses to that; naming what the terminal is about to do to it does not.
+		b.WriteString("     Your terminal will underline the https:// part of that command and make\n")
+		b.WriteString("     it clickable. DO NOT CLICK IT. On its own that URL has no redirect_uri —\n")
+		b.WriteString("     the gcloud you run it on is what adds one — so Google answers\n")
+		b.WriteString("     \"Error 400: invalid_request, missing required parameter: redirect_uri\".\n")
+		b.WriteString("     That error means the link was clicked, not that anything is broken.\n")
+		if auth.LoopbackUsable() {
+			// This machine has a browser, so it is here by configuration rather
+			// than by necessity — which is a problem, because the flow it was
+			// configured out of is the one that handles this machine's actual
+			// obstacle. Said plainly: "a machine with a browser" reads as "some
+			// other machine", and on a laptop with Chrome open behind the
+			// terminal that is both wrong and a dead end.
+			b.WriteString("\n")
+			b.WriteString("     This machine has a browser, so it did not need this flow. It is here\n")
+			b.WriteString("     because login_no_browser is set, or because gcloud could not be started\n")
+			b.WriteString("     as a child. Remove that setting and press l: the assisted flow signs in\n")
+			b.WriteString("     in the browser you already have, and if the redirect gets stuck on\n")
+			b.WriteString("     \"localhost refused to connect\" it takes that tab's address pasted back.\n")
+			b.WriteString("     Until then, \"a machine with a browser\" can be this one — run the\n")
+			b.WriteString("     command in a second terminal here.\n")
+		}
 		if adcPath != "" {
 			b.WriteString("     No gcloud on that machine, or its browser cannot reach its own\n")
 			b.WriteString("     localhost either? Run a normal `gcloud auth application-default\n")
@@ -243,12 +269,29 @@ func loginNotice(p config.Project, noBrowser bool, adcPath string) string {
 	if auth.ProxyMayBlockLoopback() {
 		b.WriteString("     A proxy is configured here and does not exempt loopback. If the browser\n")
 		b.WriteString("     proxies localhost too, the code never arrives: add localhost,127.0.0.1\n")
-		b.WriteString("     to its bypass list, or press L to log in without a browser.\n")
+		b.WriteString("     to its bypass list.\n")
 	} else {
-		b.WriteString("     If it stays stuck after you have signed in, the redirect did not arrive:\n")
-		b.WriteString("     ctrl+c, then press L to log in without a browser.\n")
+		b.WriteString("     If it stays stuck after you have signed in, the redirect did not arrive.\n")
 	}
-	b.WriteString("     Set defaults.login_no_browser: true to skip the browser flow for good.\n")
+	// This notice only prints when the assisted flow could not start — the
+	// browser flow otherwise runs as a piped child with the TUI alive. So the
+	// rescue that would normally apply is unavailable, and L is a real next
+	// step here rather than a detour.
+	b.WriteString("     ctrl+c, then press L to log in without a browser.\n")
+
+	// The permanent setting is offered only where it is the right answer.
+	//
+	// Recommending it on a machine that has a browser is what produced the
+	// worst report this file has: someone took the advice, the setting stuck,
+	// and every later login went down the --no-browser path — whose command
+	// contains a URL the terminal renders as a clickable link, and clicking it
+	// gets a Google 400 that reads like g9s emitted a broken link. The assisted
+	// flow handles a proxied localhost without any of that, so a machine with a
+	// browser must never be steered off it permanently.
+	if !auth.LoopbackUsable() {
+		b.WriteString("     This machine has no local browser, so defaults.login_no_browser: true\n")
+		b.WriteString("     will skip straight to that flow next time.\n")
+	}
 	return b.String()
 }
 

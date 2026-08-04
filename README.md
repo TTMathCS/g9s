@@ -648,6 +648,15 @@ If neither interactive flow can complete, run
 `gcloud auth application-default login` wherever it does work and point the
 project at the file it writes with `credentials_file:` in the config.
 
+> **Do not set `login_no_browser: true` on a machine that has a browser.** It
+> turns off the assisted flow — the one built for the proxied-localhost case —
+> and sends every login down the `--no-browser` path instead. That path prints
+> a command containing a URL, your terminal renders that URL as a clickable
+> link, and clicking it gets `Error 400: invalid_request, missing required
+> parameter: redirect_uri`, which looks like g9s emitted a broken link. The
+> setting is for machines with genuinely no browser. `g9s doctor` warns when it
+> is set on a machine that has one.
+
 #### The other proxy failure: gcloud crashes *after* you sign in
 
 There is a second, very similar-looking failure, and the remedies are
