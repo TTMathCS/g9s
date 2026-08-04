@@ -207,24 +207,34 @@ were verified by injecting a violation and watching them fail.
 
 These change how the whole tool behaves rather than adding a kind.
 
-- **Mutating actions behind a confirmation.** VM and Dataproc cluster power
-  state first, since Terraform does not manage those and toggling them causes
-  no drift. Everything stays read-only by default; shipping a drift footgun
-  turned on is worse than shipping nothing.
+Shipped:
+
+- **Mutating actions behind a confirmation.** VM power state, since Terraform
+  does not manage it and toggling it causes no drift: `:start`, `:stop` and
+  `:reset`, each typed as a command and confirmed against the instance's own
+  name. Dataproc cluster state is the obvious next one and is deliberately not
+  assumed — each service crossing the mutation boundary is its own decision.
+- **Cross-project view.** `:fleet <kind>` reads one kind across every
+  configured project, four at a time, and names every project that did not
+  contribute rather than dropping it. The dashboard aggregates across kinds;
+  this is the other axis.
+- **Export** the current table to CSV or JSON, for when the answer needs to
+  leave the terminal.
+- **Prebuilt release binaries** — see [Install](README.md#install).
+
+Still ahead:
+
 - **Terraform state overlay.** Read the GCS backend and mark each row managed /
   drifted / unmanaged, and jump from a row to the `.tf` that defines it. The
   single most useful thing on this page, and the most work.
+- **Horizontal dev/uat/prod comparison.** The fleet sweep with the projects as
+  columns rather than rows, so a resource present in two environments and
+  missing from the third is a gap you can see. Built on the sweep, but a
+  different table: which kinds diff meaningfully is the open question.
 - **Cloud Asset Inventory fast path.** Where the API is enabled, one call
   replaces the entire fan-out. Optional, because plenty of orgs do not enable it
   — that is the reason g9s does the fan-out at all.
-- **Cross-project view.** One kind across every project at once, rather than
-  per project. The dashboard already aggregates across kinds; this is the other
-  axis.
 - **Saved filters and bookmarks**, for the query you type ten times a day.
-- **Export** the current table to CSV or JSON, for when the answer needs to
-  leave the terminal.
-
-*(Prebuilt release binaries shipped — see [Install](README.md#install).)*
 
 ## Not planned
 

@@ -60,6 +60,8 @@ func (m Model) View() string {
 		body = m.loginView()
 	case screenConfirm:
 		body = m.confirmView()
+	case screenFleet:
+		body = m.fleetView()
 	}
 
 	return clampHeight(strings.Join([]string{m.headerView(), body, m.footerView()}, "\n"), m.height)
@@ -143,7 +145,7 @@ func (m Model) headerView() string {
 	crumbWidth := max(10, m.width-lipgloss.Width(title)-lipgloss.Width(badge)-4)
 	line := lipgloss.JoinHorizontal(lipgloss.Left, title, crumbStyle.Render(truncate(crumb, crumbWidth)), badge)
 
-	if m.screen == screenProjects || m.screen == screenHelp || m.screen == screenOverview || m.screen == screenLogin || m.screen == screenConfirm {
+	if m.screen == screenProjects || m.screen == screenHelp || m.screen == screenOverview || m.screen == screenLogin || m.screen == screenConfirm || m.screen == screenFleet {
 		return line + "\n"
 	}
 	// Inside a drill-down the tab strip would be a lie: none of those tabs is
@@ -227,6 +229,79 @@ func (m Model) drillCrumbView() string {
 		}
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, append(parts, mutedStyle.Render(hint))...)
+}
+
+// fleetView renders one kind across every configured project.
+//
+// The summary line sits above the table rather than in the footer, where the
+// warnings already live. A cross-project count reads as a statement about the
+// estate and is only ever a statement about the projects that answered, so
+// "7/12 projects read · 2 skipped" has to be the first thing seen, not
+// something found afterwards.
+func (m Model) fleetView() string {
+	if m.fleet == nil {
+		return ""
+	}
+
+	var b strings.Builder
+	title := m.fleet.lister.Kind().Title + " across " + fmt.Sprint(len(m.cfg.Projects)) + " projects"
+	b.WriteString("  " + titleStyle.Render(" "+truncate(title, max(10, m.width-6))+" ") + "\n")
+
+	summary := m.fleetSummary()
+	style := mutedStyle
+	if !m.fleet.loading && !m.fleet.result.Trustworthy() {
+		// Not a failure, but not the whole estate either. Amber is what stops
+		// the number being quoted as though it were.
+		style = warnStyle
+	}
+	b.WriteString("  " + style.Render(truncate(summary, max(10, m.width-4))) + "\n\n")
+
+	if m.fleet.loading {
+		return b.String()
+	}
+
+	rows := m.visibleFleetRows()
+	if len(rows) == 0 {
+		b.WriteString(mutedStyle.Render("  no matching resources in any project that could be read") + "\n")
+		b.WriteString(m.fleetProblemLines())
+		return b.String()
+	}
+
+	// Three lines of chrome above the table, plus whatever the problem list
+	// needs below it, all of which comes out of the rows budget so the footer
+	// stays on screen.
+	problems := m.fleetProblemLines()
+	reserved := 3 + strings.Count(problems, "\n")
+	b.WriteString(m.renderTable(fleetKind, rows, max(1, m.bodyHeight()-reserved)))
+	b.WriteString(problems)
+	return b.String()
+}
+
+// fleetProblemLines names the projects that did not contribute, and why.
+//
+// One line each rather than a count, because "2 skipped" does not tell anyone
+// which two — and a fleet table is most often read to find the project that is
+// different, which a silently absent project can never be.
+func (m Model) fleetProblemLines() string {
+	if m.fleet == nil || m.fleet.loading {
+		return ""
+	}
+
+	var b strings.Builder
+	for _, s := range m.fleet.result.Snapshots {
+		switch {
+		case s.Skipped:
+			fmt.Fprintf(&b, "  %s %s — %s\n", warnStyle.Render("·"),
+				s.Project.Name, truncate(s.SkipReason, max(10, m.width-24)))
+		case s.Err != nil:
+			fmt.Fprintf(&b, "  %s %s — %s\n", badStyle.Render("·"),
+				s.Project.Name, truncate(s.Err.Error(), max(10, m.width-24)))
+		case !s.Result.Complete():
+			fmt.Fprintf(&b, "  %s %s — %s\n", warnStyle.Render("·"),
+				s.Project.Name, truncate(gcp.WarningStrings(s.Result.Warnings)[0], max(10, m.width-24)))
+		}
+	}
+	return b.String()
 }
 
 // noProjectsView is what a config with no projects gets instead of an empty
@@ -689,6 +764,16 @@ func (m Model) resourcesView() string {
 		return m.centeredNotice(notice)
 	}
 
+	return m.renderTable(kind, visible, m.bodyHeight()-1)
+}
+
+// renderTable draws a header, a scrolled window of rows, and enough blank
+// lines to hold the footer at the bottom.
+//
+// Shared by the per-kind table and the fleet sweep. They differ in what fills
+// the rows and in nothing about how a table looks, and two copies of this
+// would drift the moment either grew a column.
+func (m Model) renderTable(kind gcp.Kind, visible []gcp.Resource, rows int) string {
 	widths := columnWidths(kind.Columns, m.width-2)
 
 	var b strings.Builder
@@ -696,7 +781,6 @@ func (m Model) resourcesView() string {
 	b.WriteString("\n")
 
 	// Scroll so the cursor stays on screen.
-	rows := m.bodyHeight() - 1
 	start, end := listWindow(m.cursor, len(visible), rows)
 
 	for i := start; i < end; i++ {
@@ -872,6 +956,7 @@ func (m Model) helpContent() string {
 			{"p", "back to the project list"},
 			{"/", "filter rows (cleared when you switch kinds)"},
 			{":", "command — :<kind>, :export csv|json, or :cd PATH / :find GLOB in Storage Objects"},
+			{":fleet <kind>", "one kind across every configured project — :fleet vm. enter opens the row's own project"},
 			{"space", "load the next Storage Objects page when more rows are available"},
 		}},
 		{"Actions", []helpEntry{
@@ -1072,6 +1157,8 @@ func (m Model) keyHint() string {
 		return "↑/↓ scroll · esc back"
 	case screenLogin:
 		return "enter deliver pasted address · ctrl+o reopen browser · ctrl+y copy link · esc cancel"
+	case screenFleet:
+		return "enter open in its project · d describe · y yank · / filter · r re-sweep · esc back"
 	case screenConfirm:
 		if m.pending != nil && m.pending.typed {
 			return "type the instance name, then enter · esc cancel"

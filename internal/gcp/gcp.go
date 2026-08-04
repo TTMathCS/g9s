@@ -57,6 +57,13 @@ type Resource struct {
 	Raw any
 	// ConsoleURL deep-links to this resource in the Cloud Console.
 	ConsoleURL string
+	// Project names the configured project this row came from.
+	//
+	// Empty in a single-project table, where the header already says which
+	// project every row belongs to. Set by the fleet sweep, where it is the
+	// only thing distinguishing two identically-named instances in dev and
+	// prod — which is exactly the pair a comparison exists to look at.
+	Project string
 	// KindID names the lister this row came from. Listers do not set it —
 	// StampKind does, once, on the way out of a fetch — so it stays correct
 	// without every lister having to remember. It is what lets the merged

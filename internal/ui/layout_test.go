@@ -290,3 +290,20 @@ func TestHelpDocumentsTheKeysTheModelBinds(t *testing.T) {
 		}
 	}
 }
+
+// The same rule for the words typed after `:`. A command is even less
+// discoverable than a key — nothing on screen hints that it exists — so one
+// that the help does not name is a feature only its author knows about.
+func TestHelpDocumentsTheCommandsTheModelAnswersTo(t *testing.T) {
+	m := crowdedModel(t)
+	m.width, m.height = 100, 200
+
+	next, _ := m.openHelp()
+	help := next.(Model).helpView()
+
+	for _, verb := range []string{"fleet", "export", "cd", "find", "start", "stop", "reset"} {
+		if !strings.Contains(help, ":"+verb) {
+			t.Errorf("help panel never mentions the :%s command", verb)
+		}
+	}
+}

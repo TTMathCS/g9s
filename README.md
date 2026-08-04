@@ -237,7 +237,7 @@ drill-down opened from a parent row.
 | Confirmed VM power actions | ✅ Implemented | `:start` / `:stop` / `:reset`, typed as commands and confirmed against the instance name; production demands the typed form for all three |
 | Confirmed Dataproc state actions | ⬜ Candidate | The VM action framework generalises, but each new service is its own decision |
 | Terraform managed/drifted/unmanaged overlay | 🔜 Next | Read state; do not replace Terraform |
-| Cross-project inventory for one kind | ⬜ Candidate | Requires context-aware identity and bounded concurrency |
+| Cross-project inventory for one kind | ✅ Implemented | `:fleet <kind>` sweeps every configured project, four at a time. Projects that were denied, failed or never asked are named beneath the table rather than dropped, because a count that quietly omits them reads as a statement about the estate |
 | Horizontal dev/uat/prod comparison | ⬜ Candidate | Builds on the cross-project inventory model |
 | Cloud Asset Inventory fast path | ⬜ Candidate | Optional; many organizations do not enable the API |
 | Saved filters and bookmarks | ⬜ Candidate | Not implemented |
@@ -444,6 +444,33 @@ defaults:
     backend_groups: 10
 ```
 
+## Cross-project sweep
+
+`:fleet <kind>` reads one kind across every configured project and puts the
+results in a single table, with the project as the first column. `:fleet vm`
+answers "how many instances are running across all of these, and where", which
+otherwise means visiting each project in turn and holding the totals in your
+head. `enter` on a row leaves the sweep and opens that kind in the project the
+row came from; `r` re-sweeps; `q` or `esc` cancels and goes back.
+
+Four projects are read at a time. A sweep multiplies out as projects × the
+regions the kind covers, so ten projects against a six-region kind is sixty
+calls if nothing holds it back — enough to hit a per-minute quota on a service
+nobody was having trouble with.
+
+The line above the table is the part that matters:
+
+```text
+  VM Instances across 5 projects
+  2/5 projects read · 1 partial, 1 failed, 1 skipped
+```
+
+A cross-project count reads as a statement about the estate, and it is only
+ever a statement about the projects that answered. Every project that did not
+contribute is named beneath the table with its reason — denied, unreachable,
+or never asked because there is no valid credential for it — rather than
+silently dropped, which would leave a table that looks complete and is not.
+
 ## Keys
 
 | Key | Action |
@@ -455,6 +482,7 @@ defaults:
 | `0` / `a` | Open **All Resources** |
 | `tab` / `shift+tab`, `]` / `[` | Cycle kinds or sibling drill-downs |
 | `:` | Command mode; for example `:vm`, `:all`, `:export csv`, `:stop`, or `:cd` / `:find` in Storage Objects |
+| `:fleet <kind>` | One kind across every configured project; `enter` opens the row in the project it came from |
 | `/` | Filter rows; `esc` clears |
 | `space` | Load the next Storage Objects page when available |
 | `r` | Refresh the current kind, all dashboard kinds, or selected credential |

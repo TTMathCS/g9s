@@ -24,6 +24,7 @@ const (
 	screenHelp
 	screenLogin
 	screenConfirm
+	screenFleet
 )
 
 // allKind is a synthetic kind that merges every real kind into one table.
@@ -146,6 +147,10 @@ type Model struct {
 	pending       *pendingAction
 	confirmInput  textinput.Model
 	confirmReturn screen
+
+	// fleet is the cross-project sweep, or nil. fleetReturn is where esc goes.
+	fleet       *fleetState
+	fleetReturn screen
 
 	// cacheGen counts mutations of cache. It is the validity key for rows
 	// below: anything derived from the cache is stale the moment this moves.
@@ -436,6 +441,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case assistedLoginMsg:
 		return m.handleAssistedLogin(msg)
+
+	case fleetFinishedMsg:
+		return m.handleFleetFinished(msg)
 
 	case actionFinishedMsg:
 		return m.handleActionFinished(msg)
@@ -747,6 +755,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleDetailKey(msg)
 	case screenHelp:
 		return m.handleHelpKey(msg)
+	case screenFleet:
+		return m.handleFleetKey(msg)
 	}
 	return m, nil
 }
@@ -808,6 +818,16 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 	if verb == "export" {
 		return m.runExport(argument)
 	}
+	if verb == "fleet" {
+		if argument == "" {
+			return m, flash("fleet needs a kind — for example :fleet vm", flashWarn)
+		}
+		idx, ok := m.matchKind(argument)
+		if !ok || idx >= len(m.listers) {
+			return m, flash(fmt.Sprintf("unknown kind %q for fleet", argument), flashWarn)
+		}
+		return m.startFleet(m.listers[idx])
+	}
 	// Actions are reachable only by typing a word, never by a single key.
 	// Every other binding in g9s is one keystroke because nothing it does can
 	// be regretted; these can, so beginning one is deliberate by construction
@@ -839,7 +859,7 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 
 	idx, ok := m.matchKind(line)
 	if !ok {
-		return m, flash(fmt.Sprintf("unknown command %q — a kind id or title prefix, export, start/stop/reset, cd, find, all, projects, help or q", line), flashWarn)
+		return m, flash(fmt.Sprintf("unknown command %q — a kind id or title prefix, fleet, export, start/stop/reset, cd, find, all, projects, help or q", line), flashWarn)
 	}
 	if !m.hasActive {
 		return m, flash("select a project first", flashWarn)
