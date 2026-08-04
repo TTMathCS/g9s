@@ -18,8 +18,10 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
+	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 
@@ -42,6 +44,22 @@ type Manager struct {
 	// read instead of the directory g9s would log into. Empty for the projects
 	// g9s manages itself, which is the default.
 	credentialFiles map[string]string
+
+	// tokenSources caches one token source per project.
+	//
+	// Without it, opening a project was 43 independent credential loads: every
+	// lister builds its own client, option.WithCredentialsFile reads and parses
+	// the ADC file again for each, and each ends up with its own token source
+	// that refreshes over the network on first use. One keypress became dozens
+	// of disk reads and dozens of concurrent token exchanges with Google —
+	// which is slow anywhere and much worse through a corporate proxy, where
+	// each one is its own TLS handshake.
+	//
+	// An oauth2 token source is safe for concurrent use and caches the token
+	// it holds, so sharing one means the first client through pays for the
+	// refresh and the other 42 reuse it.
+	mu           sync.Mutex
+	tokenSources map[string]oauth2.TokenSource
 }
 
 func NewManager(cfg *config.Config) (*Manager, error) {
@@ -208,10 +226,68 @@ func (m *Manager) ManagesCredentials(p config.Project) bool {
 // account have no project of their own, and most APIs reject the call outright
 // without a billing/quota project attached.
 func (m *Manager) ClientOptions(p config.Project) []option.ClientOption {
+	if ts, ok := m.tokenSource(p); ok {
+		return []option.ClientOption{
+			option.WithTokenSource(ts),
+			option.WithQuotaProject(p.ProjectID),
+		}
+	}
+	// No usable cached source — the file is missing, unreadable or malformed.
+	// Fall back to the per-client path so the client library produces its own
+	// error about it, which is more specific than anything invented here.
 	return []option.ClientOption{
 		option.WithCredentialsFile(m.ADCPath(p)),
 		option.WithQuotaProject(p.ProjectID),
 	}
+}
+
+// tokenSource returns the shared token source for a project, building it once.
+//
+// Built from the file's current contents: a login rewrites the ADC file, and a
+// source made from the previous contents would keep minting tokens for the
+// identity the user just replaced. InvalidateCredentials is what drops it, and
+// the UI calls that on every completed login.
+func (m *Manager) tokenSource(p config.Project) (oauth2.TokenSource, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if ts, ok := m.tokenSources[p.Name]; ok {
+		return ts, ts != nil
+	}
+
+	raw, err := os.ReadFile(m.ADCPath(p))
+	if err != nil {
+		return nil, false
+	}
+	// context.Background rather than a request context on purpose: this source
+	// outlives the call that built it and is shared by every later client, so
+	// binding it to one fetch's deadline would break every fetch after that
+	// one returned.
+	creds, err := google.CredentialsFromJSON(context.Background(), raw, scope)
+	if err != nil {
+		return nil, false
+	}
+
+	// oauth2.ReuseTokenSource is what makes the sharing worth anything: it
+	// hands out the cached token until it is close to expiry and refreshes at
+	// most once when it is, under its own lock.
+	ts := oauth2.ReuseTokenSource(nil, creds.TokenSource)
+	if m.tokenSources == nil {
+		m.tokenSources = map[string]oauth2.TokenSource{}
+	}
+	m.tokenSources[p.Name] = ts
+	return ts, true
+}
+
+// InvalidateCredentials drops the cached token source for a project.
+//
+// Called after a login, which rewrites the ADC file. Without it the shared
+// source would go on minting tokens for the identity that was just replaced —
+// the cache turning a fixed credential into a stale one.
+func (m *Manager) InvalidateCredentials(projectName string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.tokenSources, projectName)
 }
 
 // Check reports whether the project's credentials can currently mint a token.

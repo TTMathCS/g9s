@@ -139,10 +139,47 @@ type Model struct {
 	loginSeq     int
 	loginInput   textinput.Model
 
+	// cacheGen counts mutations of cache. It is the validity key for rows
+	// below: anything derived from the cache is stale the moment this moves.
+	cacheGen int
+	// rows memoises the assembled and filtered table.
+	//
+	// View runs on every keystroke, and it used to rebuild the merged table
+	// from scratch each time — concatenating every kind's rows, rewriting a
+	// Row slice for each, then lowercasing every cell to apply the filter. On
+	// a real estate that was tens of thousands of allocations per frame to
+	// display the forty-odd rows that fit on screen, and typing into the
+	// filter visibly lagged. A pointer rather than a value because bubbletea
+	// copies the model constantly; the copies share one cache, which is safe
+	// because the key fully determines the contents.
+	rows *rowCache
+
 	// transient status line
 	flashText  string
 	flashLevel flashLevel
 	flashID    int
+}
+
+// rowCache holds the table rows derived from the resource cache.
+//
+// Two levels, because they are invalidated by different things. base changes
+// only when the underlying listings do; visible changes on every keystroke
+// into the filter. Splitting them means typing a query scans precomputed
+// lowercase text instead of rebuilding and re-lowercasing the whole table.
+type rowCache struct {
+	// baseGen and baseKind are what base was built from.
+	baseGen  int
+	baseKind string
+	base     []gcp.Resource
+	// haystack[i] is base[i]'s searchable text, lowercased once so filtering
+	// allocates nothing.
+	haystack []string
+	baseOK   bool
+
+	// filter is the query visible was computed for.
+	filter    string
+	visible   []gcp.Resource
+	visibleOK bool
 }
 
 // New builds the initial model.
@@ -179,6 +216,7 @@ func New(cfg *config.Config, mgr *auth.Manager) Model {
 		filter:       filter,
 		command:      command,
 		loginInput:   loginInput,
+		rows:         &rowCache{},
 		detail:       viewport.New(0, 0),
 		help:         viewport.New(0, 0),
 	}
@@ -280,13 +318,57 @@ func (m Model) resourcesFor(kindID string) []gcp.Resource {
 }
 
 // visibleResources applies the filter to the active tab's rows.
+//
+// Memoised against the cache generation, the tab and the query, because View
+// calls this on every frame and the merged tab assembles every kind's rows to
+// do it. Recomputing that per keystroke was the difference between a table
+// that responds and one that stutters.
 func (m Model) visibleResources() []gcp.Resource {
-	resources := m.resourcesFor(m.currentKind().ID)
+	kindID := m.currentKind().ID
 	query := strings.ToLower(strings.TrimSpace(m.filter.Value()))
+
+	c := m.rows
+	if c == nil {
+		// No cache to work with — a model built by something other than New.
+		// Correctness does not depend on the cache, only speed.
+		return filterResources(m.resourcesFor(kindID), query)
+	}
+
+	if !c.baseOK || c.baseGen != m.cacheGen || c.baseKind != kindID {
+		c.base = m.resourcesFor(kindID)
+		c.haystack = make([]string, len(c.base))
+		for i, r := range c.base {
+			c.haystack[i] = strings.ToLower(strings.Join(r.Row, " "))
+		}
+		c.baseGen, c.baseKind, c.baseOK = m.cacheGen, kindID, true
+		c.visibleOK = false
+	}
+
+	if c.visibleOK && c.filter == query {
+		return c.visible
+	}
+
+	if query == "" {
+		c.visible = c.base
+	} else {
+		out := make([]gcp.Resource, 0, len(c.base))
+		for i, r := range c.base {
+			if strings.Contains(c.haystack[i], query) {
+				out = append(out, r)
+			}
+		}
+		c.visible = out
+	}
+	c.filter, c.visibleOK = query, true
+	return c.visible
+}
+
+// filterResources is the uncached path, kept so the behaviour is defined in
+// exactly one place regardless of which route reaches it.
+func filterResources(resources []gcp.Resource, query string) []gcp.Resource {
 	if query == "" {
 		return resources
 	}
-
 	out := make([]gcp.Resource, 0, len(resources))
 	for _, r := range resources {
 		if strings.Contains(strings.ToLower(strings.Join(r.Row, " ")), query) {
@@ -295,6 +377,11 @@ func (m Model) visibleResources() []gcp.Resource {
 	}
 	return out
 }
+
+// invalidateRows marks everything derived from the resource cache as stale.
+// Called wherever cache is mutated; the generation counter is what the
+// memoised rows compare against.
+func (m *Model) invalidateRows() { m.cacheGen++ }
 
 func (m Model) selectedResource() (gcp.Resource, bool) {
 	visible := m.visibleResources()
@@ -391,9 +478,11 @@ func (m Model) handleResources(msg resourcesMsg) (tea.Model, tea.Cmd) {
 		current.Warnings = appendUniqueWarnings(current.Warnings, msg.result.Warnings)
 		current.NextPageToken = msg.result.NextPageToken
 		m.cache[msg.kind] = current
+		m.invalidateRows()
 	} else {
 		m.cache[msg.kind] = msg.result
 	}
+	m.invalidateRows()
 	// The merged table grows as each kind lands, so its cursor needs clamping
 	// on every arrival, not just when the kind IDs match.
 	if msg.kind == m.currentKind().ID || m.onAllTab() {
@@ -473,6 +562,15 @@ func (m Model) handleLoginFinished(msg loginFinishedMsg) (tea.Model, tea.Cmd) {
 		// So it goes into the scrollable pane, where it can be read and yanked.
 		return m.showLoginFailure(p, msg)
 	}
+	// A login rewrites the ADC file, so the token source built from the old
+	// contents has to go with it. Without this the shared source would keep
+	// minting tokens for the identity that was just replaced — every client
+	// built afterwards would authenticate as the previous account, which is the
+	// one failure the per-project isolation exists to prevent.
+	if m.auth != nil {
+		m.auth.InvalidateCredentials(msg.project)
+	}
+
 	// Drop anything fetched with the old identity, in flight included: a fetch
 	// started before the login still carries the old token, and without bumping
 	// the refresh tokens its result would land in the freshly cleared cache and
@@ -499,6 +597,7 @@ func (m *Model) invalidate() {
 		}
 	}
 	m.cache = map[string]gcp.Result{}
+	m.invalidateRows()
 	m.loadErr = map[string]error{}
 	m.loading = map[string]bool{}
 	m.hasDetail = false
@@ -1291,6 +1390,7 @@ func (m Model) openDrill(siblings []gcp.ChildLister, parent gcp.Resource) (tea.M
 	// when the browser was last closed.
 	if _, objectBrowser := gcp.StorageObjectState(m.drill.lister); objectBrowser {
 		delete(m.cache, m.drill.lister.Kind().ID)
+		m.invalidateRows()
 		delete(m.loadErr, m.drill.lister.Kind().ID)
 	}
 	m.cursor = 0
@@ -1356,6 +1456,7 @@ func (m Model) replaceDrillLister(next gcp.Lister) (tea.Model, tea.Cmd) {
 
 	id := next.Kind().ID
 	delete(m.cache, id)
+	m.invalidateRows()
 	delete(m.loadErr, id)
 	m.cursor = 0
 	m.filter.SetValue("")
@@ -1383,6 +1484,7 @@ func (m *Model) discardObjectBrowser() {
 		id := lister.Kind().ID
 		m.refreshToken[id]++
 		delete(m.cache, id)
+		m.invalidateRows()
 		delete(m.loadErr, id)
 		delete(m.loading, id)
 	}

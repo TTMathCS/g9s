@@ -223,6 +223,8 @@ drill-down opened from a parent row.
 | Filtering, YAML detail, links, clipboard and SSH | ✅ Implemented | SSH is limited to running VMs |
 | Parent/child drill-downs with sibling tabs | ✅ Implemented | 21 child listings |
 | Partial-result and row-cap warnings | ✅ Implemented | A bounded or incomplete result cannot look complete |
+| One shared credential per project | ✅ Implemented | All 43 listers share one token source instead of each reading the credential file and refreshing separately |
+| Memoised table assembly | ✅ Implemented | The merged table and its filter are cached against the data, so typing does not rebuild thousands of rows per keystroke |
 | Structured completeness, not warning strings | ✅ Implemented | Each gap carries a scope and a reason, so a missing permission is distinguishable from a row cap without parsing prose |
 | Expected account versus actual ADC identity | ✅ Implemented | The actual identity is displayed; a live token for a different configured account is refused |
 | Assisted login for proxied corporate browsers | ✅ Implemented | Paste the stuck localhost redirect; g9s delivers it past the proxy |
