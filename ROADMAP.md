@@ -252,9 +252,24 @@ Shipped:
 
 Still ahead:
 
-- **Cloud Asset Inventory fast path.** Where the API is enabled, one call
-  replaces the entire fan-out. Optional, because plenty of orgs do not enable it
-  — that is the reason g9s does the fan-out at all.
+- **Cloud Asset Inventory fast path.** Where the API is enabled, one call could
+  replace the entire fan-out. Not started, and the reason is worth writing down
+  rather than rediscovering: CAI returns a generic `Asset` — a name, a type and
+  the resource's raw data — not each service's own response. Every row builder
+  in g9s reads fields that response carries, and CAI's copy is sparser and
+  shaped differently, so the fast path would produce tables that do not match
+  the ordinary ones. A listing that looks the same and contains less is the
+  precise failure the warnings, the row caps and the `?`-versus-`-` distinction
+  all exist to prevent, and closing the gap means writing every lister a second
+  time against a second source.
+
+  The version that would be worth building is narrower: CAI as a pre-flight
+  that says which kinds are non-empty, so the dashboard fans out to the ten
+  kinds a project actually uses instead of all fifty-one. That is a real
+  latency win and needs no row fidelity at all. It still has to answer for a
+  stale index hiding a kind that does have resources, which is the same failure
+  in a smaller box — so it needs the "asked, and here is when" treatment rather
+  than being trusted silently.
 
 ## Not planned
 

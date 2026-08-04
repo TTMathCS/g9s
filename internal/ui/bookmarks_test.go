@@ -128,6 +128,34 @@ func TestOpeningABookmarkRestoresTheProjectKindAndFilter(t *testing.T) {
 	}
 }
 
+// Opening a bookmarked sweep has to bring the filter with it. Starting a sweep
+// clears the filter — a query typed for one kind means nothing for another —
+// so the bookmark's own filter has to survive that.
+func TestOpeningABookmarkedSweepRestoresItsFilterToo(t *testing.T) {
+	m := bookmarkModel(t)
+	kind := m.listers[0].Kind().ID
+	if err := m.marks.Add(bookmarks.Bookmark{
+		Name: "everywhere", Kind: kind, Filter: "worker", Sweep: bookmarks.SweepDiff,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	next, _ := m.runCommand("bm")
+	m = next.(Model)
+	next, _ = m.handleBookmarkKey(key("enter"))
+	m = next.(Model)
+
+	if m.screen != screenFleet {
+		t.Fatalf("screen = %v, want the sweep", m.screen)
+	}
+	if m.fleet == nil || !m.fleet.compare {
+		t.Error("the bookmarked comparison opened as the flat list")
+	}
+	if m.filter.Value() != "worker" {
+		t.Errorf("filter = %q, want the bookmark's own query", m.filter.Value())
+	}
+}
+
 // A config that lost the project, or a g9s that dropped the kind, must say
 // which — landing somewhere arbitrary is worse than not opening at all.
 func TestABookmarkPointingAtSomethingGoneSaysWhichRatherThanGuessing(t *testing.T) {
