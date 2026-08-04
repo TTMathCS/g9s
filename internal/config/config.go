@@ -248,9 +248,51 @@ type Project struct {
 	// login for g9s to run.
 	CredentialsFile string `yaml:"credentials_file"`
 
+	// Production marks a project where a mistake is expensive.
+	//
+	// It only ever adds friction: a project marked production makes every
+	// action confirmation louder and demands the resource's name be typed,
+	// including for actions that are not otherwise destructive. It cannot
+	// make anything easier, which is what makes it safe to guess at — see
+	// IsProduction.
+	//
+	// A pointer so that "unset" and "explicitly false" are different answers.
+	// Someone who writes `production: false` on a project called prod-data has
+	// said something deliberate, and guessing over the top of it would make
+	// the setting a lie.
+	Production *bool `yaml:"production"`
+
 	Regions           []string `yaml:"regions"`
 	DataprocRegions   []string `yaml:"dataproc_regions"`
 	ComposerLocations []string `yaml:"composer_locations"`
+}
+
+// productionHints are the substrings that make a project look like production.
+//
+// Guessing is defensible here only because of the direction of the error. A
+// false positive costs an extra confirmation on a sandbox; a false negative
+// costs the quiet path on a production instance. Those are not comparable, so
+// the guess leans hard one way and the config overrides it either way.
+var productionHints = []string{"prod", "prd", "live"}
+
+// IsProduction reports whether a project should be treated as production.
+//
+// An explicit setting always wins. Otherwise the name and project ID are
+// checked for the usual markers, because the common case is that nobody set
+// the flag and the project is called something like acme-dataeng-prod-4471 —
+// and the first time anyone thinks about this setting should not be after
+// stopping the wrong instance.
+func (p Project) IsProduction() bool {
+	if p.Production != nil {
+		return *p.Production
+	}
+	haystack := strings.ToLower(p.Name + " " + p.ProjectID)
+	for _, hint := range productionHints {
+		if strings.Contains(haystack, hint) {
+			return true
+		}
+	}
+	return false
 }
 
 // Duration is a time.Duration that unmarshals from a YAML string like "90s".

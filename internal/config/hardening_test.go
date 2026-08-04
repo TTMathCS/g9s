@@ -194,3 +194,42 @@ projects:
 		t.Error("login_no_browser: true did not take effect")
 	}
 }
+
+// The production flag decides whether an action can be confirmed with one
+// keypress. Guessing at it is only defensible because of the direction of the
+// error: a false positive costs an extra confirmation on a sandbox, a false
+// negative costs the quiet path on production. Those are not comparable.
+func TestIsProductionGuessesTowardsCaution(t *testing.T) {
+	tests := []struct {
+		name, id string
+		want     bool
+	}{
+		{"prod-data", "acme-dataeng-prod-4471", true},
+		{"analytics", "acme-analytics-prod-6610", true},
+		{"live-api", "acme-api-9931", true},
+		{"prd-batch", "acme-batch-0012", true},
+		{"sandbox", "acme-sandbox-dev-1204", false},
+		{"staging-data", "acme-dataeng-stg-4472", false},
+		{"dev-data", "acme-dataeng-dev-4473", false},
+	}
+	for _, tc := range tests {
+		p := Project{Name: tc.name, ProjectID: tc.id}
+		if got := p.IsProduction(); got != tc.want {
+			t.Errorf("%s/%s: IsProduction() = %v, want %v", tc.name, tc.id, got, tc.want)
+		}
+	}
+}
+
+// An explicit setting is a deliberate statement and has to win both ways.
+// Guessing over the top of `production: false` would make the setting a lie.
+func TestExplicitProductionFlagWinsOverTheGuess(t *testing.T) {
+	no := false
+	if p := (Project{Name: "prod-data", ProjectID: "acme-prod-1", Production: &no}); p.IsProduction() {
+		t.Error("an explicit production: false was overridden by the name guess")
+	}
+
+	yes := true
+	if p := (Project{Name: "sandbox", ProjectID: "acme-sandbox-1", Production: &yes}); !p.IsProduction() {
+		t.Error("an explicit production: true was ignored")
+	}
+}

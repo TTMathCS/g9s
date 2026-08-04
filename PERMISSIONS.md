@@ -4,8 +4,13 @@ What to enable and what to grant so g9s can read a project. Every entry is
 derived from the API call the lister actually makes, not from a general
 description of the service.
 
-**g9s is read-only.** Every permission below is a `list`, `get` or `getIamPolicy`.
-None of them permits a change, and g9s issues no mutating request of any kind.
+**Almost everything here is read-only.** Every permission in the tables below
+is a `list`, `get` or `getIamPolicy`, and none of them permits a change.
+
+The exception is the three VM power actions, which are **not** granted by any
+of the above and have their own section: [Actions](#actions). If you do not
+grant those, g9s still works completely — the actions simply fail with a
+permission error, which is a perfectly reasonable way to run it.
 
 ## The short version
 
@@ -147,6 +152,31 @@ because the data already arrived on the parent response — those are marked
 | Versions | Secret Manager Secrets | `secretmanager.versions.list` — **not** `.access` |
 | Keys | Service Accounts | `iam.serviceAccountKeys.list` (see above) |
 | Project Roles | Service Accounts | `resourcemanager.projects.getIamPolicy` |
+
+## Actions
+
+g9s can start, stop and reset a VM. Nothing else it does changes anything, and
+these are the only permissions on this page that are not read-only.
+
+| Action | Permission |
+|---|---|
+| `:start` | `compute.instances.start` |
+| `:stop` | `compute.instances.stop` |
+| `:reset` | `compute.instances.reset` |
+
+`roles/compute.instanceAdmin.v1` covers all three, but it also grants create
+and **delete**, which g9s never uses and which no read-mostly console should be
+the reason to hand out. The narrow grant:
+
+```sh
+gcloud iam roles create g9sInstancePower --project=PROJECT_ID \
+  --title="g9s instance power actions" \
+  --permissions=compute.instances.start,compute.instances.stop,compute.instances.reset
+```
+
+Granting none of these is a supported configuration and the right default for
+anyone piloting g9s as an inventory tool. Every table still works; the actions
+report a permission error if attempted.
 
 ## Outside the resource tables
 

@@ -23,6 +23,7 @@ const (
 	screenDetail
 	screenHelp
 	screenLogin
+	screenConfirm
 )
 
 // allKind is a synthetic kind that merges every real kind into one table.
@@ -139,6 +140,13 @@ type Model struct {
 	loginSeq     int
 	loginInput   textinput.Model
 
+	// pending is the action waiting for confirmation, or nil. Everything the
+	// action needs is captured in it when the user asks, so what is confirmed
+	// and what is executed cannot drift apart while the table refreshes.
+	pending       *pendingAction
+	confirmInput  textinput.Model
+	confirmReturn screen
+
 	// cacheGen counts mutations of cache. It is the validity key for rows
 	// below: anything derived from the cache is stale the moment this moves.
 	cacheGen int
@@ -203,6 +211,12 @@ func New(cfg *config.Config, mgr *auth.Manager) Model {
 	// bounded without ever truncating a real one mid-paste.
 	loginInput.CharLimit = 4096
 
+	confirmInput := textinput.New()
+	confirmInput.Prompt = "> "
+	// A GCP instance name is at most 63 characters, so anything longer is not
+	// a name being retyped.
+	confirmInput.CharLimit = 63
+
 	return Model{
 		cfg:          cfg,
 		auth:         mgr,
@@ -216,6 +230,7 @@ func New(cfg *config.Config, mgr *auth.Manager) Model {
 		filter:       filter,
 		command:      command,
 		loginInput:   loginInput,
+		confirmInput: confirmInput,
 		rows:         &rowCache{},
 		detail:       viewport.New(0, 0),
 		help:         viewport.New(0, 0),
@@ -422,6 +437,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case assistedLoginMsg:
 		return m.handleAssistedLogin(msg)
 
+	case actionFinishedMsg:
+		return m.handleActionFinished(msg)
+
 	case loginFinishedMsg:
 		return m.handleLoginFinished(msg)
 
@@ -533,6 +551,28 @@ func (m Model) handleAssistedLogin(msg assistedLoginMsg) (tea.Model, tea.Cmd) {
 	// put the cursor in the paste box for the case where the browser cannot
 	// finish it alone.
 	return m, tea.Batch(awaitAssisted(msg.login), openURL(msg.login.URL()), textinput.Blink)
+}
+
+// handleActionFinished reports an action's outcome and refreshes what it
+// changed.
+//
+// The refresh matters as much as the message: an instance that was asked to
+// stop takes tens of seconds to get there, and a table still showing RUNNING
+// beside a "stop requested" flash is the kind of disagreement that gets read
+// as the action having failed.
+func (m Model) handleActionFinished(msg actionFinishedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		return m, flash(fmt.Sprintf("%s %s failed: %s",
+			strings.ToLower(msg.action.Verb), msg.target.Name,
+			truncate(msg.err.Error(), 90)), flashError)
+	}
+
+	cmds := []tea.Cmd{flash(fmt.Sprintf("%s requested for %s — the table will catch up on the next refresh",
+		strings.ToLower(msg.action.Verb), msg.target.Name), flashInfo)}
+	if l, ok := m.currentLister(); ok {
+		cmds = append(cmds, m.startLoad(l))
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m Model) handleLoginFinished(msg loginFinishedMsg) (tea.Model, tea.Cmd) {
@@ -672,6 +712,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.screen == screenLogin {
 		return m.handleLoginKey(msg)
 	}
+	// The confirmation owns every key while it is up. Nothing else may fire
+	// underneath a prompt about changing production, and `q` must not quit out
+	// of one leaving the caller unsure whether it ran.
+	if m.screen == screenConfirm {
+		return m.handleConfirmKey(msg)
+	}
 
 	// Global keys.
 	switch msg.String() {
@@ -762,6 +808,19 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 	if verb == "export" {
 		return m.runExport(argument)
 	}
+	// Actions are reachable only by typing a word, never by a single key.
+	// Every other binding in g9s is one keystroke because nothing it does can
+	// be regretted; these can, so beginning one is deliberate by construction
+	// rather than by the confirmation alone.
+	if action, ok := actionByCommand(verb); ok {
+		if !m.hasActive {
+			return m, flash("select a project first", flashWarn)
+		}
+		if m.screen != screenResources {
+			return m, flash("open the VM Instances table and select a row first", flashWarn)
+		}
+		return m.requestAction(action)
+	}
 
 	switch line {
 	case "":
@@ -780,7 +839,7 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 
 	idx, ok := m.matchKind(line)
 	if !ok {
-		return m, flash(fmt.Sprintf("unknown command %q — a kind id or title prefix, export, cd, find, all, projects, help or q", line), flashWarn)
+		return m, flash(fmt.Sprintf("unknown command %q — a kind id or title prefix, export, start/stop/reset, cd, find, all, projects, help or q", line), flashWarn)
 	}
 	if !m.hasActive {
 		return m, flash("select a project first", flashWarn)

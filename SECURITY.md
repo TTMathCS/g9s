@@ -42,7 +42,7 @@ expiry is detected. Tokens stay in memory for the life of the process.
 | **Network** | GCP APIs only, over the Google client libraries — plus, during an assisted login rescue, one HTTP GET pinned to `127.0.0.1` on the port gcloud announced. No telemetry, no analytics, no update check, no other host. |
 | **Executes** | `gcloud` (path from `defaults.gcloud_path`) for login and SSH; the platform opener (`open` / `xdg-open` / `rundll32`) for `o` and `c` and the assisted login link. Nothing else. |
 | **Writes** | The per-project credential directories (via gcloud), and `config.yaml` on `-init`. |
-| **API calls** | Read-only. Every call is a `List` or `Get`; g9s issues no mutating request of any kind. |
+| **API calls** | Every call is a `List` or `Get`, except three VM power actions — `instances.start`, `instances.stop`, `instances.reset` — each reachable only by typing a command and confirming against the instance's own name. No delete, no bulk form, no other mutation. |
 
 The clipboard (`y`) uses the OSC 52 terminal escape rather than a platform
 clipboard binary. The payload is base64-encoded, so contents cannot break out

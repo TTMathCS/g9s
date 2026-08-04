@@ -101,10 +101,11 @@ func run() error {
 // exist yet, a bare flag list answers none of it.
 func usage() {
 	out := flag.CommandLine.Output()
-	fmt.Fprint(out, `g9s — a read-only terminal console for Google Cloud.
+	fmt.Fprint(out, `g9s — a read-mostly terminal console for Google Cloud.
 
 Browse resources across your GCP projects without changing your gcloud
-configuration. Every call is a list or a get; g9s never modifies anything.
+configuration. Every call is a list or a get, except three VM power actions
+(:start, :stop, :reset) that must be typed and confirmed by instance name.
 
 USAGE
   g9s [flags]              start the console
@@ -278,6 +279,10 @@ projects:
   - name: prod-data
     project_id: my-prod-data-project
     description: support account required
+    # Makes every action confirmation louder and demands the instance name be
+    # typed, even for starting one. Left unset, g9s guesses from the name and
+    # project ID — a guess that can only add friction, never remove it.
+    production: true
     account: svc-prod-support@example.com
     # Override the default sweep for this project only.
     regions:

@@ -33,9 +33,11 @@ ship it inside the binary, not to add a prerequisite.
   localhost**, which is why the assisted login flow exists (`internal/auth/
   assisted.go`). Their browser login hangs and the `--no-browser` flow's URL
   produces `missing required parameter: redirect_uri` when opened directly.
-- g9s is **read-only**. Every GCP call is a list or get; no mutation is
-  implemented, and adding one is a deliberate product decision, not a
-  refactor.
+- g9s is **read-mostly**. Every GCP call is a list or get except three VM
+  power actions (start/stop/reset), added deliberately after the user was
+  shown the risk and chose it. Widening that set — delete, bulk operations,
+  any other service — is a fresh product decision each time, never a refactor,
+  and must be asked rather than assumed.
 - Secrets are never displayed. `PERMISSIONS.md` must never ask for
   `secretmanager.versions.access` or `roles/secretmanager.secretAccessor`;
   a test enforces this.

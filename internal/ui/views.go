@@ -58,6 +58,8 @@ func (m Model) View() string {
 		body = m.helpView()
 	case screenLogin:
 		body = m.loginView()
+	case screenConfirm:
+		body = m.confirmView()
 	}
 
 	return clampHeight(strings.Join([]string{m.headerView(), body, m.footerView()}, "\n"), m.height)
@@ -141,7 +143,7 @@ func (m Model) headerView() string {
 	crumbWidth := max(10, m.width-lipgloss.Width(title)-lipgloss.Width(badge)-4)
 	line := lipgloss.JoinHorizontal(lipgloss.Left, title, crumbStyle.Render(truncate(crumb, crumbWidth)), badge)
 
-	if m.screen == screenProjects || m.screen == screenHelp || m.screen == screenOverview || m.screen == screenLogin {
+	if m.screen == screenProjects || m.screen == screenHelp || m.screen == screenOverview || m.screen == screenLogin || m.screen == screenConfirm {
 		return line + "\n"
 	}
 	// Inside a drill-down the tab strip would be a lie: none of those tabs is
@@ -878,6 +880,10 @@ func (m Model) helpContent() string {
 			{"o", "open (Airflow UI for Composer, Cloud Console otherwise)"},
 			{"y", "copy name to clipboard (OSC 52)"},
 			{"s", "SSH to the selected running VM"},
+			{":start", "boot the selected stopped instance"},
+			{":stop", "shut the selected instance down — confirm by typing its name"},
+			{":reset", "hard power-cycle it, like pulling the plug — same confirmation"},
+			{"", "actions are commands, never single keys, and never bulk"},
 		}},
 		{"Credentials", []helpEntry{
 			{"l", "gcloud login for the selected project (assisted browser flow)"},
@@ -1042,6 +1048,11 @@ func (m Model) keyHint() string {
 		return "↑/↓ scroll · esc back"
 	case screenLogin:
 		return "enter deliver pasted address · ctrl+o reopen browser · ctrl+y copy link · esc cancel"
+	case screenConfirm:
+		if m.pending != nil && m.pending.typed {
+			return "type the instance name, then enter · esc cancel"
+		}
+		return "enter confirm · esc cancel"
 	default:
 		return "esc back"
 	}

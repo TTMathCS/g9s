@@ -607,3 +607,25 @@ func isEmptyValue(v any) bool {
 		return false
 	}
 }
+
+// actionFinishedMsg reports how an action ended.
+type actionFinishedMsg struct {
+	action gcp.Action
+	target gcp.ActionTarget
+	err    error
+}
+
+// runAction performs a confirmed action against one instance.
+//
+// The only command in g9s that changes anything. It reports the outcome
+// whichever way it goes: an action whose failure is silent is worse than one
+// that never ran, because the operator walks away believing it did.
+func runAction(mgr *auth.Manager, p config.Project, action gcp.Action, target gcp.ActionTarget) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		err := gcp.RunAction(ctx, p, action, target, mgr.ClientOptions(p))
+		return actionFinishedMsg{action: action, target: target, err: err}
+	}
+}

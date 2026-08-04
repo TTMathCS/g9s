@@ -8,9 +8,11 @@ A k9s-style terminal console for Google Cloud. Switch between projects and
 accounts, inspect resources, and navigate related resources without changing
 your global gcloud configuration.
 
-> **Current maturity:** read-only. 46 top-level resource kinds and 21
-> drill-down listings. SSH to a running VM is the only interactive resource
-> operation; mutating API actions are not implemented.
+> **Current maturity:** read-mostly. 46 top-level resource kinds and 21
+> drill-down listings, all read-only. The only exceptions are SSH to a running
+> VM and three VM power actions (`:start`, `:stop`, `:reset`), each of which
+> must be typed as a command and confirmed against the instance's own name.
+> Nothing else g9s does can change your cloud.
 
 ## ⬇️ Download
 
@@ -232,7 +234,8 @@ drill-down opened from a parent row.
 | Large OSC 52 clipboard payload handling | ✅ Implemented | The escape sequence is measured against a configurable `clipboard_limit`; an oversized copy is refused rather than silently dropped |
 | Panic isolation in concurrent listings | ✅ Implemented | A panic in one fan-out scope becomes that scope's warning instead of killing the process and stranding the terminal |
 | Prebuilt release pipeline | ✅ Implemented | Every merge to `main` builds, checks and publishes a release |
-| Confirmed VM/Dataproc state actions | 🔜 Next | No mutating API action is implemented today |
+| Confirmed VM power actions | ✅ Implemented | `:start` / `:stop` / `:reset`, typed as commands and confirmed against the instance name; production demands the typed form for all three |
+| Confirmed Dataproc state actions | ⬜ Candidate | The VM action framework generalises, but each new service is its own decision |
 | Terraform managed/drifted/unmanaged overlay | 🔜 Next | Read state; do not replace Terraform |
 | Cross-project inventory for one kind | ⬜ Candidate | Requires context-aware identity and bounded concurrency |
 | Horizontal dev/uat/prod comparison | ⬜ Candidate | Builds on the cross-project inventory model |
@@ -371,6 +374,38 @@ detail pane redacts — a VPN tunnel's pre-shared key, a cluster's client key �
 and a file on disk is a worse place for them than a terminal. For one
 resource's full detail, use `d` then `y`.
 
+### Changing things
+
+g9s can start, stop and reset a VM. That is the entire set — no delete, no bulk
+form, and nothing at all for any other service. Everything else it does is a
+read.
+
+| Command | What it does |
+|---|---|
+| `:start` | Boots a stopped instance |
+| `:stop` | Shuts the guest down cleanly; anything on it goes offline |
+| `:reset` | Cuts power without telling the guest, like pulling the plug |
+
+Four things stand between a keystroke and a stopped production VM:
+
+1. **They are commands, not keys.** Every other binding in g9s is one
+   keystroke, because nothing else it does can be regretted. These have to be
+   typed in full — `:st` does not resolve to `:stop`, deliberately, while every
+   other command does accept prefixes.
+2. **The confirmation names the exact target** — instance, zone, project name
+   *and* project ID, and the account it will act as.
+3. **Destructive actions require the instance's name to be typed**, exactly.
+   `:stop` and `:reset` always; `:start` too in production.
+4. **Production is louder.** Mark a project `production: true` and every action
+   on it gets the typed confirmation and a banner. Left unset, g9s guesses from
+   the project name and ID — a guess that can only ever *add* friction, which
+   is why it is safe to make.
+
+The permissions for these are **not** granted by `roles/viewer` and have their
+own section in [PERMISSIONS.md](PERMISSIONS.md). Granting none of them is a
+supported way to run g9s: every table still works and the actions fail with a
+permission error.
+
 ### Clipboard size
 
 `y` copies over the OSC 52 terminal escape, which needs no clipboard binary and
@@ -419,7 +454,7 @@ defaults:
 | Displayed hotkey | Open that resource kind directly |
 | `0` / `a` | Open **All Resources** |
 | `tab` / `shift+tab`, `]` / `[` | Cycle kinds or sibling drill-downs |
-| `:` | Command mode; for example `:vm`, `:all`, `:export csv`, or `:cd` / `:find` in Storage Objects |
+| `:` | Command mode; for example `:vm`, `:all`, `:export csv`, `:stop`, or `:cd` / `:find` in Storage Objects |
 | `/` | Filter rows; `esc` clears |
 | `space` | Load the next Storage Objects page when available |
 | `r` | Refresh the current kind, all dashboard kinds, or selected credential |
@@ -489,7 +524,9 @@ g9s doctor            # everything, including live credential checks
 g9s doctor -offline   # config, gcloud and proxy checks only; nothing leaves the machine
 ```
 
-All GCP API calls are currently read-only. API-supplied control characters are
+Every GCP call is a list or a get, with one exception: the three VM power
+actions described under [Changing things](#changing-things). API-supplied
+control characters are
 removed before rendering, and sensitive fields returned inside otherwise
 ordinary resources are redacted before YAML reaches the terminal or clipboard.
 See [SECURITY.md](SECURITY.md) for the full threat model.
