@@ -218,6 +218,13 @@ Shipped:
   configured project, four at a time, and names every project that did not
   contribute rather than dropping it. The dashboard aggregates across kinds;
   this is the other axis.
+- **Horizontal dev/uat/prod comparison.** `:diff <kind>` is the same sweep with
+  the projects as columns and the rows that do not line up first; `c` switches
+  between the two shapes without fetching again. Names are matched with the
+  environment words and the project's own segments stripped, which is a guess —
+  so `enter` shows every real name that landed on the row, and a project that
+  could not be read shows `?` rather than the `-` that would turn a permission
+  error into a missing resource.
 - **Export** the current table to CSV or JSON, for when the answer needs to
   leave the terminal.
 - **Prebuilt release binaries** — see [Install](README.md#install).
@@ -227,10 +234,6 @@ Still ahead:
 - **Terraform state overlay.** Read the GCS backend and mark each row managed /
   drifted / unmanaged, and jump from a row to the `.tf` that defines it. The
   single most useful thing on this page, and the most work.
-- **Horizontal dev/uat/prod comparison.** The fleet sweep with the projects as
-  columns rather than rows, so a resource present in two environments and
-  missing from the third is a gap you can see. Built on the sweep, but a
-  different table: which kinds diff meaningfully is the open question.
 - **Cloud Asset Inventory fast path.** Where the API is enabled, one call
   replaces the entire fan-out. Optional, because plenty of orgs do not enable it
   — that is the reason g9s does the fan-out at all.

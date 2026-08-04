@@ -213,6 +213,12 @@ func statusStyle(status string) lipgloss.Style {
 		// that merely happened today. The distinction is the whole table.
 		"FIRING":
 		return badStyle
+	// A cell with nothing in it: an API field the response left empty, or a
+	// comparison column for a project that does not have this resource or was
+	// never read. Muted rather than plain, so an absence reads as an absence
+	// instead of as a state nobody has a colour for.
+	case "-", "?":
+		return mutedStyle
 	default:
 		return rowStyle
 	}

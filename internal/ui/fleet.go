@@ -49,6 +49,21 @@ type fleetState struct {
 	// rows is the flattened, sorted result, held so the view does not rebuild
 	// it every frame.
 	rows []gcp.Resource
+
+	// compare switches the same sweep between the flat list and the
+	// project-by-project comparison. One sweep feeds both, so `c` toggles
+	// between them without costing a single further API call.
+	compare bool
+	// comparison is built once per sweep; the table below it is rebuilt only
+	// when the terminal width changes the number of columns that fit.
+	comparison   gcp.Comparison
+	compareKind  gcp.Kind
+	compareRows  []gcp.Resource
+	compareWidth int
+	// hiddenProjects is how many projects did not fit as columns. Never
+	// silently: a comparison missing a column is a comparison of something
+	// else.
+	hiddenProjects int
 }
 
 // fleetFinishedMsg carries a completed sweep.
@@ -89,6 +104,15 @@ func (a managerAccess) Options(p config.Project) []option.ClientOption {
 
 // startFleet begins a cross-project sweep of one kind.
 func (m Model) startFleet(lister gcp.Lister) (tea.Model, tea.Cmd) {
+	return m.startSweep(lister, false)
+}
+
+// startCompare begins the same sweep, laid out with projects as columns.
+func (m Model) startCompare(lister gcp.Lister) (tea.Model, tea.Cmd) {
+	return m.startSweep(lister, true)
+}
+
+func (m Model) startSweep(lister gcp.Lister, compare bool) (tea.Model, tea.Cmd) {
 	if len(m.cfg.Projects) == 0 {
 		return m, flash("no projects configured", flashWarn)
 	}
@@ -106,7 +130,7 @@ func (m Model) startFleet(lister gcp.Lister) (tea.Model, tea.Cmd) {
 	}
 	token++
 
-	m.fleet = &fleetState{lister: lister, loading: true, cancel: cancel, token: token}
+	m.fleet = &fleetState{lister: lister, loading: true, cancel: cancel, token: token, compare: compare}
 	m.fleetReturn = m.screen
 	m.screen = screenFleet
 	m.cursor = 0
@@ -152,9 +176,129 @@ func (m Model) handleFleetFinished(msg fleetFinishedMsg) (tea.Model, tea.Cmd) {
 
 	m.fleet.result = msg.result
 	m.fleet.rows = rows
+	m.fleet.comparison = gcp.Compare(msg.result)
+	m.fleet.compareWidth = 0
 	m.fleet.loading = false
+	m.buildComparison()
 	m.clampCursor()
 	return m, nil
+}
+
+// compareColumnFloor is the narrowest a project column may become.
+//
+// Below this a state does not fit and every cell reads as a truncated word, so
+// the answer to a terminal too narrow for every project is fewer columns and a
+// line saying so — not more columns nobody can read.
+const compareColumnFloor = 12
+
+// buildComparison shapes the comparison into a table for the current width.
+//
+// Rebuilt on a width change rather than every frame: the columns are chosen by
+// how many fit, so a resize genuinely changes the table, and nothing else does.
+func (m Model) buildComparison() {
+	if m.fleet == nil || m.fleet.compareWidth == m.width {
+		return
+	}
+	m.fleet.compareWidth = m.width
+
+	projects := m.fleet.comparison.Projects
+	// The resource column takes a third; the rest divides among projects.
+	fits := max(1, (m.width-2)*2/3/compareColumnFloor)
+	shown := min(len(projects), fits)
+	m.fleet.hiddenProjects = len(projects) - shown
+
+	columns := []gcp.Column{{Title: "RESOURCE", Width: 4}}
+	for _, p := range projects[:shown] {
+		columns = append(columns, gcp.Column{Title: strings.ToUpper(p.Name), Width: 2, State: true})
+	}
+	m.fleet.compareKind = gcp.Kind{
+		ID:      "compare",
+		Title:   m.fleet.comparison.Kind.Title,
+		Columns: columns,
+	}
+
+	rows := make([]gcp.Resource, 0, len(m.fleet.comparison.Rows))
+	for _, r := range m.fleet.comparison.Rows {
+		row := make([]string, 0, shown+1)
+		row = append(row, r.Key)
+		for i := 0; i < shown; i++ {
+			row = append(row, compareCellText(r.Cells[i]))
+		}
+		rows = append(rows, gcp.Resource{
+			Name:   r.Key,
+			Status: compareRowStatus(r),
+			Row:    row,
+			Raw:    comparisonDetailFor(m.fleet.comparison, r),
+		})
+	}
+	m.fleet.compareRows = rows
+}
+
+// compareCellText is what one project's column says about one resource.
+func compareCellText(c gcp.Cell) string {
+	switch c.State {
+	case gcp.CellPresent:
+		if strings.TrimSpace(c.Status) == "" {
+			return "yes"
+		}
+		return c.Status
+	case gcp.CellAbsent:
+		return "-"
+	default:
+		// Never `-`. A project that could not be read has not told us this
+		// resource is missing from it, and a comparison that says otherwise
+		// invents its most consequential finding.
+		return "?"
+	}
+}
+
+func compareRowStatus(r gcp.ComparisonRow) string {
+	if r.Gap() {
+		return "GAP"
+	}
+	return "UNIFORM"
+}
+
+// comparisonDetail is what `d` shows for a comparison row.
+//
+// The keys are heuristic — `api-dev-01` and `api-prod-01` line up because a
+// rule said so — and this is where a reader checks the rule's work: every real
+// name that landed on this row, beside the project it came from.
+// The detail pane marshals Raw through JSON before it becomes YAML, so these
+// are json tags rather than yaml ones.
+type comparisonDetail struct {
+	Resource  string            `json:"resource"`
+	MatchedOn string            `json:"matched_on"`
+	Present   map[string]string `json:"present,omitempty"`
+	Absent    []string          `json:"absent,omitempty"`
+	Unread    []string          `json:"unread,omitempty"`
+}
+
+func comparisonDetailFor(c gcp.Comparison, r gcp.ComparisonRow) comparisonDetail {
+	out := comparisonDetail{
+		Resource:  r.Key,
+		MatchedOn: "name with environment and project words removed",
+		Present:   map[string]string{},
+	}
+	for i, cell := range r.Cells {
+		if i >= len(c.Projects) {
+			break
+		}
+		name := c.Projects[i].Name
+		switch cell.State {
+		case gcp.CellPresent:
+			label := cell.Name
+			if cell.Status != "" {
+				label += " (" + cell.Status + ")"
+			}
+			out.Present[name] = label
+		case gcp.CellAbsent:
+			out.Absent = append(out.Absent, name)
+		default:
+			out.Unread = append(out.Unread, name)
+		}
+	}
+	return out
 }
 
 // handleFleetKey drives the fleet table.
@@ -185,7 +329,17 @@ func (m Model) handleFleetKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "r":
 		if m.fleet != nil {
-			return m.startFleet(m.fleet.lister)
+			return m.startSweep(m.fleet.lister, m.fleet.compare)
+		}
+		return m, nil
+
+	case "c":
+		// Both shapes come from the same sweep, so this costs nothing and no
+		// API call. The flat list answers "what is out there"; the comparison
+		// answers "what is here and not there".
+		if m.fleet != nil && !m.fleet.loading {
+			m.fleet.compare = !m.fleet.compare
+			m.cursor = 0
 		}
 		return m, nil
 
@@ -202,6 +356,16 @@ func (m Model) handleFleetKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "enter":
+		// In the comparison there is no single project to go to — the row is
+		// about all of them — so `enter` opens the per-project breakdown
+		// instead, which is where the heuristic that built the row can be
+		// checked against the real names.
+		if m.fleet != nil && m.fleet.compare {
+			if r, ok := m.selectedFleetRow(); ok {
+				return m.describe(r)
+			}
+			return m, nil
+		}
 		// Into the project the row came from, on the kind being swept. The
 		// fleet table is for comparison; anything more than four columns about
 		// one resource belongs in that project's own table.
@@ -257,12 +421,16 @@ func (m Model) enterFleetRow() (tea.Model, tea.Cmd) {
 	return loaded, tea.Batch(cmd, loadCmd)
 }
 
-// visibleFleetRows applies the filter to the swept rows.
+// visibleFleetRows applies the filter to whichever shape is showing.
 func (m Model) visibleFleetRows() []gcp.Resource {
 	if m.fleet == nil {
 		return nil
 	}
-	return filterResources(m.fleet.rows, strings.ToLower(strings.TrimSpace(m.filter.Value())))
+	rows := m.fleet.rows
+	if m.fleet.compare {
+		rows = m.fleet.compareRows
+	}
+	return filterResources(rows, strings.ToLower(strings.TrimSpace(m.filter.Value())))
 }
 
 func (m Model) selectedFleetRow() (gcp.Resource, bool) {
@@ -324,6 +492,11 @@ func (m Model) fleetSummary() string {
 	}
 	if len(caveats) > 0 {
 		summary += " · " + strings.Join(caveats, ", ")
+	}
+
+	if m.fleet.compare {
+		uniform, gaps, _ := m.fleet.comparison.Counts()
+		summary += fmt.Sprintf(" · %d differ, %d the same", gaps, uniform)
 	}
 	return summary
 }

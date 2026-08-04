@@ -238,7 +238,7 @@ drill-down opened from a parent row.
 | Confirmed Dataproc state actions | ⬜ Candidate | The VM action framework generalises, but each new service is its own decision |
 | Terraform managed/drifted/unmanaged overlay | 🔜 Next | Read state; do not replace Terraform |
 | Cross-project inventory for one kind | ✅ Implemented | `:fleet <kind>` sweeps every configured project, four at a time. Projects that were denied, failed or never asked are named beneath the table rather than dropped, because a count that quietly omits them reads as a statement about the estate |
-| Horizontal dev/uat/prod comparison | ⬜ Candidate | Builds on the cross-project inventory model |
+| Horizontal dev/uat/prod comparison | ✅ Implemented | `:diff <kind>` lays the same sweep out with the projects as columns and the rows that do not line up first. A project that could not be read shows `?`, never `-`, so a permission error never becomes a missing resource |
 | Cloud Asset Inventory fast path | ⬜ Candidate | Optional; many organizations do not enable the API |
 | Saved filters and bookmarks | ⬜ Candidate | Not implemented |
 | CSV and JSON export | ✅ Implemented | `:export csv` / `:export json` writes the visible table; JSON records whether the listing was complete |
@@ -471,6 +471,35 @@ contribute is named beneath the table with its reason — denied, unreachable,
 or never asked because there is no valid credential for it — rather than
 silently dropped, which would leave a table that looks complete and is not.
 
+### Comparing environments
+
+`:diff <kind>` lays the same sweep out sideways: one column per project, one
+row per resource, rows that do not line up first. `c` switches between the two
+shapes without fetching again — one sweep feeds both.
+
+```text
+  RESOURCE       PROD       STG        DEV
+▸ etl            RUNNING    RUNNING    -
+  only           RUNNING    -          ?
+  api            RUNNING    RUNNING    RUNNING
+```
+
+`-` means that project was read and does not have it. **`?` means that project
+could not be read**, so nothing is known either way — a permission error must
+never turn into a missing resource, which is the one mistake this table could
+make that would send someone to fix something that was never broken.
+
+Rows are grouped by name with the environment words and the project's own name
+segments removed, so `api-dev-01` and `api-prod-01` are one row. That is a
+heuristic, and `enter` on a row is where you check its work: it lists every
+real name that landed on that row, beside the project it came from, and
+separates the projects that were read and lack it from the ones nobody could
+read. Two resources in one project never merge into one row — the second keeps
+its own name instead.
+
+Narrow terminals get fewer columns and a line naming the projects that were
+dropped, rather than a comparison quietly missing one.
+
 ## Keys
 
 | Key | Action |
@@ -483,6 +512,7 @@ silently dropped, which would leave a table that looks complete and is not.
 | `tab` / `shift+tab`, `]` / `[` | Cycle kinds or sibling drill-downs |
 | `:` | Command mode; for example `:vm`, `:all`, `:export csv`, `:stop`, or `:cd` / `:find` in Storage Objects |
 | `:fleet <kind>` | One kind across every configured project; `enter` opens the row in the project it came from |
+| `:diff <kind>` | The same sweep with the projects as columns and the differences first; `c` switches between the two shapes |
 | `/` | Filter rows; `esc` clears |
 | `space` | Load the next Storage Objects page when available |
 | `r` | Refresh the current kind, all dashboard kinds, or selected credential |

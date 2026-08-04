@@ -34,6 +34,12 @@ type Column struct {
 	// Width is a proportional weight, not a character count. The table
 	// allocates the terminal width across columns using these.
 	Width int
+	// State marks a column whose cells are resource states and should be
+	// coloured like one. A kind's own status column is found by its title;
+	// this is for tables whose column titles are something else — the
+	// comparison view heads each column with a project name, and every one of
+	// them holds a state.
+	State bool
 }
 
 // Kind identifies a resource type and how to display it.

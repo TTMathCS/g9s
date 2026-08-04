@@ -245,6 +245,9 @@ func (m Model) fleetView() string {
 
 	var b strings.Builder
 	title := m.fleet.lister.Kind().Title + " across " + fmt.Sprint(len(m.cfg.Projects)) + " projects"
+	if m.fleet.compare {
+		title = m.fleet.lister.Kind().Title + " compared across " + fmt.Sprint(len(m.cfg.Projects)) + " projects"
+	}
 	b.WriteString("  " + titleStyle.Render(" "+truncate(title, max(10, m.width-6))+" ") + "\n")
 
 	summary := m.fleetSummary()
@@ -259,6 +262,7 @@ func (m Model) fleetView() string {
 	if m.fleet.loading {
 		return b.String()
 	}
+	m.buildComparison()
 
 	rows := m.visibleFleetRows()
 	if len(rows) == 0 {
@@ -267,12 +271,17 @@ func (m Model) fleetView() string {
 		return b.String()
 	}
 
+	kind := fleetKind
+	if m.fleet.compare {
+		kind = m.fleet.compareKind
+	}
+
 	// Three lines of chrome above the table, plus whatever the problem list
 	// needs below it, all of which comes out of the rows budget so the footer
 	// stays on screen.
 	problems := m.fleetProblemLines()
 	reserved := 3 + strings.Count(problems, "\n")
-	b.WriteString(m.renderTable(fleetKind, rows, max(1, m.bodyHeight()-reserved)))
+	b.WriteString(m.renderTable(kind, rows, max(1, m.bodyHeight()-reserved)))
 	b.WriteString(problems)
 	return b.String()
 }
@@ -288,6 +297,23 @@ func (m Model) fleetProblemLines() string {
 	}
 
 	var b strings.Builder
+
+	// A comparison with a column missing is a comparison of something else, so
+	// this is never silent — and it names the projects that were dropped rather
+	// than only counting them.
+	if m.fleet.compare && m.fleet.hiddenProjects > 0 {
+		shown := len(m.fleet.comparison.Projects) - m.fleet.hiddenProjects
+		var dropped []string
+		for _, p := range m.fleet.comparison.Projects[shown:] {
+			dropped = append(dropped, p.Name)
+		}
+		// The instruction leads, because on the terminal narrow enough to
+		// trigger this the end of the line is the part that gets truncated.
+		fmt.Fprintf(&b, "  %s %s\n", warnStyle.Render("·"),
+			warnStyle.Render(truncate(fmt.Sprintf("widen the terminal — no column for %s",
+				strings.Join(dropped, ", ")), max(10, m.width-4))))
+	}
+
 	for _, s := range m.fleet.result.Snapshots {
 		switch {
 		case s.Skipped:
@@ -887,11 +913,15 @@ func renderRow(cells []string, widths []int) string {
 
 // renderStyledRow colours the status cell so the table scans at a glance.
 func renderStyledRow(r gcp.Resource, widths []int, kind gcp.Kind) string {
-	statusIdx := -1
+	stateColumn := make([]bool, len(kind.Columns))
+	found := false
 	for i, c := range kind.Columns {
-		if c.Title == "STATUS" || c.Title == "STATE" {
-			statusIdx = i
-			break
+		if c.State {
+			stateColumn[i] = true
+			continue
+		}
+		if !found && (c.Title == "STATUS" || c.Title == "STATE") {
+			stateColumn[i], found = true, true
 		}
 	}
 
@@ -902,7 +932,7 @@ func renderStyledRow(r gcp.Resource, widths []int, kind gcp.Kind) string {
 			cell = r.Row[i]
 		}
 		padded := pad(cell, widths[i])
-		if i == statusIdx {
+		if i < len(stateColumn) && stateColumn[i] {
 			parts = append(parts, statusStyle(cell).Render(padded))
 		} else {
 			parts = append(parts, rowStyle.Render(padded))
@@ -957,6 +987,8 @@ func (m Model) helpContent() string {
 			{"/", "filter rows (cleared when you switch kinds)"},
 			{":", "command — :<kind>, :export csv|json, or :cd PATH / :find GLOB in Storage Objects"},
 			{":fleet <kind>", "one kind across every configured project — :fleet vm. enter opens the row's own project"},
+			{":diff <kind>", "the same sweep with the projects as columns, gaps first — what dev has and prod does not"},
+			{"c", "switch a sweep between the flat list and the comparison (no refetch)"},
 			{"space", "load the next Storage Objects page when more rows are available"},
 		}},
 		{"Actions", []helpEntry{
@@ -1158,7 +1190,10 @@ func (m Model) keyHint() string {
 	case screenLogin:
 		return "enter deliver pasted address · ctrl+o reopen browser · ctrl+y copy link · esc cancel"
 	case screenFleet:
-		return "enter open in its project · d describe · y yank · / filter · r re-sweep · esc back"
+		if m.fleet != nil && m.fleet.compare {
+			return "enter per-project names · c flat list · y yank · / filter · r re-sweep · esc back"
+		}
+		return "enter open in its project · c compare · d describe · y yank · / filter · r re-sweep · esc back"
 	case screenConfirm:
 		if m.pending != nil && m.pending.typed {
 			return "type the instance name, then enter · esc cancel"

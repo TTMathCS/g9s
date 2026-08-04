@@ -818,15 +818,17 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 	if verb == "export" {
 		return m.runExport(argument)
 	}
-	if verb == "fleet" {
+	// Both read every project once. They differ only in how the one sweep is
+	// laid out, and `c` switches between them without fetching again.
+	if verb == "fleet" || verb == "diff" {
 		if argument == "" {
-			return m, flash("fleet needs a kind — for example :fleet vm", flashWarn)
+			return m, flash(fmt.Sprintf("%s needs a kind — for example :%s vm", verb, verb), flashWarn)
 		}
 		idx, ok := m.matchKind(argument)
 		if !ok || idx >= len(m.listers) {
-			return m, flash(fmt.Sprintf("unknown kind %q for fleet", argument), flashWarn)
+			return m, flash(fmt.Sprintf("unknown kind %q for %s", argument, verb), flashWarn)
 		}
-		return m.startFleet(m.listers[idx])
+		return m.startSweep(m.listers[idx], verb == "diff")
 	}
 	// Actions are reachable only by typing a word, never by a single key.
 	// Every other binding in g9s is one keystroke because nothing it does can
@@ -859,7 +861,7 @@ func (m Model) runCommand(line string) (tea.Model, tea.Cmd) {
 
 	idx, ok := m.matchKind(line)
 	if !ok {
-		return m, flash(fmt.Sprintf("unknown command %q — a kind id or title prefix, fleet, export, start/stop/reset, cd, find, all, projects, help or q", line), flashWarn)
+		return m, flash(fmt.Sprintf("unknown command %q — a kind id or title prefix, fleet, diff, export, start/stop/reset, cd, find, all, projects, help or q", line), flashWarn)
 	}
 	if !m.hasActive {
 		return m, flash("select a project first", flashWarn)
