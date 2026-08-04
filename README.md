@@ -648,14 +648,65 @@ If neither interactive flow can complete, run
 `gcloud auth application-default login` wherever it does work and point the
 project at the file it writes with `credentials_file:` in the config.
 
+#### The other proxy failure: gcloud crashes *after* you sign in
+
+There is a second, very similar-looking failure, and the remedies are
+opposite. The browser says **"You are now authenticated with the gcloud
+CLI!"**, and the terminal shows:
+
+```text
+ERROR: gcloud crashed (ConnectionError): HTTPSConnectionPool(host='oauth2.googleapis.com',
+port=443): Max retries exceeded with url: /token (Caused by NewConnectionError(…
+```
+
+This is **not** the loopback problem, and pressing `L` will not help — the
+`--no-browser` flow redeems the code with the same request to the same
+endpoint. The sign-in worked and the redirect arrived; that is how gcloud got
+as far as asking for a token. What failed is gcloud's own outbound HTTPS
+connection to Google, because a proxy is required and it was not configured.
+
+Set it for the shell that runs g9s. This is the one fix that covers gcloud
+and g9s together — g9s calls the Google APIs itself and reads these variables,
+while `gcloud config set proxy/…` applies to gcloud alone and leaves every
+table failing after a successful login:
+
+```sh
+export HTTPS_PROXY=http://YOUR-PROXY:PORT
+export HTTP_PROXY=http://YOUR-PROXY:PORT
+export NO_PROXY=localhost,127.0.0.1,::1,metadata.google.internal
+```
+
+`NO_PROXY` is not optional. Without it the loopback redirect is proxied too,
+and you trade this failure for the one where the sign-in hangs forever.
+
+If instead the error mentions `CERTIFICATE_VERIFY_FAILED` or
+`SSLError`, the connection is reaching Google and the certificate is your
+organization's — a proxy terminating TLS. That needs a CA bundle rather than a
+proxy address:
+
+```sh
+gcloud config set core/custom_ca_certs_file /path/to/corp-ca.pem
+export SSL_CERT_FILE=/path/to/corp-ca.pem   # g9s does not read gcloud's setting
+```
+
+Never disable certificate verification to get past it — that hands every token
+and every API response to whatever is terminating the connection.
+
+`g9s doctor` tests the connection to Google directly and tells these two apart,
+so it is worth running **before** the first login rather than after it fails.
+
 ### `g9s doctor`
 
 `g9s doctor` (or `g9s -doctor`) checks the whole setup outside the TUI and
 prints one line per finding, with a remedy for anything broken: the config
 file, the gcloud binary and version, whether a proxy would break the browser
 login, per-project credential directory permissions, and — unless `-offline`
-is set — a live token exchange for every project, verifying each credential
-belongs to the account the config expects. It exits non-zero on failures, so
+is set — whether this machine can reach `oauth2.googleapis.com` at all, plus a
+live token exchange for every project verifying each credential belongs to the
+account the config expects. The reachability check is the one worth running
+before your first login: it distinguishes "no route to Google" from "the
+certificate is not Google's", which need opposite fixes and look identical
+from the terminal. It exits non-zero on failures, so
 it also works as a scripted onboarding check:
 
 ```sh

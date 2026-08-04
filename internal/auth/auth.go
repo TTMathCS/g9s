@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -386,6 +387,44 @@ func loopbackUsable(goos string, env func(string) string) bool {
 // configured the same way — enough to name the likely cause instead of leaving
 // the user staring at a URL.
 func ProxyMayBlockLoopback() bool { return proxyMayBlockLoopback(os.Getenv) }
+
+// ProxyAddress returns the proxy configured for this shell, or "".
+//
+// Reported back to the user when a connection to Google fails, because "no
+// proxy is set" and "this proxy did not work" are different problems with
+// different next steps, and the shell is the one place g9s can actually see.
+//
+// Any credentials in the URL are stripped: this string goes on screen, and a
+// proxy password belongs there no more than any other secret does.
+func ProxyAddress() string { return proxyAddress(os.Getenv) }
+
+func proxyAddress(env func(string) string) string {
+	for _, key := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"} {
+		if v := strings.TrimSpace(env(key)); v != "" {
+			return redactProxyCredentials(v)
+		}
+	}
+	return ""
+}
+
+// redactProxyCredentials removes user:password@ from a proxy URL.
+//
+// Parsed rather than pattern-matched where possible, and where it will not
+// parse the whole userinfo section goes — a value g9s cannot read is a value it
+// must not print.
+func redactProxyCredentials(raw string) string {
+	if u, err := url.Parse(raw); err == nil && u.User != nil {
+		u.User = url.User("…")
+		return u.String()
+	}
+	if at := strings.LastIndex(raw, "@"); at >= 0 {
+		if scheme := strings.Index(raw, "://"); scheme >= 0 && scheme < at {
+			return raw[:scheme+3] + "…@" + raw[at+1:]
+		}
+		return "…@" + raw[at+1:]
+	}
+	return raw
+}
 
 func proxyMayBlockLoopback(env func(string) string) bool {
 	proxied := false

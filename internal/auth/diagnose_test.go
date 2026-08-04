@@ -147,3 +147,165 @@ func TestInterruptIsRecognisedAcrossExitShapes(t *testing.T) {
 		t.Error("a KeyboardInterrupt in the output was not recognised as an interrupt")
 	}
 }
+
+// gcloudEgressBlockedOutput is the failure reported from the corporate laptop
+// after the loopback problem was fixed, transcribed from the terminal.
+//
+// It is the most misleading shape in this file. The browser shows "You are now
+// authenticated with the gcloud CLI!", the sign-in genuinely worked, and the
+// redirect genuinely arrived — gcloud got far enough to ask for a token. What
+// failed is the connection to Google, and every remedy for the loopback problem
+// makes it worse.
+const gcloudEgressBlockedOutput = `Your browser has been opened to visit:
+
+    https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com&redirect_uri=http%3A%2F%2Flocalhost%3A8085%2F&scope=openid+email&state=abc
+
+ERROR: gcloud crashed (ConnectionError): HTTPSConnectionPool(host='oauth2.googleapis.com', port=443): Max retries exceeded with url: /token (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10a1b2c40>: Failed to establish a new connection: [Errno 61] Connection refused'))
+
+If you would like to report this issue, please run the following command:
+  gcloud feedback
+`
+
+// The whole point of the new case. This transcript used to fall through to
+// "unrecognised", and the screen it produced sent the reader to press L — which
+// performs the same token exchange and fails identically.
+func TestBlockedEgressIsNotMistakenForTheLoopbackProblem(t *testing.T) {
+	diag, ok := DiagnoseLogin(LoginAttempt{
+		Output: gcloudEgressBlockedOutput,
+		Err:    errors.New("exit status 1"),
+	})
+	if !ok {
+		t.Fatal("a gcloud that crashed reaching oauth2.googleapis.com is still unrecognised")
+	}
+
+	remedy := strings.ToLower(strings.Join(diag.Remedy, "\n"))
+	if !strings.Contains(remedy, "https_proxy") {
+		t.Errorf("the remedy never mentions the proxy:\n%s", remedy)
+	}
+	if !strings.Contains(remedy, "no_proxy") {
+		t.Error("the remedy sets a proxy without exempting loopback, which trades one failure for the other")
+	}
+
+	// It must say outright that L is the wrong move, because the screen looks
+	// exactly like the failure where L is the right move.
+	if !strings.Contains(remedy, "not help") && !strings.Contains(remedy, "will not") {
+		t.Errorf("the remedy does not rule out the --no-browser flow:\n%s", remedy)
+	}
+
+	// And it must not repeat the loopback advice, which is what the reader
+	// would otherwise act on first.
+	if strings.Contains(remedy, "exempt loopback in the browser") {
+		t.Errorf("blocked egress was given the loopback remedy:\n%s", remedy)
+	}
+}
+
+// Same transcript, but the user hit ctrl+c first. The interrupt cases sit
+// lower in the switch and would otherwise claim the code never came back.
+func TestBlockedEgressWinsOverTheInterruptDiagnosis(t *testing.T) {
+	diag, ok := DiagnoseLogin(LoginAttempt{
+		Output: gcloudEgressBlockedOutput,
+		Err:    errors.New("signal: interrupt"),
+	})
+	if !ok {
+		t.Fatal("not diagnosed")
+	}
+	if strings.Contains(diag.Summary, "never came back") {
+		t.Errorf("summary = %q — the code did come back; redeeming it is what failed", diag.Summary)
+	}
+}
+
+// A connection failure against localhost is the loopback problem. Answering it
+// with proxy advice would tell someone to route their own loopback through a
+// proxy, which is the precise opposite of the fix.
+func TestALoopbackConnectionFailureIsStillTheLoopbackProblem(t *testing.T) {
+	out := gcloudBrowserOutput + `
+ERROR: Failed to connect to localhost port 8085: Connection refused
+`
+	diag, ok := DiagnoseLogin(LoginAttempt{Output: out, Err: errors.New("exit status 1")})
+	if !ok {
+		t.Fatal("not diagnosed")
+	}
+	remedy := strings.ToLower(strings.Join(diag.Remedy, "\n"))
+	if strings.Contains(remedy, "export https_proxy") {
+		t.Errorf("a loopback failure was told to configure a proxy:\n%s", remedy)
+	}
+	if !strings.Contains(remedy, "loopback") {
+		t.Errorf("remedy is not the loopback one:\n%s", remedy)
+	}
+}
+
+// A TLS-terminating proxy is a different problem from an unreachable one: the
+// connection is fine and the missing piece is trust, so a proxy address fixes
+// nothing.
+func TestInterceptedTLSAsksForACertificateNotAProxy(t *testing.T) {
+	out := gcloudBrowserOutput + `
+ERROR: gcloud crashed (SSLError): HTTPSConnectionPool(host='oauth2.googleapis.com', port=443): Max retries exceeded with url: /token (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1006)')))
+`
+	diag, ok := DiagnoseLogin(LoginAttempt{Output: out, Err: errors.New("exit status 1")})
+	if !ok {
+		t.Fatal("a TLS verification failure is unrecognised")
+	}
+
+	remedy := strings.ToLower(strings.Join(diag.Remedy, "\n"))
+	if !strings.Contains(remedy, "custom_ca_certs_file") {
+		t.Errorf("the remedy never names gcloud's CA setting:\n%s", remedy)
+	}
+	if !strings.Contains(remedy, "ssl_cert_file") {
+		t.Error("the remedy fixes gcloud and leaves g9s failing every table afterwards")
+	}
+	// g9s must never suggest turning verification off to get past a proxy —
+	// that would hand every token and every API response to whatever is
+	// terminating the connection. Naming it in order to forbid it is the point,
+	// so the check is for a recommendation rather than for the words.
+	for _, forbidden := range []string{
+		"--no-verify",
+		"insecureskipverify",
+		"gcloud config set auth/disable_ssl_validation",
+		"curl -k",
+		"pythonhttpsverify=0",
+	} {
+		if strings.Contains(remedy, forbidden) {
+			t.Errorf("the remedy suggests weakening TLS: %q", forbidden)
+		}
+	}
+	if !strings.Contains(remedy, "never disable certificate verification") {
+		t.Errorf("the remedy does not warn against turning verification off, which is what someone will reach for next:\n%s", remedy)
+	}
+}
+
+// The remedy prints the configured proxy so "none set" and "that one did not
+// work" are distinguishable. A password in it must not reach the screen.
+func TestTheProxyAddressIsShownWithoutItsPassword(t *testing.T) {
+	cases := map[string]string{
+		"http://proxy.corp:3128":                "http://proxy.corp:3128",
+		"http://alice:s3cr3t@proxy.corp:3128":   "s3cr3t",
+		"https://dom%5Cuser:pw@proxy.corp:8080": "pw",
+		"proxy.corp:3128":                       "proxy.corp:3128",
+	}
+	for raw, expectation := range cases {
+		got := proxyAddress(func(key string) string {
+			if key == "HTTPS_PROXY" {
+				return raw
+			}
+			return ""
+		})
+		if got == "" {
+			t.Errorf("proxyAddress(%q) returned nothing", raw)
+			continue
+		}
+		if strings.Contains(raw, "@") {
+			// expectation is the secret that must be gone.
+			if strings.Contains(got, expectation) {
+				t.Errorf("proxyAddress(%q) = %q, which still carries the password", raw, got)
+			}
+			continue
+		}
+		if !strings.Contains(got, expectation) {
+			t.Errorf("proxyAddress(%q) = %q, want it to name the proxy", raw, got)
+		}
+	}
+
+	if got := proxyAddress(func(string) string { return "" }); got != "" {
+		t.Errorf("proxyAddress with nothing set = %q", got)
+	}
+}

@@ -72,6 +72,56 @@ func (a LoginAttempt) interrupted() bool {
 	return false
 }
 
+// tokenExchangeUnreachable reports whether gcloud failed because it could not
+// open a connection to Google, rather than because of anything about the
+// account or the redirect.
+//
+// gcloud is Python, so this arrives as a urllib3 traceback: a ConnectionError
+// wrapping NewConnectionError, or "Max retries exceeded with url: /token".
+// Matching on the transport failure rather than on the hostname, because the
+// same wall stops the metadata, revocation and token endpoints alike and the
+// remedy is identical for all of them.
+func (a LoginAttempt) tokenExchangeUnreachable() bool {
+	lower := strings.ToLower(a.Output)
+
+	transportFailure := false
+	for _, marker := range []string{
+		"max retries exceeded",
+		"newconnectionerror",
+		"connectionerror",
+		"proxyerror",
+		"failed to establish a new connection",
+		"name or service not known",
+		"temporary failure in name resolution",
+		"network is unreachable",
+	} {
+		if strings.Contains(lower, marker) {
+			transportFailure = true
+			break
+		}
+	}
+	if !transportFailure {
+		return false
+	}
+
+	// Only when it was Google that could not be reached. A connection failure
+	// against localhost is the loopback problem and has its own diagnosis, and
+	// answering it with proxy advice would send someone to route their loopback
+	// through a proxy — the precise opposite of the fix.
+	for _, host := range []string{
+		"oauth2.googleapis.com",
+		"accounts.google.com",
+		"googleapis.com",
+		"sts.googleapis.com",
+		"/token",
+	} {
+		if strings.Contains(lower, host) {
+			return true
+		}
+	}
+	return false
+}
+
 // DiagnoseLogin turns a failed login into a cause and a remedy.
 //
 // gcloud reports these accurately, but it reports them as an OAuth error from
@@ -104,6 +154,32 @@ func DiagnoseLogin(a LoginAttempt) (LoginDiagnosis, bool) {
 	}
 
 	switch {
+	// gcloud reached the sign-in and then could not reach Google itself.
+	//
+	// First, ahead of every other case including the interrupt ones, because
+	// this failure wears their clothes: the browser says "You are now
+	// authenticated", the terminal sits there, and everything about it looks
+	// like the loopback problem. It is the opposite. The redirect arrived —
+	// that is how gcloud got as far as the token request — and the request it
+	// then made to oauth2.googleapis.com never left the machine.
+	//
+	// Getting this one wrong is expensive: the loopback advice sends someone to
+	// press L, and the --no-browser flow performs exactly the same token
+	// exchange, so it fails the same way and appears to confirm the account is
+	// at fault.
+	case contains("certificate verify failed", "sslerror", "ssl: certificate", "self signed certificate",
+		"unable to get local issuer"):
+		return LoginDiagnosis{
+			Summary: "gcloud reached Google but refused its TLS certificate.",
+			Remedy:  interceptedTLSRemedy(),
+		}, true
+
+	case a.tokenExchangeUnreachable():
+		return LoginDiagnosis{
+			Summary: "You signed in and the code came back, but gcloud could not reach Google to redeem it.",
+			Remedy:  egressRemedy(),
+		}, true
+
 	// The --no-browser trap, named by Google itself. gcloud prints a *command*
 	// to run elsewhere; the URL inside it is not a valid authorization request
 	// on its own, because the gcloud that runs the command is what appends a
@@ -219,6 +295,102 @@ func loopbackRemedy() []string {
 		"   completes, and point this project at the file it writes with `credentials_file`.",
 		"",
 		"Run `g9s doctor` to check the proxy and loopback situation directly.")
+}
+
+// egressRemedy is what to do when nothing on this machine can reach Google
+// directly.
+//
+// It leads by ruling out the flow, because the screen this appears on looks
+// exactly like the loopback failure and the instinct is to press L. That would
+// waste the afternoon: the --no-browser flow redeems the code with the same
+// request to the same endpoint, and fails identically.
+//
+// The environment variables come before gcloud's own proxy settings even
+// though gcloud's are more discoverable, because `gcloud config set proxy/…`
+// fixes gcloud alone. g9s talks to the Google APIs itself, through Go's HTTP
+// client, which reads HTTPS_PROXY and NO_PROXY and knows nothing about gcloud's
+// configuration — so the gcloud-only fix produces a login that succeeds
+// followed by every table failing, which is a worse place to be than here.
+func egressRemedy() []string {
+	remedy := []string{
+		"This is not the loopback problem, and pressing L will not help: the --no-browser",
+		"flow redeems the code with the same request to the same endpoint.",
+		"The sign-in worked and the code arrived. What failed is the connection gcloud",
+		"then opened to oauth2.googleapis.com — it never left this machine.",
+		"",
+		"Almost always a corporate proxy that all outbound HTTPS has to go through.",
+		"",
+		"1. Set the proxy for the shell that runs g9s, and exempt loopback in the same",
+		"   breath — g9s reads both of these for its own API calls, so this is the one",
+		"   fix that covers gcloud and g9s together:",
+		"",
+		"     export HTTPS_PROXY=http://YOUR-PROXY:PORT",
+		"     export HTTP_PROXY=http://YOUR-PROXY:PORT",
+		"     export NO_PROXY=localhost,127.0.0.1,::1,metadata.google.internal",
+		"",
+		"   NO_PROXY is not optional. Without it the loopback redirect goes to the proxy",
+		"   too, and you trade this failure for the one where the sign-in hangs forever.",
+	}
+
+	if addr := ProxyAddress(); addr != "" {
+		remedy = append(remedy,
+			"",
+			"   A proxy is already set in this shell ("+addr+"), so either it is not the",
+			"   right one for Google, or it requires credentials gcloud was not given.")
+	} else {
+		remedy = append(remedy,
+			"",
+			"   No proxy is set in this shell at the moment, which fits: gcloud tried to",
+			"   connect directly and nothing answered.")
+	}
+
+	return append(remedy,
+		"",
+		"2. Find the address in your browser's proxy settings, or in the PAC file your",
+		"   organization publishes — the browser reached Google, so it knows the way.",
+		"3. If the proxy needs authentication, put it in the URL:",
+		"     export HTTPS_PROXY=http://USER:PASSWORD@YOUR-PROXY:PORT",
+		"4. If none of that is available, run `gcloud auth application-default login` on",
+		"   a machine where it completes and point this project at the file it writes",
+		"   with `credentials_file` — though note g9s will still need the proxy to call",
+		"   the APIs afterwards.",
+		"",
+		"Run `g9s doctor` to test the connection to Google directly.")
+}
+
+// interceptedTLSRemedy is what to do when the connection reaches Google and the
+// certificate is not Google's.
+//
+// A TLS-terminating proxy, which is normal on a corporate network and means
+// every HTTPS response arrives signed by the organization's own CA. Distinct
+// from egressRemedy because the connection is fine: adding a proxy address
+// changes nothing, and the missing piece is trust.
+func interceptedTLSRemedy() []string {
+	return []string{
+		"The connection reached Google and the certificate was signed by something this",
+		"machine does not trust — the signature of a proxy that terminates TLS and",
+		"re-signs it with your organization's own CA.",
+		"",
+		"Nothing is wrong with the account, and pressing L will not help: the",
+		"--no-browser flow makes the same HTTPS request through the same proxy.",
+		"",
+		"1. Get your organization's root CA certificate in PEM form. It is usually",
+		"   already in the OS trust store — the browser accepted it — and IT can name",
+		"   the file.",
+		"2. Point gcloud at it:",
+		"",
+		"     gcloud config set core/custom_ca_certs_file /path/to/corp-ca.pem",
+		"",
+		"3. g9s calls the Google APIs itself and does not read gcloud's setting, so give",
+		"   it the same bundle:",
+		"",
+		"     export SSL_CERT_FILE=/path/to/corp-ca.pem",
+		"",
+		"   Without this the login succeeds and every table fails instead.",
+		"",
+		"Never disable certificate verification to get past this. It would hand every",
+		"token and every API response to whatever is on the other end.",
+	}
 }
 
 // noBrowserRemedy is what to do with the command gcloud prints in the
