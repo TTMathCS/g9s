@@ -155,7 +155,12 @@ func statusStyle(status string) lipgloss.Style {
 		"DEVELOPER_EDITION",
 		// A BigQuery reservation holding baseline slots it refuses to lend. The
 		// capacity is billed continuously and unavailable to anything else.
-		"IDLE_SLOTS_RESERVED":
+		"IDLE_SLOTS_RESERVED",
+		// An alert policy that is enabled and evaluating and tells nobody, or
+		// one somebody silenced during an incident and never turned back on.
+		// Both are monitoring that exists on paper and does nothing, and the
+		// second looks entirely healthy from every other column.
+		"NO_NOTIFICATIONS", "NO_CONDITIONS":
 		return warnStyle
 	case "ERROR", "FAILED", "TERMINATED", "STOPPED", "SUSPENDED", "UNHEALTHY", "DEGRADED",
 		// Compute routes rejected by their backend or dropped at a route limit.
@@ -182,7 +187,10 @@ func statusStyle(status string) lipgloss.Style {
 		"UNAVAILABLE",
 		// A scheduled job whose last attempt was rejected. The job's own state
 		// stays ENABLED throughout, which is true and useless.
-		"LAST_RUN_FAILED":
+		"LAST_RUN_FAILED",
+		// A build that failed, timed out, or died inside Cloud Build itself.
+		// FAILURE is the one anybody opened this table to find.
+		"FAILURE", "TIMEOUT", "INTERNAL_ERROR":
 		return badStyle
 	default:
 		return rowStyle

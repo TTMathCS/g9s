@@ -101,6 +101,9 @@ gcloud services enable --project=PROJECT_ID \
 | Cloud Run Jobs | `run.googleapis.com` | `run.jobs.list` |
 | Cloud Functions | `cloudfunctions.googleapis.com` | `cloudfunctions.functions.list` |
 | Scheduler Jobs | `cloudscheduler.googleapis.com` | `cloudscheduler.jobs.list` |
+| Cloud Build | `cloudbuild.googleapis.com` | `cloudbuild.builds.list` |
+| Task Queues | `cloudtasks.googleapis.com` | `cloudtasks.queues.list` |
+| Alert Policies | `monitoring.googleapis.com` | `monitoring.alertPolicies.list` |
 | VPC Networks | `compute.googleapis.com` | `compute.networks.list` |
 | Firewall Rules | `compute.googleapis.com` | `compute.firewalls.list` |
 | VPC Routes | `compute.googleapis.com` | `compute.routes.list` |

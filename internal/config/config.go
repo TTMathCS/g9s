@@ -126,6 +126,10 @@ type Limits struct {
 	// KMSKeyRings caps how many key rings per location get their keys read.
 	// One cryptoKeys.list per ring, so this is a request bound too.
 	KMSKeyRings int `yaml:"kms_key_rings"`
+	// CloudBuilds caps the build history table. Build records are kept
+	// indefinitely, so without a bound this is the one listing that grows
+	// without limit for the life of the project.
+	CloudBuilds int `yaml:"cloud_builds"`
 }
 
 // Default row caps. These are the numbers that used to be compiled into each
@@ -140,6 +144,7 @@ const (
 	DefaultBackendGroups            = 40
 	DefaultServiceAccountKeyLookups = 200
 	DefaultKMSKeyRings              = 100
+	DefaultCloudBuilds              = 200
 )
 
 // limit resolves one configured cap: unset falls back to the default, and a
@@ -174,6 +179,10 @@ func (c *Config) limits() Limits {
 
 // Cap accessors. One per limit rather than a map lookup, so a typo is a compile
 // error and every call site names which bound it is asking about.
+
+func (c *Config) LimitCloudBuilds() int {
+	return limit(c.limits().CloudBuilds, DefaultCloudBuilds)
+}
 
 func (c *Config) LimitBigQueryJobs() int {
 	return limit(c.limits().BigQueryJobs, DefaultBigQueryJobs)

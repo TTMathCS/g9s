@@ -12,9 +12,11 @@ import (
 	bigquery "google.golang.org/api/bigquery/v2"
 	bigqueryreservation "google.golang.org/api/bigqueryreservation/v1"
 	bigtableadmin "google.golang.org/api/bigtableadmin/v2"
+	cloudbuild "google.golang.org/api/cloudbuild/v1"
 	cloudfunctions "google.golang.org/api/cloudfunctions/v2"
 	cloudkms "google.golang.org/api/cloudkms/v1"
 	cloudscheduler "google.golang.org/api/cloudscheduler/v1"
+	cloudtasks "google.golang.org/api/cloudtasks/v2"
 	compute "google.golang.org/api/compute/v1"
 	dataflow "google.golang.org/api/dataflow/v1b3"
 	datafusion "google.golang.org/api/datafusion/v1"
@@ -23,6 +25,7 @@ import (
 	firestore "google.golang.org/api/firestore/v1"
 	iam "google.golang.org/api/iam/v1"
 	memcache "google.golang.org/api/memcache/v1"
+	monitoring "google.golang.org/api/monitoring/v3"
 	pubsub "google.golang.org/api/pubsub/v1"
 	redis "google.golang.org/api/redis/v1"
 	run "google.golang.org/api/run/v2"
@@ -882,5 +885,44 @@ func testBQReservation() *bigqueryreservation.Reservation {
 		Edition:         "ENTERPRISE",
 		IgnoreIdleSlots: false,
 		Autoscale:       &bigqueryreservation.Autoscale{CurrentSlots: 100, MaxSlots: 1000},
+	}
+}
+
+func testCloudBuild() *cloudbuild.Build {
+	return &cloudbuild.Build{
+		Id:             "9f2c1a4e-7b33-4d51-9c88-0a1b2c3d4e5f",
+		Status:         "FAILURE",
+		BuildTriggerId: "3c7a91be-1122-4433-8899-aabbccddeeff",
+		StartTime:      time.Now().Add(-40 * time.Minute).Format(time.RFC3339),
+		FinishTime:     time.Now().Add(-36 * time.Minute).Format(time.RFC3339),
+		Substitutions: map[string]string{
+			"TRIGGER_NAME": "deploy-api-on-main",
+			"REPO_NAME":    "acme/api",
+			"BRANCH_NAME":  "main",
+		},
+	}
+}
+
+func testTaskQueue() *cloudtasks.Queue {
+	return &cloudtasks.Queue{
+		Name:  "projects/sandbox-123/locations/us-central1/queues/order-webhooks",
+		State: "PAUSED",
+		RateLimits: &cloudtasks.RateLimits{
+			MaxDispatchesPerSecond:  5,
+			MaxConcurrentDispatches: 20,
+		},
+		RetryConfig: &cloudtasks.RetryConfig{MaxAttempts: -1},
+	}
+}
+
+func testAlertPolicy() *monitoring.AlertPolicy {
+	return &monitoring.AlertPolicy{
+		Name:        "projects/sandbox-123/alertPolicies/1122334455",
+		DisplayName: "ETL lag over 30 minutes",
+		Enabled:     true,
+		Combiner:    "OR",
+		Conditions:  []*monitoring.Condition{{DisplayName: "lag > 1800s"}},
+		// No notification channels: enabled, evaluating, and telling nobody.
+		NotificationChannels: nil,
 	}
 }

@@ -8,7 +8,7 @@ A k9s-style terminal console for Google Cloud. Switch between projects and
 accounts, inspect resources, and navigate related resources without changing
 your global gcloud configuration.
 
-> **Current maturity:** read-only. 43 top-level resource kinds and 21
+> **Current maturity:** read-only. 46 top-level resource kinds and 21
 > drill-down listings. SSH to a running VM is the only interactive resource
 > operation; mutating API actions are not implemented.
 
@@ -205,10 +205,10 @@ drill-down opened from a parent row.
 |  | **VPC Service Controls** → Perimeters | — | ⬜ Candidate | Not implemented |
 |  | **Organization Policy** → Effective constraints | — | ⬜ Candidate | Not implemented |
 | Operations | **Cloud Scheduler** → Jobs | Top-level | ✅ Implemented | Includes paused state and last-attempt result |
-|  | **Cloud Monitoring** → Alert policies and firing state | — | ⬜ Candidate | Not implemented |
+|  | **Cloud Monitoring** → Alert policies | Top-level | ✅ Implemented | One global call. Flags policies that are disabled, have no notification channels, or have no conditions — monitoring that exists and does nothing. Firing state is not exposed by this API and is deliberately not invented |
 |  | **Error Reporting** → Error groups | — | ⬜ Candidate | Not implemented |
-|  | **Cloud Tasks** → Queues | — | ⬜ Candidate | Not implemented |
-|  | **Cloud Build** → Build history | — | ⬜ Candidate | Not implemented |
+|  | **Cloud Tasks** → Queues | Top-level | ✅ Implemented | Listed per configured region. Leads with PAUSED, the state that silently accumulates work, plus the rate limits that stop a queue keeping up |
+|  | **Cloud Build** → Build history | Top-level | 🟡 Implemented, bounded | 200 most recent builds by default, newest first; flags manual builds and running ones by elapsed time |
 |  | **Cloud Logging** → Log entries | — | 🚫 Not planned | An unbounded query stream, not a finite resource inventory |
 | Cost and capacity | **Cloud Quotas** → Usage and limits | — | ⬜ Candidate | Nested quota metrics need a different presentation |
 |  | **Cloud Billing** → Current-month spend | — | ⬜ Candidate | Requires an accessible billing export |
@@ -399,6 +399,7 @@ removes it. The footer warns whenever a listing reaches its cap.
 | `backend_groups` | 40 | Requests: one health call per group |
 | `service_account_key_lookups` | 200 | Requests: one key-list call per account |
 | `kms_key_rings` | 100 | Requests per location |
+| `cloud_builds` | 200 | Rows, newest first |
 
 ```yaml
 defaults:
