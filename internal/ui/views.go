@@ -661,35 +661,44 @@ func listWindow(cursor, total, rows int) (start, end int) {
 func (m Model) overviewView() string {
 	var b strings.Builder
 
-	tabs := m.tabs()
+	visible, hidden := m.overviewRows()
 	labelWidth := 0
-	for _, kind := range tabs {
-		labelWidth = max(labelWidth, len(kind.Title))
+	for _, row := range visible {
+		labelWidth = max(labelWidth, len(row.kind.Title))
 	}
 
 	b.WriteString(headerRowStyle.Render(
 		strings.Repeat(" ", hotkeyWidth+2)+pad("CATEGORY", labelWidth)+"  "+pad("COUNT", 6)+"  "+"STATE") + "\n")
 
+	// The hidden-row line costs one of the body's lines, so the table gets one
+	// fewer rather than the footer being pushed off the bottom.
 	rows := m.bodyHeight()
-	start, end := listWindow(m.ovCursor, len(tabs), rows)
+	footnote := m.overviewFootnote(hidden)
+	if footnote != "" {
+		rows = max(1, rows-1)
+	}
+
+	cursorPos := m.ovCursorPosition(visible)
+	start, end := listWindow(cursorPos, len(visible), rows)
 
 	for i := start; i < end; i++ {
-		kind := tabs[i]
-		// One cell wide for every kind, which is what the letters past the
-		// ninth buy: no row shifts sideways as the list grows.
-		key := m.tabKey(i)
+		row := visible[i]
+		// The kind's own key, from its position in tabs() rather than in this
+		// filtered list — a hotkey that moved with what happened to be empty
+		// today would be worse than no hotkey.
+		key := m.tabKey(row.index)
 
 		count := "—"
-		if n, known := m.tabCount(kind); known {
+		if n, known := m.tabCount(row.kind); known {
 			count = fmt.Sprintf("%d", n)
 		}
 
 		cursor := " "
-		if i == m.ovCursor {
+		if i == cursorPos {
 			cursor = "▸"
 		}
-		line := fmt.Sprintf("%s%s %s  %s  ", cursor, key, pad(kind.Title, labelWidth), pad(count, 6))
-		if i == m.ovCursor {
+		line := fmt.Sprintf("%s%s %s  %s  ", cursor, key, pad(row.kind.Title, labelWidth), pad(count, 6))
+		if i == cursorPos {
 			b.WriteString(selectedRowStyle.Render(line))
 		} else {
 			b.WriteString(rowStyle.Render(line))
@@ -697,14 +706,34 @@ func (m Model) overviewView() string {
 
 		// Written outside the row style so the selection highlight stops at the
 		// count and the status colours survive on the selected row too.
-		b.WriteString(" " + m.categoryState(kind))
+		b.WriteString(" " + m.categoryState(row.kind))
 		b.WriteString("\n")
 	}
 
 	for i := end - start; i < rows; i++ {
 		b.WriteString("\n")
 	}
+	if footnote != "" {
+		b.WriteString(footnote + "\n")
+	}
 	return b.String()
+}
+
+// overviewFootnote says what the dashboard is not showing.
+//
+// Never silent. A filtered list that does not say it is filtered is a list that
+// gets read as the whole estate, which is the same mistake the fleet view's
+// summary line exists to prevent — and the answer to "where did Cloud SQL go"
+// has to be on the screen that stopped showing it.
+func (m Model) overviewFootnote(hidden int) string {
+	if m.showAllKinds {
+		return mutedStyle.Render("  showing every kind · + hides the empty ones")
+	}
+	if hidden == 0 {
+		return ""
+	}
+	return mutedStyle.Render(fmt.Sprintf(
+		"  %d more with nothing in them or the API off · + shows them", hidden))
 }
 
 // categoryState renders the right-hand column of a dashboard row: a status
@@ -1112,6 +1141,7 @@ func (m Model) helpContent() string {
 			{"enter", "go in — category (dashboard), the row's own listing where it has one, else describe"},
 			{"1-9 a-z A-Z", "jump straight to a resource kind — the key is printed beside it"},
 			{"0 / a", "all resources, every kind in one table"},
+			{"+", "dashboard: show the kinds with nothing in them and the APIs that are off"},
 			{"tab / shift+tab", "cycle resource kinds — or, in a drill-down with two listings, those"},
 			{"] / [", "the same, for when tab is taken by your terminal or multiplexer"},
 			{"q / esc", "back up one level"},
@@ -1229,7 +1259,11 @@ func (m Model) withPosition(left string) string {
 	case screenResources:
 		cursor, n = m.cursor, len(m.visibleResources())
 	case screenOverview:
-		cursor, n = m.ovCursor, len(m.tabs())
+		// Against the rows on screen, not against every kind g9s knows. "1/52"
+		// under a four-row dashboard describes a list nobody is looking at, and
+		// the count of what is hidden is already on its own line.
+		visible, _ := m.overviewRows()
+		cursor, n = m.ovCursorPosition(visible), len(visible)
 	case screenProjects:
 		cursor, n = m.projCursor, len(m.cfg.Projects)
 	default:

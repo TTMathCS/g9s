@@ -719,11 +719,17 @@ func TestDashboardDistinguishesLoadingEmptyAndFailed(t *testing.T) {
 	}
 	m.loading["vm"] = false
 
+	// An empty kind is hidden by default now, so the three-way distinction is
+	// asserted where an empty row is actually drawn.
 	m.cache["vm"] = gcp.Result{}
+	m.showAllKinds = true
 	if !strings.Contains(m.View(), "none") {
 		t.Error("a kind that loaded with nothing in it should read as none, not blank")
 	}
+	m.showAllKinds = false
 
+	// A failure is never hidden, so this needs no help: "you cannot see it" and
+	// "it broke" are exactly the rows the filter must leave alone.
 	m.loadErr["vm"] = errTest{}
 	if !strings.Contains(m.View(), "failed") {
 		t.Error("a failed kind should say so on the dashboard")

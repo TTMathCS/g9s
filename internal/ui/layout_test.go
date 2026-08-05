@@ -280,7 +280,7 @@ func TestHelpDocumentsTheKeysTheModelBinds(t *testing.T) {
 
 	for _, key := range []string{
 		"↑/k ↓/j", "g / G", "enter", "0 / a",
-		"tab / shift+tab", "] / [",
+		"tab / shift+tab", "] / [", "+",
 		"q / esc", "p", "/", ":", "space",
 		"d", "r", "o", "y", "s",
 		"l", "L", "?",

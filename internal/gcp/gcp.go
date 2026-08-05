@@ -337,6 +337,48 @@ func describeFailure(scope string, err error) (Warning, bool) {
 	return scopeWarning(scope, ReasonUnknown, clip(msg, 120)), true
 }
 
+// IsAPIDisabled reports whether a listing failed only because nobody enabled
+// that service in the project.
+//
+// Exported because the dashboard needs to tell this apart from every other
+// failure. "Nobody turned this on" is the normal state for most services in
+// most projects and is not worth a row; "you cannot see it" and "it broke" are
+// exactly the rows that must never be hidden. Same detection the warning path
+// already uses, so a service the fan-out quietly skips and one the dashboard
+// quietly drops cannot disagree.
+func IsAPIDisabled(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var apiErr *googleapi.Error
+	if errors.As(err, &apiErr) {
+		for _, item := range apiErr.Errors {
+			switch item.Reason {
+			case "accessNotConfigured", "SERVICE_DISABLED":
+				return true
+			}
+		}
+		if disabledMessage(apiErr.Message) {
+			return true
+		}
+	}
+
+	if grpcCode(err) == codes.FailedPrecondition {
+		lower := strings.ToLower(err.Error())
+		if strings.Contains(lower, "not been used") || strings.Contains(lower, "disabled") {
+			return true
+		}
+	}
+	return disabledMessage(err.Error())
+}
+
+func disabledMessage(msg string) bool {
+	return strings.Contains(msg, "SERVICE_DISABLED") ||
+		strings.Contains(msg, "has not been used in project") ||
+		strings.Contains(msg, "accessNotConfigured")
+}
+
 // restReason maps an HTTP error to the same vocabulary the gRPC branch uses.
 //
 // handled is false when the status carries no useful classification and the

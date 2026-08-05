@@ -87,9 +87,9 @@ Cloud SQL instance's databases and users:
 
 ![Cloud SQL sibling drill-downs: databases and users side by side](docs/siblings.png)
 
-**Assisted login** keeps the corporate-proxy sign-in alive: when the browser
-gets stuck on `localhost refused to connect`, pasting that tab's address back
-finishes the login — no waiting on a terminal that will never move:
+**Assisted login** keeps a proxied sign-in alive: where the browser gets stuck
+on `localhost refused to connect`, pasting that tab's address back finishes
+the login — no waiting on a terminal that will never move:
 
 ![Assisted login screen with the paste rescue](docs/login.png)
 
@@ -108,7 +108,10 @@ and login     and status            or all kinds      keys, health, etc.
 
 - **Projects** shows every configured project and its live credential state.
 - **Dashboard** loads all implemented kinds and summarizes counts, states and
-  partial failures.
+  partial failures. Kinds that came back empty, and those whose API is not
+  enabled, are collapsed behind a count — `+` shows them. Failures are never
+  collapsed: "permission denied" is the difference between "nothing there" and
+  "you cannot see it".
 - **Resource table** provides filtering, YAML details, Console links, copy and
   SSH where applicable.
 - **Drill-down** opens a resource's children in place. For example, a GKE
@@ -229,7 +232,9 @@ drill-down opened from a parent row.
 | Memoised table assembly | ✅ Implemented | The merged table and its filter are cached against the data, so typing does not rebuild thousands of rows per keystroke |
 | Structured completeness, not warning strings | ✅ Implemented | Each gap carries a scope and a reason, so a missing permission is distinguishable from a row cap without parsing prose |
 | Expected account versus actual ADC identity | ✅ Implemented | The actual identity is displayed; a live token for a different configured account is refused |
-| Assisted login for proxied corporate browsers | ✅ Implemented | Paste the stuck localhost redirect; g9s delivers it past the proxy |
+| Assisted login for browsers that proxy localhost | ✅ Implemented | Paste the stuck localhost redirect; g9s delivers it past the proxy |
+| Login pre-flight against the token endpoint | ✅ Implemented | A login that cannot complete is stopped before the sign-in rather than after it, and says whether the route or the certificate is the problem |
+| Empty and disabled kinds hidden on the dashboard | ✅ Implemented | A project uses a handful of the services g9s knows; the rest are collapsed behind a count, with `+` to show them. Failures are never hidden |
 | Consistent HTTP/gRPC permission errors | ✅ Implemented | REST 403/401 map to the same wording as gRPC; unenabled APIs stay quiet |
 | Large OSC 52 clipboard payload handling | ✅ Implemented | The escape sequence is measured against a configurable `clipboard_limit`; an oversized copy is refused rather than silently dropped |
 | Panic isolation in concurrent listings | ✅ Implemented | A panic in one fan-out scope becomes that scope's warning instead of killing the process and stranding the terminal |
@@ -291,9 +296,10 @@ g9s
 Start with one project. Select it and press `l`; g9s starts
 `gcloud auth application-default login` and opens the sign-in link, staying
 interactive so a login that gets stuck can be rescued — see
-[Login on a corporate laptop](#login-on-a-corporate-laptop). Press `L`, or set
-`defaults.login_no_browser: true`, when this machine has no browser at all.
-`g9s doctor` checks the whole setup from the command line.
+[Login behind an HTTP proxy](#login-behind-an-http-proxy). Press `L`, or set
+`defaults.login_no_browser: true`, only where the machine has no browser at
+all. Run `g9s doctor` first: it checks the whole setup, including the route to
+Google, from the command line.
 
 ## Configuration
 
@@ -588,6 +594,7 @@ silently lands somewhere else is worse than one that fails.
 | `d` | Always describe the selected resource as YAML |
 | Displayed hotkey | Open that resource kind directly |
 | `0` / `a` | Open **All Resources** |
+| `+` | Dashboard: show the kinds with nothing in them and the APIs that are off |
 | `tab` / `shift+tab`, `]` / `[` | Cycle kinds or sibling drill-downs |
 | `:` | Command mode; for example `:vm`, `:all`, `:export csv`, `:stop`, or `:cd` / `:find` in Storage Objects |
 | `:fleet <kind>` | One kind across every configured project; `enter` opens the row in the project it came from |
@@ -617,92 +624,112 @@ does not change `~/.config/gcloud`. Credential expiry is checked with a live
 token exchange. Resource discovery uses typed Google clients; gcloud is used
 only for login and SSH.
 
-### Login on a corporate laptop
+### Login behind an HTTP proxy
 
-The standard gcloud browser login has a step that corporate proxies break:
-after you sign in, the browser fetches `http://localhost:<port>/` to hand the
-authorization code back to gcloud. A browser that sends localhost through the
-proxy never delivers it — the sign-in *succeeds* and gcloud waits forever.
+An intercepting proxy breaks `gcloud auth application-default login` in three
+distinct ways. They look alike from the terminal and need different fixes, so
+this section is organised by symptom. **Run `g9s doctor` first** — it tests the
+route to Google directly and names which of these applies, and g9s refuses to
+start a login it can already tell will fail.
 
-g9s runs the browser login in **assisted mode** to survive exactly this.
-Press `l`; g9s starts gcloud, opens the sign-in link, and stays interactive:
+#### 1. The terminal hangs after a successful sign-in
 
-1. If your browser can reach its own localhost, the login completes by itself —
-   nothing to do.
-2. If the browser instead lands on an error like *"localhost refused to
-   connect"*, the login is still alive. **Copy the entire address from that
-   stuck tab's address bar** (it looks like
-   `http://localhost:8085/?state=…&code=…`) and paste it into g9s. g9s hands
-   it to gcloud on your machine directly, bypassing the proxy, and the login
-   completes. The code in that address is single-use and useless outside the
-   running login.
+The browser shows the account picker, sign-in and MFA all succeed, and the
+terminal never moves.
 
-If the flow cannot run at all (no browser on this machine), press `L` for
-gcloud's `--no-browser` flow: gcloud prints a **command** — not a link — to
-run on a machine that has a browser and gcloud 372.0.0+, and that command's
-output is pasted back. Opening the URL inside it in a browser produces
-`Error 400: missing required parameter: redirect_uri`; the command is the
-thing to copy.
+The last step of the flow is the browser fetching `http://localhost:<port>/`
+to hand the authorization code back to gcloud. A browser configured to send
+*localhost* through the proxy delivers it there instead, so gcloud waits
+forever with the sign-in already done.
 
-If neither interactive flow can complete, run
-`gcloud auth application-default login` wherever it does work and point the
-project at the file it writes with `credentials_file:` in the config.
+g9s runs the browser login in **assisted mode** to survive this. Press `l`;
+gcloud runs as a child process and the TUI stays alive:
 
-> **Do not set `login_no_browser: true` on a machine that has a browser.** It
-> turns off the assisted flow — the one built for the proxied-localhost case —
-> and sends every login down the `--no-browser` path instead. That path prints
-> a command containing a URL, your terminal renders that URL as a clickable
-> link, and clicking it gets `Error 400: invalid_request, missing required
-> parameter: redirect_uri`, which looks like g9s emitted a broken link. The
-> setting is for machines with genuinely no browser. `g9s doctor` warns when it
-> is set on a machine that has one.
+1. Where the browser can reach its own localhost, the login completes by
+   itself — nothing to do.
+2. Where it lands on *"localhost refused to connect"* instead, the login is
+   still running. **Copy the whole address from that stuck tab** — it looks
+   like `http://localhost:8085/?state=…&code=…` — and paste it into g9s, which
+   performs that request locally, bypassing the proxy. The code in it is
+   single-use and worthless outside the running login.
 
-#### The other proxy failure: gcloud crashes *after* you sign in
+The durable fix is to exempt `localhost, 127.0.0.1, ::1` in the **browser's**
+proxy settings. g9s cannot read those, so `g9s doctor` reports the shell's
+proxy configuration as a proxy for the browser's, which is a hint rather than
+a measurement.
 
-There is a second, very similar-looking failure, and the remedies are
-opposite. The browser says **"You are now authenticated with the gcloud
-CLI!"**, and the terminal shows:
+#### 2. gcloud crashes right after the sign-in
+
+The browser says *"You are now authenticated with the gcloud CLI!"* and the
+terminal shows:
 
 ```text
 ERROR: gcloud crashed (ConnectionError): HTTPSConnectionPool(host='oauth2.googleapis.com',
 port=443): Max retries exceeded with url: /token (Caused by NewConnectionError(…
 ```
 
-This is **not** the loopback problem, and pressing `L` will not help — the
-`--no-browser` flow redeems the code with the same request to the same
-endpoint. The sign-in worked and the redirect arrived; that is how gcloud got
-as far as asking for a token. What failed is gcloud's own outbound HTTPS
-connection to Google, because a proxy is required and it was not configured.
+This is the **opposite** of the first case, and the remedies do not overlap.
+The redirect arrived — that is how gcloud reached the token request — and the
+connection gcloud then opened to Google never left the machine. Pressing `L`
+does not help: the `--no-browser` flow redeems the code with the same request
+to the same endpoint.
 
-Set it for the shell that runs g9s. This is the one fix that covers gcloud
-and g9s together — g9s calls the Google APIs itself and reads these variables,
-while `gcloud config set proxy/…` applies to gcloud alone and leaves every
-table failing after a successful login:
+Set the proxy for the shell that runs g9s. This covers gcloud *and* g9s
+together, which `gcloud config set proxy/…` does not — g9s calls the Google
+APIs itself through Go's HTTP client, so configuring gcloud alone buys a
+successful login followed by every table failing:
 
 ```sh
-export HTTPS_PROXY=http://YOUR-PROXY:PORT
-export HTTP_PROXY=http://YOUR-PROXY:PORT
+export HTTPS_PROXY=http://PROXY_HOST:PORT
+export HTTP_PROXY=http://PROXY_HOST:PORT
 export NO_PROXY=localhost,127.0.0.1,::1,metadata.google.internal
 ```
 
 `NO_PROXY` is not optional. Without it the loopback redirect is proxied too,
-and you trade this failure for the one where the sign-in hangs forever.
+trading this failure for the one above. For a proxy requiring credentials, use
+`http://USER:PASSWORD@PROXY_HOST:PORT`.
 
-If instead the error mentions `CERTIFICATE_VERIFY_FAILED` or
-`SSLError`, the connection is reaching Google and the certificate is your
-organization's — a proxy terminating TLS. That needs a CA bundle rather than a
-proxy address:
+#### 3. The certificate is refused
 
-```sh
-gcloud config set core/custom_ca_certs_file /path/to/corp-ca.pem
-export SSL_CERT_FILE=/path/to/corp-ca.pem   # g9s does not read gcloud's setting
+Same shape as case 2, but the error names TLS:
+
+```text
+SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate
+verify failed: unable to get local issuer certificate'))
 ```
 
-Never disable certificate verification to get past it — that hands every token
-and every API response to whatever is terminating the connection.
+Here the connection is reaching Google and the certificate is the proxy's —
+normal where TLS is terminated and re-signed with an internal CA. A proxy
+address changes nothing; the missing piece is trust:
 
-`g9s doctor` tests the connection to Google directly and tells these two apart,
-so it is worth running **before** the first login rather than after it fails.
+```sh
+gcloud config set core/custom_ca_certs_file /path/to/ca-bundle.pem
+export SSL_CERT_FILE=/path/to/ca-bundle.pem   # g9s does not read gcloud's setting
+```
+
+Never disable certificate verification to get past this — it hands every token
+and every API response to whatever terminates the connection.
+
+#### When no interactive flow can complete
+
+On a machine with no browser at all, press `L` for gcloud's `--no-browser`
+flow. gcloud prints a **command**, not a link, to run on a machine that has a
+browser and gcloud 372.0.0+; that command's output is pasted back.
+
+> Terminals render the URL inside that command as a clickable link. Opening it
+> on its own returns `Error 400: invalid_request, missing required parameter:
+> redirect_uri`, because the gcloud that runs the command is what supplies the
+> redirect. Copy the line; do not click it.
+
+> **`login_no_browser: true` belongs only on machines with no browser.** It
+> disables the assisted flow — the one built for case 1 — and routes every
+> login through `--no-browser` and the trap above. `g9s doctor` warns when it
+> is set on a machine that has a browser.
+
+Failing everything else, run `gcloud auth application-default login` wherever
+it does work and point the project at the file it writes with
+`credentials_file:`. Note that g9s still needs proxy access of its own to call
+the APIs afterwards.
 
 ### `g9s doctor`
 

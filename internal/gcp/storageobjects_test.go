@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"cloud.google.com/go/storage"
+	storagev1 "google.golang.org/api/storage/v1"
 )
 
 func TestStorageObjectResourceShape(t *testing.T) {
@@ -31,8 +31,7 @@ func TestStorageObjectResourceShape(t *testing.T) {
 }
 
 func TestStorageFolderIsAnImmediateBrowsablePrefix(t *testing.T) {
-	r := storageObjectResource(testProject(), testBucket().Name, "exports/",
-		&storage.ObjectAttrs{Prefix: "exports/2026/"})
+	r := storageObjectPrefixResource(testProject(), testBucket().Name, "exports/", "exports/2026/")
 
 	if r.Row[0] != "2026/" || r.Row[1] != "folder" || r.Status != "FOLDER" {
 		t.Errorf("folder row = %#v status=%q", r.Row, r.Status)
@@ -47,21 +46,24 @@ func TestStorageFolderIsAnImmediateBrowsablePrefix(t *testing.T) {
 }
 
 func TestStorageObjectDirectoryAndSearchQueriesDiffer(t *testing.T) {
-	directory := (StorageObjectLister{prefix: "exports/"}).query()
-	if directory.Prefix != "exports/" || directory.Delimiter != "/" || !directory.IncludeFoldersAsPrefixes {
+	directory := (StorageObjectLister{prefix: "exports/"}).params(500)
+	if directory.Prefix != "exports/" || directory.Delimiter != "/" || !directory.IncludeFolders {
 		t.Errorf("directory query = %#v", directory)
+	}
+	if directory.MaxResults != 500 {
+		t.Errorf("page size did not reach the request: %#v", directory)
 	}
 
 	search := (StorageObjectLister{
 		prefix:    "exports/",
 		matchGlob: "exports/**/*.parquet",
-	}).query()
+	}).params(500)
 	if search.Prefix != "exports/" || search.MatchGlob != "exports/**/*.parquet" {
 		t.Errorf("search query = %#v", search)
 	}
-	if search.Delimiter != "" || search.IncludeFoldersAsPrefixes {
+	if search.Delimiter != "" || search.IncludeFolders {
 		t.Errorf("search should be flat, got delimiter=%q include-folders=%v",
-			search.Delimiter, search.IncludeFoldersAsPrefixes)
+			search.Delimiter, search.IncludeFolders)
 	}
 }
 
@@ -194,12 +196,12 @@ func TestStorageBucketsOfferObjectsBeforeLifecycle(t *testing.T) {
 	}
 }
 
-func testStorageObject() *storage.ObjectAttrs {
-	return &storage.ObjectAttrs{
+func testStorageObject() *storagev1.Object {
+	return &storagev1.Object{
 		Name:         "exports/2026/orders.parquet",
 		Size:         64 << 20,
 		StorageClass: "STANDARD",
-		Updated:      time.Now().Add(-2 * time.Hour),
+		Updated:      time.Now().Add(-2 * time.Hour).Format(time.RFC3339),
 		Generation:   42,
 	}
 }

@@ -56,7 +56,7 @@ var allKeys = []string{"0", "a"}
 // TestKindKeysAvoidActionKeys is what keeps it true as either list grows.
 var actionKeys = []string{
 	"a", "d", "g", "G", "j", "k", "l", "L", "o", "p", "q", "r", "s", "y",
-	"0", "/", ":", "?", "[", "]", "enter", "esc", "tab", "shift+tab",
+	"0", "+", "/", ":", "?", "[", "]", "enter", "esc", "tab", "shift+tab",
 	"up", "down", "space", "ctrl+c",
 }
 

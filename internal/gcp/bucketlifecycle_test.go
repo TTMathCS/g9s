@@ -2,9 +2,8 @@ package gcp
 
 import (
 	"testing"
-	"time"
 
-	"cloud.google.com/go/storage"
+	storagev1 "google.golang.org/api/storage/v1"
 )
 
 func TestLifecycleListingCostsNoAPICall(t *testing.T) {
@@ -28,7 +27,7 @@ func TestLifecycleListingCostsNoAPICall(t *testing.T) {
 }
 
 func TestLifecycleRuleResourceShape(t *testing.T) {
-	r := lifecycleRuleResource(testProject(), testBucket(), 0, testBucket().Lifecycle.Rules[0])
+	r := lifecycleRuleResource(testProject(), testBucket(), 0, testBucket().Lifecycle.Rule[0])
 
 	// "SetStorageClass" alone does not say what to.
 	if r.Row[0] != "SetStorageClass → NEARLINE" {
@@ -48,7 +47,7 @@ func TestLifecycleRuleResourceShape(t *testing.T) {
 func TestDeleteRuleIsTheOneThatColours(t *testing.T) {
 	// Delete is the only irreversible action, and the rule people go looking
 	// for when data has gone missing. Everything else changes a bill.
-	r := lifecycleRuleResource(testProject(), testBucket(), 1, testBucket().Lifecycle.Rules[1])
+	r := lifecycleRuleResource(testProject(), testBucket(), 1, testBucket().Lifecycle.Rule[1])
 	if r.Status != "DELETE" {
 		t.Errorf("Status = %q, want DELETE", r.Status)
 	}
@@ -69,7 +68,7 @@ func TestABucketWithNoRulesSaysSo(t *testing.T) {
 	// A bucket with no rules keeps everything at its current storage class
 	// forever, which is a cost decision whether or not anyone made it.
 	bare := testBucket()
-	bare.Lifecycle = storage.Lifecycle{}
+	bare.Lifecycle = nil
 	parent := bucketResource(testProject(), bare)
 
 	result, err := (BucketLifecycleLister{}).List(t.Context(), nil, testProject(), parent, nil)
@@ -88,22 +87,25 @@ func TestABucketWithNoRulesSaysSo(t *testing.T) {
 func TestLifecycleScope(t *testing.T) {
 	tests := []struct {
 		name string
-		in   storage.LifecycleCondition
+		in   *storagev1.BucketLifecycleRuleCondition
 		want string
 	}{
 		// No restriction at all is the case worth being explicit about: the
 		// rule reaches every object in the bucket.
-		{"unrestricted", storage.LifecycleCondition{AgeInDays: 30}, "all objects"},
+		{"unrestricted", &storagev1.BucketLifecycleRuleCondition{Age: ptr(int64(30))}, "all objects"},
 		// The field most often misread: a rule restricted to noncurrent objects
 		// looks like it deletes everything and touches nothing you can see.
-		{"noncurrent only", storage.LifecycleCondition{Liveness: storage.Archived}, "noncurrent only"},
-		{"live only", storage.LifecycleCondition{Liveness: storage.Live}, "live only"},
-		{"storage classes", storage.LifecycleCondition{
-			MatchesStorageClasses: []string{"STANDARD", "NEARLINE"},
+		{"noncurrent only", &storagev1.BucketLifecycleRuleCondition{IsLive: ptr(false)}, "noncurrent only"},
+		{"live only", &storagev1.BucketLifecycleRuleCondition{IsLive: ptr(true)}, "live only"},
+		{"storage classes", &storagev1.BucketLifecycleRuleCondition{
+			MatchesStorageClass: []string{"STANDARD", "NEARLINE"},
 		}, "STANDARD/NEARLINE"},
-		{"prefix and suffix", storage.LifecycleCondition{
+		{"prefix and suffix", &storagev1.BucketLifecycleRuleCondition{
 			MatchesPrefix: []string{"logs/"}, MatchesSuffix: []string{".tmp"},
 		}, "logs/* *.tmp"},
+		// A rule with no condition block at all reaches everything, which is
+		// the most consequential thing this column can say.
+		{"no condition", nil, "all objects"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -115,27 +117,26 @@ func TestLifecycleScope(t *testing.T) {
 }
 
 func TestLifecycleVersionsCoversBothNoncurrentConditions(t *testing.T) {
-	both := lifecycleVersions(storage.LifecycleCondition{
+	both := lifecycleVersions(&storagev1.BucketLifecycleRuleCondition{
 		NumNewerVersions: 2, DaysSinceNoncurrentTime: 14,
 	})
 	if both != "keep 2, 14d noncurrent" {
 		t.Errorf("versions cell = %q", both)
 	}
-	if got := lifecycleVersions(storage.LifecycleCondition{}); got != "-" {
+	if got := lifecycleVersions(&storagev1.BucketLifecycleRuleCondition{}); got != "-" {
 		t.Errorf("empty versions cell = %q, want a dash", got)
 	}
 }
 
 func TestLifecycleDateConditions(t *testing.T) {
-	when := time.Date(2026, 3, 14, 0, 0, 0, 0, time.UTC)
-	got := lifecycleConditions(storage.LifecycleCondition{
-		CreatedBefore:       when,
+	got := lifecycleConditions(&storagev1.BucketLifecycleRuleCondition{
+		CreatedBefore:       "2026-03-14",
 		DaysSinceCustomTime: 90,
 	})
 	if got != "created before 2026-03-14, 90d since custom time" {
 		t.Errorf("conditions cell = %q", got)
 	}
-	if got := lifecycleConditions(storage.LifecycleCondition{}); got != "-" {
+	if got := lifecycleConditions(&storagev1.BucketLifecycleRuleCondition{}); got != "-" {
 		t.Errorf("empty conditions cell = %q, want a dash", got)
 	}
 }
@@ -149,7 +150,7 @@ func TestLifecycleDrillDownRejectsAParentThatIsNotABucket(t *testing.T) {
 }
 
 func TestLifecycleRulesAreNotSSHOrAirflowTargets(t *testing.T) {
-	r := lifecycleRuleResource(testProject(), testBucket(), 0, testBucket().Lifecycle.Rules[0])
+	r := lifecycleRuleResource(testProject(), testBucket(), 0, testBucket().Lifecycle.Rule[0])
 	if _, _, ok := SSHTarget(r); ok {
 		t.Error("a lifecycle rule is an ssh target")
 	}

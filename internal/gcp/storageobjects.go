@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 	"unicode"
 
-	"cloud.google.com/go/storage"
-	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+	storagev1 "google.golang.org/api/storage/v1"
 
 	"github.com/TTMathCS/g9s/internal/config"
 )
@@ -45,52 +45,96 @@ func (StorageObjectLister) Kind() Kind {
 }
 
 func (l StorageObjectLister) List(ctx context.Context, cfg *config.Config, p config.Project, parent Resource, opts []option.ClientOption) (Result, error) {
-	bucket, ok := parent.Raw.(*storage.BucketAttrs)
+	bucket, ok := parent.Raw.(*storagev1.Bucket)
 	if !ok {
 		return Result{}, fmt.Errorf("no bucket data for %s", parent.Name)
 	}
 
-	client, err := storage.NewClient(ctx, opts...)
+	svc, err := storagev1.NewService(ctx, opts...)
 	if err != nil {
 		return Result{}, fmt.Errorf("storage objects client: %w", err)
 	}
-	defer client.Close()
 
-	it := client.Bucket(bucket.Name).Objects(ctx, l.query())
-	pager := iterator.NewPager(it, cfg.StorageObjectsPageSize(), l.pageToken)
-
-	var attrs []*storage.ObjectAttrs
-	nextPageToken, err := pager.NextPage(&attrs)
+	resp, err := l.call(svc, bucket.Name, cfg.StorageObjectsPageSize()).Context(ctx).Do()
 	if err != nil {
 		return Result{}, err
 	}
 
-	result := Result{NextPageToken: nextPageToken}
-	for _, attr := range attrs {
-		if attr == nil {
+	result := Result{NextPageToken: resp.NextPageToken}
+	// Folders first, and from their own field: the REST API returns common
+	// prefixes in Prefixes rather than as objects, so a directory view has to
+	// merge two lists. The wrapper hid that by synthesising an entry with a
+	// Prefix set, which is why this used to be one loop.
+	for _, prefix := range resp.Prefixes {
+		result.Resources = append(result.Resources,
+			storageObjectPrefixResource(p, bucket.Name, l.prefix, prefix))
+	}
+	for _, obj := range resp.Items {
+		if obj == nil {
 			continue
 		}
 		result.Resources = append(result.Resources,
-			storageObjectResource(p, bucket.Name, l.prefix, attr))
+			storageObjectResource(p, bucket.Name, l.prefix, obj))
 	}
 	return result, nil
 }
 
-// query uses directory mode for ordinary browsing and a flat result set for
-// glob search. Delimiter="/" makes immediate child prefixes appear as rows;
+// objectListParams is the request this listing wants, decided separately from
+// building it.
+//
+// Separate because the generated call keeps its parameters unexported, so a
+// test that asserted on the request itself could only check that a call was
+// returned. The decision — directory mode or flat search — is the part with
+// behaviour in it, and this keeps that part readable and checkable.
+type objectListParams struct {
+	Prefix         string
+	Delimiter      string
+	MatchGlob      string
+	IncludeFolders bool
+	MaxResults     int64
+	PageToken      string
+}
+
+// params chooses directory mode for ordinary browsing and a flat result set
+// for glob search. Delimiter="/" makes immediate child prefixes appear as rows;
 // omitting it during a search lets ** cross any number of path components.
-func (l StorageObjectLister) query() *storage.Query {
-	q := &storage.Query{
-		Prefix:     l.prefix,
-		Projection: storage.ProjectionNoACL,
+func (l StorageObjectLister) params(pageSize int) objectListParams {
+	p := objectListParams{Prefix: l.prefix, PageToken: l.pageToken}
+	if pageSize > 0 {
+		p.MaxResults = int64(pageSize)
 	}
 	if l.matchGlob != "" {
-		q.MatchGlob = l.matchGlob
-		return q
+		p.MatchGlob = l.matchGlob
+		return p
 	}
-	q.Delimiter = "/"
-	q.IncludeFoldersAsPrefixes = true
-	return q
+	p.Delimiter = "/"
+	p.IncludeFolders = true
+	return p
+}
+
+// call turns those parameters into the request.
+func (l StorageObjectLister) call(svc *storagev1.Service, bucket string, pageSize int) *storagev1.ObjectsListCall {
+	p := l.params(pageSize)
+
+	// noAcl, deliberately. An object's ACL is per-object data this table never
+	// shows, and asking for it needs a grant beyond reading the listing.
+	call := svc.Objects.List(bucket).Projection("noAcl").Prefix(p.Prefix)
+	if p.MaxResults > 0 {
+		call = call.MaxResults(p.MaxResults)
+	}
+	if p.PageToken != "" {
+		call = call.PageToken(p.PageToken)
+	}
+	if p.MatchGlob != "" {
+		call = call.MatchGlob(p.MatchGlob)
+	}
+	if p.Delimiter != "" {
+		call = call.Delimiter(p.Delimiter)
+	}
+	if p.IncludeFolders {
+		call = call.IncludeFoldersAsPrefixes(true)
+	}
+	return call
 }
 
 // StorageObjectPrefix is the metadata shown when describing a folder row.
@@ -104,43 +148,52 @@ type StorageObjectPrefix struct {
 	Type   string `yaml:"type"`
 }
 
-func storageObjectResource(p config.Project, bucket, currentPrefix string, attrs *storage.ObjectAttrs) Resource {
-	if attrs.Prefix != "" {
-		return storageObjectPrefixResource(p, bucket, currentPrefix, attrs.Prefix)
-	}
-
-	name := strings.TrimPrefix(attrs.Name, currentPrefix)
+func storageObjectResource(p config.Project, bucket, currentPrefix string, obj *storagev1.Object) Resource {
+	name := strings.TrimPrefix(obj.Name, currentPrefix)
 	if name == "" {
-		name = attrs.Name
+		name = obj.Name
 	}
-	ageCell := "-"
-	if !attrs.Updated.IsZero() {
-		ageCell = shortDuration(timeSince(attrs.Updated))
-	}
+	ageCell := objectAge(obj.Updated)
 	generation := "-"
-	if attrs.Generation != 0 {
-		generation = fmt.Sprintf("%d", attrs.Generation)
+	if obj.Generation != 0 {
+		generation = fmt.Sprintf("%d", obj.Generation)
 	}
-	class := attrs.StorageClass
+	class := obj.StorageClass
 	if class == "" {
 		class = "-"
 	}
 
 	return Resource{
-		Name:     attrs.Name,
+		Name:     obj.Name,
 		Location: bucket,
 		Status:   "LIVE",
 		Row: []string{
 			name,
 			"object",
-			humanBytes(attrs.Size),
+			// Size is a uint64 on the REST type and an int64 on the wrapper's.
+			// Objects cannot exceed 5 TiB, so the conversion cannot lose a bit
+			// that any real object has set.
+			humanBytes(int64(obj.Size)),
 			class,
 			ageCell,
 			generation,
 		},
-		Raw:        attrs,
-		ConsoleURL: storageObjectDetailsURL(p.ProjectID, bucket, attrs.Name),
+		Raw:        obj,
+		ConsoleURL: storageObjectDetailsURL(p.ProjectID, bucket, obj.Name),
 	}
+}
+
+// objectAge renders an update timestamp the REST API returns as RFC 3339.
+//
+// A dash when it will not parse, for the same reason bucketAge does it: an
+// unparsed string rendered through the duration path comes out as a decades-old
+// object, which is a finding nobody can act on because it is not true.
+func objectAge(updated string) string {
+	t, err := time.Parse(time.RFC3339, updated)
+	if err != nil || t.IsZero() {
+		return "-"
+	}
+	return shortDuration(timeSince(t))
 }
 
 func storageObjectPrefixResource(p config.Project, bucket, currentPrefix, prefix string) Resource {

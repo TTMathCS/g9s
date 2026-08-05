@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"cloud.google.com/go/storage"
+	storagev1 "google.golang.org/api/storage/v1"
 
 	"github.com/TTMathCS/g9s/internal/auth"
 	"github.com/TTMathCS/g9s/internal/config"
@@ -35,7 +35,7 @@ func storageObjectModel(t *testing.T) Model {
 		Status:   "ACTIVE",
 		KindID:   "gcs",
 		Row:      []string{"sample-bucket", "US", "STANDARD", "off", "10d"},
-		Raw:      &storage.BucketAttrs{Name: "sample-bucket", Location: "US"},
+		Raw:      &storagev1.Bucket{Name: "sample-bucket", Location: "US"},
 	}}}
 
 	m = press(m, "enter")
@@ -64,7 +64,7 @@ func storageObjectModel(t *testing.T) Model {
 				Status:   "LIVE",
 				KindID:   id,
 				Row:      []string{"README.txt", "object", "12B", "STANDARD", "1d", "1"},
-				Raw:      &storage.ObjectAttrs{Name: "README.txt", Size: 12},
+				Raw:      &storagev1.Object{Name: "README.txt", Size: 12},
 			},
 		},
 		NextPageToken: "page-2",

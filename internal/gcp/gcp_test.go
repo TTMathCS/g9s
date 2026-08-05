@@ -477,7 +477,7 @@ func TestResourceRowsMatchColumns(t *testing.T) {
 		"objects": storageObjectResource(testProject(), testBucket().Name, "exports/2026/",
 			testStorageObject()),
 		"lifecycle": lifecycleRuleResource(testProject(), testBucket(), 0,
-			testBucket().Lifecycle.Rules[0]),
+			testBucket().Lifecycle.Rule[0]),
 		"clusterjobs": clusterJobResource(testProject(), "us-central1", testDataprocJob()),
 		"secretversions": secretVersionResource(testProject(),
 			secretResource(testProject(), testSecret()), testSecretVersion()),
@@ -575,7 +575,7 @@ func TestBucketResourceShape(t *testing.T) {
 	}
 
 	unversioned := testBucket()
-	unversioned.VersioningEnabled = false
+	unversioned.Versioning = nil
 	if got := bucketResource(testProject(), unversioned).Row[3]; got != "off" {
 		t.Errorf("versioning column = %q, want off", got)
 	}

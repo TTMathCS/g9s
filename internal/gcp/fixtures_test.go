@@ -7,7 +7,6 @@ import (
 	"cloud.google.com/go/container/apiv1/containerpb"
 	"cloud.google.com/go/dataproc/v2/apiv1/dataprocpb"
 	"cloud.google.com/go/orchestration/airflow/service/apiv1/servicepb"
-	"cloud.google.com/go/storage"
 	artifactregistry "google.golang.org/api/artifactregistry/v1"
 	batch "google.golang.org/api/batch/v1"
 	bigquery "google.golang.org/api/bigquery/v2"
@@ -36,6 +35,7 @@ import (
 	secretmanager "google.golang.org/api/secretmanager/v1"
 	spanner "google.golang.org/api/spanner/v1"
 	sqladmin "google.golang.org/api/sqladmin/v1"
+	storagev1 "google.golang.org/api/storage/v1"
 	tpu "google.golang.org/api/tpu/v2"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -136,24 +136,24 @@ func testSQLInstance() *sqladmin.DatabaseInstance {
 	}
 }
 
-func testBucket() *storage.BucketAttrs {
-	return &storage.BucketAttrs{
-		Name:              "acme-prod-data-exports",
-		Location:          "US-CENTRAL1",
-		StorageClass:      "STANDARD",
-		VersioningEnabled: true,
-		Created:           time.Now().Add(-400 * 24 * time.Hour),
+func testBucket() *storagev1.Bucket {
+	return &storagev1.Bucket{
+		Name:         "acme-prod-data-exports",
+		Location:     "US-CENTRAL1",
+		StorageClass: "STANDARD",
+		Versioning:   &storagev1.BucketVersioning{Enabled: true},
+		TimeCreated:  time.Now().Add(-400 * 24 * time.Hour).Format(time.RFC3339),
 		// One rule that costs money and one that loses data, which are the two
 		// things this bucket's lifecycle can do to you.
-		Lifecycle: storage.Lifecycle{Rules: []storage.LifecycleRule{
+		Lifecycle: &storagev1.BucketLifecycle{Rule: []*storagev1.BucketLifecycleRule{
 			{
-				Action:    storage.LifecycleAction{Type: "SetStorageClass", StorageClass: "NEARLINE"},
-				Condition: storage.LifecycleCondition{AgeInDays: 30, Liveness: storage.Live},
+				Action:    &storagev1.BucketLifecycleRuleAction{Type: "SetStorageClass", StorageClass: "NEARLINE"},
+				Condition: &storagev1.BucketLifecycleRuleCondition{Age: ptr(int64(30)), IsLive: ptr(true)},
 			},
 			{
-				Action: storage.LifecycleAction{Type: "Delete"},
-				Condition: storage.LifecycleCondition{
-					AgeInDays:        365,
+				Action: &storagev1.BucketLifecycleRuleAction{Type: "Delete"},
+				Condition: &storagev1.BucketLifecycleRuleCondition{
+					Age:              ptr(int64(365)),
 					NumNewerVersions: 3,
 					MatchesPrefix:    []string{"exports/"},
 				},
@@ -161,6 +161,10 @@ func testBucket() *storage.BucketAttrs {
 		}},
 	}
 }
+
+// ptr is the fixture helper the REST types need: their optional fields are
+// pointers so that "unset" and "set to the zero value" stay distinguishable.
+func ptr[T any](v T) *T { return &v }
 
 func testEnvironment() *servicepb.Environment {
 	return &servicepb.Environment{

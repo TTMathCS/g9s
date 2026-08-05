@@ -88,6 +88,15 @@ type Model struct {
 
 	// overview dashboard
 	ovCursor int
+	// showAllKinds keeps the kinds with nothing in them on screen.
+	//
+	// Off by default: a project uses a handful of the services g9s knows, so
+	// the unfiltered dashboard is mostly a list of things that are not there,
+	// and the few rows that matter are somewhere in the middle of it. Failures
+	// are never filtered — only "loaded, and empty" and "nobody enabled this
+	// API" — so turning this on reveals rows that say nothing, not rows that
+	// were being kept from you.
+	showAllKinds bool
 	// helpReturn remembers which screen opened help, so esc goes back rather
 	// than dumping the user somewhere they were not.
 	helpReturn screen
@@ -543,6 +552,9 @@ func (m Model) handleResources(msg resourcesMsg) (tea.Model, tea.Cmd) {
 	if msg.kind == m.currentKind().ID || m.onAllTab() {
 		m.clampCursor()
 	}
+	// And a listing that came back empty has just removed its own dashboard
+	// row, which may be the one the cursor was on.
+	m = m.clampOverviewCursor()
 	return m, nil
 }
 
@@ -1250,24 +1262,21 @@ func (m Model) handleOverviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "up", "k":
-		if m.ovCursor > 0 {
-			m.ovCursor--
-		}
-		return m, nil
+		// Through visible rows only, so a hidden kind is skipped rather than
+		// sat on invisibly with enter appearing to open the wrong table.
+		return m.moveOverviewCursor(-1), nil
 
 	case "down", "j":
-		if m.ovCursor < len(tabs)-1 {
-			m.ovCursor++
-		}
-		return m, nil
+		return m.moveOverviewCursor(1), nil
 
 	case "g":
-		m.ovCursor = 0
-		return m, nil
+		return m.moveOverviewCursor(-len(tabs)), nil
 
 	case "G":
-		m.ovCursor = len(tabs) - 1
-		return m, nil
+		return m.moveOverviewCursor(len(tabs)), nil
+
+	case "+":
+		return m.toggleShowAllKinds(), nil
 
 	case "enter":
 		return m.openTab(m.ovCursor)

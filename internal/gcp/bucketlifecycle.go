@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-	"time"
 
-	"cloud.google.com/go/storage"
 	"google.golang.org/api/option"
+	storagev1 "google.golang.org/api/storage/v1"
 
 	"github.com/TTMathCS/g9s/internal/config"
 )
@@ -41,13 +40,24 @@ func (BucketLifecycleLister) Kind() Kind {
 }
 
 func (BucketLifecycleLister) List(_ context.Context, _ *config.Config, p config.Project, parent Resource, _ []option.ClientOption) (Result, error) {
-	attrs, ok := parent.Raw.(*storage.BucketAttrs)
+	attrs, ok := parent.Raw.(*storagev1.Bucket)
 	if !ok {
 		return Result{}, fmt.Errorf("no bucket data for %s", parent.Name)
 	}
 
+	// Read rather than filled in: attrs is the cached bucket the table is still
+	// showing, so assigning an empty Lifecycle here to avoid a nil check would
+	// be this listing writing into another one's data.
+	var rules []*storagev1.BucketLifecycleRule
+	if attrs.Lifecycle != nil {
+		rules = attrs.Lifecycle.Rule
+	}
+
 	var result Result
-	for i, rule := range attrs.Lifecycle.Rules {
+	for i, rule := range rules {
+		if rule == nil {
+			continue
+		}
 		result.Resources = append(result.Resources, lifecycleRuleResource(p, attrs, i, rule))
 	}
 
@@ -64,7 +74,7 @@ func (BucketLifecycleLister) List(_ context.Context, _ *config.Config, p config.
 	return result, nil
 }
 
-func lifecycleRuleResource(p config.Project, attrs *storage.BucketAttrs, index int, rule storage.LifecycleRule) Resource {
+func lifecycleRuleResource(p config.Project, attrs *storagev1.Bucket, index int, rule *storagev1.BucketLifecycleRule) Resource {
 	// Rules have no id or name of their own, so the position is the only handle
 	// there is — and it is the one the JSON representation uses too.
 	name := fmt.Sprintf("rule-%d", index+1)
@@ -89,9 +99,14 @@ func lifecycleRuleResource(p config.Project, attrs *storage.BucketAttrs, index i
 
 // lifecycleAction says what the rule does, with the destination class folded in
 // — "SetStorageClass" alone does not say what to.
-func lifecycleAction(a storage.LifecycleAction) string {
+//
+// Every accessor here takes a pointer that the REST types allow to be nil,
+// where the wrapper handed back a value. A rule with no action is not
+// something GCS should return, but a nil dereference here would take the
+// process and the terminal with it, and a dash costs nothing.
+func lifecycleAction(a *storagev1.BucketLifecycleRuleAction) string {
 	switch {
-	case a.Type == "":
+	case a == nil, a.Type == "":
 		return "-"
 	case a.StorageClass != "":
 		return a.Type + " → " + a.StorageClass
@@ -104,8 +119,8 @@ func lifecycleAction(a storage.LifecycleAction) string {
 //
 // Delete is the only irreversible one, and it is the rule people are looking
 // for when data has gone missing. Everything else changes a bill, not a fact.
-func lifecycleActionStatus(a storage.LifecycleAction) string {
-	if strings.EqualFold(a.Type, "Delete") {
+func lifecycleActionStatus(a *storagev1.BucketLifecycleRuleAction) string {
+	if a != nil && strings.EqualFold(a.Type, "Delete") {
 		return "DELETE"
 	}
 	return "ACTIVE"
@@ -113,11 +128,16 @@ func lifecycleActionStatus(a storage.LifecycleAction) string {
 
 // lifecycleAge renders the age condition, which is on almost every rule and is
 // the number people actually compare between them.
-func lifecycleAge(c storage.LifecycleCondition) string {
-	if c.AgeInDays > 0 {
-		return fmt.Sprintf("%dd", c.AgeInDays)
+//
+// A pointer on the REST type, and the distinction is real: `age: 0` is a valid
+// rule that matches every object the moment it is written, while an absent age
+// is no age condition at all. The wrapper's int64 could not tell them apart and
+// rendered both as no condition.
+func lifecycleAge(c *storagev1.BucketLifecycleRuleCondition) string {
+	if c == nil || c.Age == nil {
+		return "-"
 	}
-	return "-"
+	return fmt.Sprintf("%dd", *c.Age)
 }
 
 // lifecycleVersions renders the noncurrent-version conditions.
@@ -126,7 +146,10 @@ func lifecycleAge(c storage.LifecycleCondition) string {
 // these are what actually control the bill: objects nobody can see are still
 // paid for, and a rule that never reaches them is the usual reason a bucket
 // costs more than its visible contents.
-func lifecycleVersions(c storage.LifecycleCondition) string {
+func lifecycleVersions(c *storagev1.BucketLifecycleRuleCondition) string {
+	if c == nil {
+		return "-"
+	}
 	var parts []string
 	if c.NumNewerVersions > 0 {
 		parts = append(parts, fmt.Sprintf("keep %d", c.NumNewerVersions))
@@ -144,18 +167,26 @@ func lifecycleVersions(c storage.LifecycleCondition) string {
 //
 // Liveness is the field most often misread: a rule restricted to noncurrent
 // objects looks like it deletes everything and touches nothing you can see.
-func lifecycleScope(c storage.LifecycleCondition) string {
+func lifecycleScope(c *storagev1.BucketLifecycleRuleCondition) string {
+	if c == nil {
+		// No condition at all means the rule matches everything, which is the
+		// most consequential thing this column can say and must not be a dash.
+		return "all objects"
+	}
 	var parts []string
 
-	switch c.Liveness {
-	case storage.Live:
-		parts = append(parts, "live only")
-	case storage.Archived:
-		parts = append(parts, "noncurrent only")
+	// isLive is a *bool because unset means "both", which is neither of the
+	// other two answers and is the default.
+	if c.IsLive != nil {
+		if *c.IsLive {
+			parts = append(parts, "live only")
+		} else {
+			parts = append(parts, "noncurrent only")
+		}
 	}
 
-	if len(c.MatchesStorageClasses) > 0 {
-		parts = append(parts, strings.Join(c.MatchesStorageClasses, "/"))
+	if len(c.MatchesStorageClass) > 0 {
+		parts = append(parts, strings.Join(c.MatchesStorageClass, "/"))
 	}
 	for _, prefix := range c.MatchesPrefix {
 		parts = append(parts, prefix+"*")
@@ -174,27 +205,42 @@ func lifecycleScope(c storage.LifecycleCondition) string {
 
 // lifecycleConditions is everything left: the date and custom-time conditions,
 // which are rarer and would crowd the columns that matter more.
-func lifecycleConditions(c storage.LifecycleCondition) string {
-	var parts []string
-	if !c.CreatedBefore.IsZero() {
-		parts = append(parts, "created before "+shortDate(c.CreatedBefore))
+//
+// The dates arrive as "2013-01-15" strings rather than as time.Time, which is
+// what the column wanted anyway — a lifecycle date has no time component and
+// the wrapper's time.Time was formatted straight back down to this.
+func lifecycleConditions(c *storagev1.BucketLifecycleRuleCondition) string {
+	if c == nil {
+		return "-"
 	}
-	if !c.CustomTimeBefore.IsZero() {
-		parts = append(parts, "custom time before "+shortDate(c.CustomTimeBefore))
+	var parts []string
+	if c.CreatedBefore != "" {
+		parts = append(parts, "created before "+c.CreatedBefore)
+	}
+	if c.CustomTimeBefore != "" {
+		parts = append(parts, "custom time before "+c.CustomTimeBefore)
 	}
 	if c.DaysSinceCustomTime > 0 {
 		parts = append(parts, fmt.Sprintf("%dd since custom time", c.DaysSinceCustomTime))
 	}
-	if !c.NoncurrentTimeBefore.IsZero() {
-		parts = append(parts, "noncurrent before "+shortDate(c.NoncurrentTimeBefore))
+	if c.NoncurrentTimeBefore != "" {
+		parts = append(parts, "noncurrent before "+c.NoncurrentTimeBefore)
+	}
+	// Size conditions, which the wrapper's type did not carry at all. A rule
+	// that only deletes objects above a size is a rule whose scope column looks
+	// unrestricted and is not — exactly the misreading this table exists to
+	// prevent.
+	if c.SizeAboveBytes > 0 {
+		parts = append(parts, "larger than "+humanBytes(c.SizeAboveBytes))
+	}
+	if c.SizeBelowBytes > 0 {
+		parts = append(parts, "smaller than "+humanBytes(c.SizeBelowBytes))
+	}
+	if c.MatchesPattern != "" {
+		parts = append(parts, "matching "+clip(c.MatchesPattern, 30))
 	}
 	if len(parts) == 0 {
 		return "-"
 	}
 	return strings.Join(parts, ", ")
-}
-
-// shortDate renders a lifecycle date condition, which has no time component.
-func shortDate(t time.Time) string {
-	return t.Format("2006-01-02")
 }
